@@ -1,0 +1,68 @@
+---
+name: Reusable workflow to generate changelog
+
+"on":
+  workflow_call:
+    inputs:
+      previous-release:
+        required: true
+        type: string
+      release-tag:
+        description: Heading for the notes; "Unreleased" when empty
+        required: false
+        type: string
+        default: ""
+
+permissions: read-all
+
+jobs:
+  generate-changelog:
+    runs-on: ubuntu-26.04
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # The notes are built from `git log <previous-release>..HEAD`, so they need
+          # the full history and the previous release tag.
+          fetch-depth: 0
+
+      - name: Install Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+
+      - name: Install dependencies
+        working-directory: ./scripts/changelog-warnings
+        run: npm ci
+
+      - name: Generate changelog
+        id: generate-changelog
+        run: |
+          npx tsx scripts/changelog-warnings/src/notes.ts \
+            --previous-tag "${{ inputs.previous-release }}" \
+            --tag "${{ inputs.release-tag }}" \
+            --output /var/tmp/changelog.md
+
+          echo "===== DEBUG ====="
+          cat /var/tmp/changelog.md
+          echo "===== END ====="
+        env:
+          # Read-only use: current PR titles and authors' GitHub logins.
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+
+      - name: Upload changelog
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: changelog
+          path: /var/tmp/changelog.md
+          if-no-files-found: error
+
+      - name: Check changelog
+        run: |
+          MIN_LINES="5"
+          FILE_LINES=$(wc -l < /var/tmp/changelog.md)
+          if [ "$FILE_LINES" -le "$MIN_LINES" ]; then
+              echo "FAIL: Changelog contains $FILE_LINES lines <= $MIN_LINES"
+              exit 1
+          fi

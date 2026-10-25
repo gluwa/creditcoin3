@@ -1,0 +1,20 @@
+[package]
+authors.workspace = true
+edition.workspace = true
+license.workspace = true
+name = "common"
+publish.workspace = true
+repository.workspace = true
+version.workspace = true
+
+[dependencies]
+# Creditcoin
+attestor-primitives = { workspace = true }
+rstest = { workspace = true }
+
+# Substrate
+subxt = { workspace = true }
+
+# Logging
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true, features = ["json"] }

@@ -1,0 +1,1001 @@
+//! Service and ServiceFactory implementation. Specialized wrapper over substrate service.
+
+use futures::{channel::mpsc, prelude::*};
+use std::{path::Path, sync::Arc, time::Duration};
+// Substrate
+use fc_rpc::{StorageOverride, StorageOverrideHandler};
+use sc_client_api::{Backend, BlockBackend};
+use sc_consensus::BasicQueue;
+use sc_consensus_babe::{BabeBlockImport, BabeLink, BabeWorkerHandle};
+use sc_consensus_manual_seal::consensus::{
+    babe::{BabeConsensusDataProvider, BabeVerifier},
+    timestamp::SlotTimestampProvider,
+};
+use sc_network_sync::{strategy::warp::WarpSyncProvider, WarpSyncConfig};
+use sc_service::{error::Error as ServiceError, Configuration, PartialComponents, TaskManager};
+use sc_telemetry::{Telemetry, TelemetryHandle, TelemetryWorker};
+use sc_transaction_pool_api::OffchainTransactionPoolFactory;
+use sp_api::ConstructRuntimeApi;
+use sp_consensus_babe::inherents::BabeCreateInherentDataProviders;
+use sp_consensus_babe::BabeApi;
+use sp_core::U256;
+use substrate_prometheus_endpoint::Registry;
+
+// Runtime
+use creditcoin3_cli_opt::EthApi as EthApiCmd;
+use creditcoin3_runtime::{opaque::Block, Hash, TransactionConverter};
+
+use crate::rpc;
+use crate::{
+    cli::Sealing,
+    client::{BaseRuntimeApiCollection, Client, FullBackend, FullClient, RuntimeApiCollection},
+    eth::{
+        db_config_dir, new_frontier_partial, spawn_frontier_tasks, BackendType,
+        EthCompatRuntimeApiCollection, EthConfiguration, FrontierBackend, FrontierBlockImport,
+        FrontierPartialComponents,
+    },
+};
+
+type BasicImportQueue = sc_consensus::DefaultImportQueue<Block>;
+type FullPool<Client> = sc_transaction_pool::TransactionPoolHandle<Block, Client>;
+type FullSelectChain = sc_consensus::LongestChain<FullBackend, Block>;
+
+type GrandpaBlockImport<Client> =
+    sc_consensus_grandpa::GrandpaBlockImport<FullBackend, Block, Client, FullSelectChain>;
+type GrandpaLinkHalf<Client> = sc_consensus_grandpa::LinkHalf<Block, Client, FullSelectChain>;
+type BoxBlockImport = sc_consensus::BoxBlockImport<Block>;
+
+pub struct Basics<'a, RuntimeApi>
+where
+    RuntimeApi: ConstructRuntimeApi<Block, FullClient<RuntimeApi>> + Send + Sync + 'static,
+    RuntimeApi::RuntimeApi: BaseRuntimeApiCollection + EthCompatRuntimeApiCollection,
+{
+    telemetry: Option<TelemetryHandle>,
+    task_manager: &'a TaskManager,
+    client: Arc<FullClient<RuntimeApi>>,
+    #[allow(dead_code)]
+    select_chain: FullSelectChain,
+    config: &'a Configuration,
+    #[allow(dead_code)]
+    transaction_pool: Arc<FullPool<FullClient<RuntimeApi>>>,
+}
+
+/// The minimum period of blocks on which justifications will be
+/// imported and generated.
+const GRANDPA_JUSTIFICATION_PERIOD: u32 = 512;
+
+/// How far ahead of the wall clock a manual-seal node accepts block timestamps: a year.
+const MANUAL_SEAL_CLOCK_LEAD_MILLIS: u64 = 365 * 24 * 60 * 60 * 1000;
+
+pub fn new_partial<RuntimeApi, BIQ>(
+    config: &Configuration,
+    eth_config: &EthConfiguration,
+    sealing: Option<Sealing>,
+    build_import_queue: BIQ,
+) -> Result<
+    PartialComponents<
+        FullClient<RuntimeApi>,
+        FullBackend,
+        FullSelectChain,
+        BasicImportQueue,
+        FullPool<FullClient<RuntimeApi>>,
+        (
+            Option<Telemetry>,
+            BoxBlockImport,
+            GrandpaLinkHalf<FullClient<RuntimeApi>>,
+            BabeLink<Block>,
+            //important to use Arc and have only one instance of frontier_backend
+            //https://substrate.stackexchange.com/questions/8761/other-io-error-lock-hold-by-current-process-acquire-time-1685847508-acquiring
+            Arc<FrontierBackend<FullClient<RuntimeApi>>>,
+            Arc<dyn StorageOverride<Block>>,
+            Option<BabeWorkerHandle<Block>>,
+        ),
+    >,
+    ServiceError,
+>
+where
+    RuntimeApi: ConstructRuntimeApi<Block, FullClient<RuntimeApi>>,
+    RuntimeApi: Send + Sync + 'static,
+    RuntimeApi::RuntimeApi: BaseRuntimeApiCollection + EthCompatRuntimeApiCollection,
+    RuntimeApi::RuntimeApi: BabeApi<Block>,
+
+    BIQ: FnOnce(
+        &EthConfiguration,
+        Basics<RuntimeApi>,
+        GrandpaBlockImport<FullClient<RuntimeApi>>,
+        (
+            BabeBlockImport<
+                Block,
+                FullClient<RuntimeApi>,
+                GrandpaBlockImport<FullClient<RuntimeApi>>,
+                BabeCreateInherentDataProviders<Block>,
+                sc_consensus::LongestChain<FullBackend, Block>,
+            >,
+            BabeLink<Block>,
+        ),
+    ) -> Result<
+        (
+            BasicImportQueue,
+            BoxBlockImport,
+            Option<BabeWorkerHandle<Block>>,
+        ),
+        ServiceError,
+    >,
+{
+    let telemetry = config
+        .telemetry_endpoints
+        .clone()
+        .filter(|x| !x.is_empty())
+        .map(|endpoints| -> Result<_, sc_telemetry::Error> {
+            let worker = TelemetryWorker::new(16)?;
+            let telemetry = worker.handle().new_telemetry(endpoints);
+            Ok((worker, telemetry))
+        })
+        .transpose()?;
+
+    let executor = sc_service::new_wasm_executor(&config.executor);
+
+    let (client, backend, keystore_container, task_manager) =
+        sc_service::new_full_parts::<Block, RuntimeApi, _>(
+            config,
+            telemetry.as_ref().map(|(_, telemetry)| telemetry.handle()),
+            executor,
+        )?;
+    let client = Arc::new(client);
+
+    let telemetry = telemetry.map(|(worker, telemetry)| {
+        task_manager
+            .spawn_handle()
+            .spawn("telemetry", None, worker.run());
+        telemetry
+    });
+
+    let select_chain = sc_consensus::LongestChain::new(backend.clone());
+    let (grandpa_block_import, grandpa_link) = sc_consensus_grandpa::block_import(
+        client.clone(),
+        GRANDPA_JUSTIFICATION_PERIOD,
+        &client,
+        select_chain.clone(),
+        telemetry.as_ref().map(|x| x.handle()),
+    )?;
+
+    let overrides = Arc::new(StorageOverrideHandler::new(client.clone()));
+    let frontier_backend = match eth_config.frontier_backend_type {
+        BackendType::KeyValue => {
+            FrontierBackend::KeyValue(sc_service::Arc::new(fc_db::kv::Backend::open(
+                Arc::clone(&client),
+                &config.database,
+                &db_config_dir(config),
+            )?))
+        }
+        BackendType::Sql => {
+            let db_path = db_config_dir(config).join("sql");
+            std::fs::create_dir_all(&db_path).expect("failed creating sql db directory");
+            let backend = futures::executor::block_on(fc_db::sql::Backend::new(
+                fc_db::sql::BackendConfig::Sqlite(fc_db::sql::SqliteBackendConfig {
+                    path: Path::new("sqlite:///")
+                        .join(db_path)
+                        .join("frontier.db3")
+                        .to_str()
+                        .unwrap(),
+                    create_if_missing: true,
+                    thread_count: eth_config.frontier_sql_backend_thread_count,
+                    cache_size: eth_config.frontier_sql_backend_cache_size,
+                }),
+                eth_config.frontier_sql_backend_pool_size,
+                std::num::NonZeroU32::new(eth_config.frontier_sql_backend_num_ops_timeout),
+                overrides.clone(),
+            ))
+            .unwrap_or_else(|err| panic!("failed creating sql backend: {err:?}"));
+            FrontierBackend::Sql(sc_service::Arc::new(backend))
+        }
+    };
+
+    let transaction_pool = Arc::from(
+        sc_transaction_pool::Builder::new(
+            task_manager.spawn_essential_handle(),
+            client.clone(),
+            config.role.is_authority().into(),
+        )
+        .with_options(config.transaction_pool.clone())
+        .with_prometheus(config.prometheus_registry())
+        .build(),
+    );
+
+    let babe_config = sc_consensus_babe::configuration(&*client)?;
+    let slot_duration_for_import = babe_config.slot_duration();
+    let manual_seal = sealing.is_some();
+    let (babe_block_import, babe_link) = sc_consensus_babe::block_import(
+        babe_config,
+        grandpa_block_import.clone(),
+        client.clone(),
+        Arc::new(move |_, _| {
+            let slot_duration = slot_duration_for_import;
+            async move {
+                // Manual seal moves block time one slot per block, however fast blocks are
+                // requested, so a test that seals a few eras ahead runs hours ahead of the
+                // wall clock. Imports compare the block's timestamp with this one (at most
+                // 30 s in the future), so give them a clock that is ahead by more than any
+                // test fast-forwards.
+                let timestamp = if manual_seal {
+                    sp_timestamp::InherentDataProvider::new(
+                        sp_timestamp::Timestamp::current()
+                            .saturating_add(MANUAL_SEAL_CLOCK_LEAD_MILLIS)
+                            .into(),
+                    )
+                } else {
+                    sp_timestamp::InherentDataProvider::from_system_time()
+                };
+                let slot =
+                    sp_consensus_babe::inherents::InherentDataProvider::from_timestamp_and_slot_duration(
+                        *timestamp,
+                        slot_duration,
+                    );
+                Ok((slot, timestamp))
+            }
+        }) as sp_consensus_babe::inherents::BabeCreateInherentDataProviders<Block>,
+        select_chain.clone(),
+        OffchainTransactionPoolFactory::new(transaction_pool.clone()),
+    )?;
+
+    let (import_queue, block_import, babe_worker) = build_import_queue(
+        eth_config,
+        Basics {
+            telemetry: telemetry.as_ref().map(|x| x.handle()),
+            task_manager: &task_manager,
+            client: client.clone(),
+            select_chain: select_chain.clone(),
+            config,
+            transaction_pool: transaction_pool.clone(),
+        },
+        grandpa_block_import,
+        (babe_block_import, babe_link.clone()),
+    )?;
+
+    Ok(PartialComponents {
+        client,
+        backend,
+        keystore_container,
+        task_manager,
+        select_chain,
+        import_queue,
+        transaction_pool,
+        other: (
+            telemetry,
+            block_import,
+            grandpa_link,
+            babe_link,
+            Arc::new(frontier_backend),
+            overrides,
+            babe_worker,
+        ),
+    })
+}
+
+/// Build the import queue for the runtime (babe + grandpa).
+pub fn build_babe_grandpa_import_queue<RuntimeApi>(
+    _eth_config: &EthConfiguration,
+    basics: Basics<RuntimeApi>,
+    grandpa_block_import: GrandpaBlockImport<FullClient<RuntimeApi>>,
+    babe_import: (
+        BabeBlockImport<
+            Block,
+            FullClient<RuntimeApi>,
+            GrandpaBlockImport<FullClient<RuntimeApi>>,
+            BabeCreateInherentDataProviders<Block>,
+            sc_consensus::LongestChain<FullBackend, Block>,
+        >,
+        BabeLink<Block>,
+    ),
+) -> Result<
+    (
+        BasicImportQueue,
+        BoxBlockImport,
+        Option<BabeWorkerHandle<Block>>,
+    ),
+    ServiceError,
+>
+where
+    RuntimeApi: ConstructRuntimeApi<Block, FullClient<RuntimeApi>>,
+
+    RuntimeApi: Send + Sync + 'static,
+    RuntimeApi::RuntimeApi: RuntimeApiCollection,
+{
+    let Basics {
+        telemetry,
+        task_manager,
+        client,
+        config,
+        ..
+    } = basics;
+    let (babe_import, babe_link) = babe_import;
+
+    let frontier_block_import = FrontierBlockImport::new(babe_import, client.clone());
+
+    let slot_duration = babe_link.config().slot_duration();
+    let (import_queue, babe_worker) =
+        sc_consensus_babe::import_queue(sc_consensus_babe::ImportQueueParams {
+            link: babe_link,
+            block_import: frontier_block_import.clone(),
+            justification_import: Some(Box::new(grandpa_block_import)),
+            client,
+            slot_duration,
+            spawner: &task_manager.spawn_essential_handle(),
+            registry: config.prometheus_registry(),
+            telemetry: telemetry.as_ref().cloned(),
+        })?;
+
+    Ok((
+        import_queue,
+        Box::new(frontier_block_import),
+        Some(babe_worker),
+    ))
+}
+
+/// Build the import queue for manual seal.
+///
+/// Blocks still go through BABE's block import, so BABE tracks epochs and the runtime's
+/// epoch, session and era logic keeps running; without it a manually sealed chain never
+/// leaves its first epoch. The verifier stands in for BABE's own, which would check slots
+/// against the wall clock.
+pub fn build_manual_seal_import_queue<RuntimeApi>(
+    _eth_config: &EthConfiguration,
+    basics: Basics<RuntimeApi>,
+    _grandpa_block_import: GrandpaBlockImport<FullClient<RuntimeApi>>,
+    babe_import: (
+        BabeBlockImport<
+            Block,
+            FullClient<RuntimeApi>,
+            GrandpaBlockImport<FullClient<RuntimeApi>>,
+            BabeCreateInherentDataProviders<Block>,
+            sc_consensus::LongestChain<FullBackend, Block>,
+        >,
+        BabeLink<Block>,
+    ),
+) -> Result<
+    (
+        BasicImportQueue,
+        BoxBlockImport,
+        Option<BabeWorkerHandle<Block>>,
+    ),
+    ServiceError,
+>
+where
+    RuntimeApi: ConstructRuntimeApi<Block, FullClient<RuntimeApi>>,
+
+    RuntimeApi: Send + Sync + 'static,
+    RuntimeApi::RuntimeApi: RuntimeApiCollection,
+{
+    let Basics {
+        task_manager,
+        client,
+        config,
+        ..
+    } = basics;
+    let (babe_import, babe_link) = babe_import;
+    let frontier_block_import = FrontierBlockImport::new(babe_import, client.clone());
+    let verifier = BabeVerifier::new(babe_link.epoch_changes().clone(), client);
+    Ok((
+        BasicQueue::new(
+            verifier,
+            Box::new(frontier_block_import.clone()),
+            None,
+            &task_manager.spawn_essential_handle(),
+            config.prometheus_registry(),
+        ),
+        Box::new(frontier_block_import),
+        None,
+    ))
+}
+
+/// Builds a new service for a full client.
+pub async fn new_full<RuntimeApi, Net>(
+    mut config: Configuration,
+    eth_config: EthConfiguration,
+    sealing: Option<Sealing>,
+) -> Result<TaskManager, ServiceError>
+where
+    RuntimeApi: ConstructRuntimeApi<Block, FullClient<RuntimeApi>>,
+
+    RuntimeApi: Send + Sync + 'static,
+    RuntimeApi::RuntimeApi: RuntimeApiCollection,
+    Net: sc_network::service::traits::NetworkBackend<Block, Hash>,
+{
+    let build_import_queue = if sealing.is_some() {
+        build_manual_seal_import_queue::<RuntimeApi>
+    } else {
+        build_babe_grandpa_import_queue::<RuntimeApi>
+    };
+
+    let PartialComponents {
+        client,
+        backend,
+        mut task_manager,
+        import_queue,
+        keystore_container,
+        select_chain,
+        transaction_pool,
+        other:
+            (
+                mut telemetry,
+                block_import,
+                grandpa_link,
+                babe_link,
+                frontier_backend,
+                overrides,
+                babe_worker,
+            ),
+    } = new_partial(&config, &eth_config, sealing, build_import_queue)?;
+
+    let FrontierPartialComponents {
+        filter_pool,
+        fee_history_cache,
+        fee_history_cache_limit,
+    } = new_frontier_partial(&eth_config)?;
+
+    let mut net_config = sc_network::config::FullNetworkConfiguration::<
+        Block,
+        <Block as sp_runtime::traits::Block>::Hash,
+        Net,
+    >::new(&config.network, config.prometheus_registry().cloned());
+    let peer_store_handle = net_config.peer_store_handle();
+    let grandpa_protocol_name = sc_consensus_grandpa::protocol_standard_name(
+        &client.block_hash(0)?.expect("Genesis block exists; qed"),
+        &config.chain_spec,
+    );
+
+    // Register notification metrics ONCE against the Prometheus registry, then hand a
+    // clone to both the GRANDPA peers-set config and `build_network`. Registering twice
+    // against the same registry causes the second `register()` call to fail with
+    // AlreadyReg, which substrate's metrics wrapper swallows into a disabled metrics
+    // object — the network would then run without P2P notification metrics. The metrics
+    // type is `Clone`, so a single registration suffices for both consumers.
+    let notification_metrics = Net::register_notification_metrics(config.prometheus_registry());
+
+    let (grandpa_protocol_config, grandpa_notification_service) =
+        sc_consensus_grandpa::grandpa_peers_set_config::<_, Net>(
+            grandpa_protocol_name.clone(),
+            notification_metrics.clone(),
+            Arc::clone(&peer_store_handle),
+        );
+
+    let warp_sync_config = if sealing.is_some() {
+        None
+    } else {
+        net_config.add_notification_protocol(grandpa_protocol_config);
+        let warp_sync: Arc<dyn WarpSyncProvider<Block>> =
+            Arc::new(sc_consensus_grandpa::warp_proof::NetworkProvider::new(
+                backend.clone(),
+                grandpa_link.shared_authority_set().clone(),
+                Vec::default(),
+            ));
+        Some(WarpSyncConfig::WithProvider(warp_sync))
+    };
+
+    let (network, system_rpc_tx, tx_handler_controller, sync_service) =
+        sc_service::build_network(sc_service::BuildNetworkParams {
+            config: &config,
+            net_config,
+            client: client.clone(),
+            transaction_pool: transaction_pool.clone(),
+            spawn_handle: task_manager.spawn_handle(),
+            import_queue,
+            block_announce_validator_builder: None,
+            warp_sync_config,
+            block_relay: None,
+            metrics: notification_metrics,
+        })?;
+
+    if config.offchain_worker.enabled {
+        task_manager.spawn_handle().spawn(
+            "offchain-workers-runner",
+            "offchain-worker",
+            sc_offchain::OffchainWorkers::new(sc_offchain::OffchainWorkerOptions {
+                runtime_api_provider: client.clone(),
+                is_validator: config.role.is_authority(),
+                keystore: Some(keystore_container.keystore()),
+                offchain_db: backend.offchain_storage(),
+                transaction_pool: Some(OffchainTransactionPoolFactory::new(
+                    transaction_pool.clone(),
+                )),
+                network_provider: Arc::new(network.clone()),
+                enable_http_requests: true,
+                custom_extensions: |_| vec![],
+            })?
+            .run(client.clone(), task_manager.spawn_handle())
+            .boxed(),
+        );
+    }
+
+    let role = config.role;
+    let force_authoring = config.force_authoring;
+    let name = config.network.node_name.clone();
+    let enable_grandpa = !config.disable_grandpa && sealing.is_none();
+    let prometheus_registry = config.prometheus_registry().cloned();
+    let client = client.clone();
+
+    // Channel for the rpc handler to communicate with the authorship task.
+    let (command_sink, commands_stream) = mpsc::channel(1000);
+
+    // Sinks for pubsub notifications.
+    // Everytime a new subscription is created, a new mpsc channel is added to the sink pool.
+    // The MappingSyncWorker sends through the channel on block import and the subscription emits a notification to the subscriber on receiving a message through this channel.
+    // This way we avoid race conditions when using native substrate block import notification stream.
+    let pubsub_notification_sinks: fc_mapping_sync::EthereumBlockNotificationSinks<
+        fc_mapping_sync::EthereumBlockNotification<Block>,
+    > = Default::default();
+    let pubsub_notification_sinks = Arc::new(pubsub_notification_sinks);
+
+    // for ethereum-compatibility rpc.
+    config.rpc.id_provider = Some(Box::new(fc_rpc::EthereumSubIdProvider));
+
+    let shared_voter_state = sc_consensus_grandpa::SharedVoterState::empty();
+    let ethapi_cmd = eth_config.ethapi.clone();
+    let fee_history_limit = eth_config.fee_history_limit;
+
+    let tracing_requesters =
+        if ethapi_cmd.contains(&EthApiCmd::Debug) || ethapi_cmd.contains(&EthApiCmd::Trace) {
+            rpc::tracing::spawn_tracing_tasks(
+                &eth_config,
+                prometheus_registry.clone(),
+                rpc::SpawnTasksParams {
+                    task_manager: &task_manager,
+                    client: client.clone(),
+                    substrate_backend: backend.clone(),
+                    frontier_backend: frontier_backend.clone(),
+                    _filter_pool: filter_pool.clone(),
+                    overrides: overrides.clone(),
+                    _fee_history_limit: fee_history_limit,
+                    _fee_history_cache: fee_history_cache.clone(),
+                },
+            )
+        } else {
+            rpc::tracing::RpcRequesters {
+                debug: None,
+                trace: None,
+            }
+        };
+
+    let rpc_builder = {
+        let client = client.clone();
+        let pool = transaction_pool.clone();
+        let network = network.clone();
+        let sync_service = sync_service.clone();
+
+        let is_authority = role.is_authority();
+        let enable_dev_signer = eth_config.enable_dev_signer;
+        let max_past_logs = eth_config.max_past_logs;
+        let max_block_range = eth_config.max_block_range;
+        let execute_gas_limit_multiplier = eth_config.execute_gas_limit_multiplier;
+        let filter_pool = filter_pool.clone();
+        let frontier_backend = frontier_backend.clone();
+        let pubsub_notification_sinks = pubsub_notification_sinks.clone();
+        let overrides = overrides.clone();
+        let fee_history_cache = fee_history_cache.clone();
+        let block_data_cache = Arc::new(fc_rpc::EthBlockDataCacheTask::new(
+            task_manager.spawn_handle(),
+            overrides.clone(),
+            eth_config.eth_log_block_cache,
+            eth_config.eth_statuses_cache,
+            prometheus_registry.clone(),
+        ));
+
+        let slot_duration = sc_consensus_babe::configuration(&*client)?.slot_duration();
+        let target_gas_price = eth_config.target_gas_price;
+        let manual_seal = sealing.is_some();
+        let pending_client = client.clone();
+        let pending_create_inherent_data_providers = move |parent: Hash, ()| {
+            let client = pending_client.clone();
+            async move {
+                // Under --sealing, block time advances one slot per sealed block and runs
+                // ahead of the wall clock, so the pending block follows its parent's slot
+                // instead. That holds on a node that only follows a sealed chain, too.
+                let parent_slot = if manual_seal {
+                    client
+                        .header(parent)?
+                        .and_then(|header| {
+                            sc_consensus_babe::find_pre_digest::<Block>(&header).ok()
+                        })
+                        .map(|pre_digest| *pre_digest.slot())
+                } else {
+                    None
+                };
+                let next_block_time: sp_timestamp::Timestamp = match parent_slot {
+                    Some(slot) => ((slot + 1) * slot_duration.as_millis()).into(),
+                    // Not sealing, or the parent is genesis: one slot from now.
+                    None => {
+                        let now = sp_timestamp::InherentDataProvider::from_system_time();
+                        (now.timestamp().as_millis() + slot_duration.as_millis()).into()
+                    }
+                };
+                let timestamp = sp_timestamp::InherentDataProvider::new(next_block_time);
+                let slot = sp_consensus_babe::inherents::InherentDataProvider::from_timestamp_and_slot_duration(
+                    *timestamp,
+                    slot_duration,
+                );
+                let dynamic_fee =
+                    fp_dynamic_fee::InherentDataProvider(U256::from(target_gas_price));
+                Ok((slot, timestamp, dynamic_fee))
+            }
+        };
+        let select_chain = select_chain.clone();
+        let keystore = keystore_container.keystore();
+
+        let shared_authority_set = grandpa_link.shared_authority_set().clone();
+        let finality_provider = sc_consensus_grandpa::FinalityProofProvider::new_for_service(
+            backend.clone(),
+            Some(shared_authority_set.clone()),
+        );
+        let justification_stream = grandpa_link.justification_stream();
+        let shared_voter_state = shared_voter_state.clone();
+
+        let chain_spec = config.chain_spec.cloned_box();
+        Box::new(
+            move |subscription_task_executor: sc_rpc::SubscriptionTaskExecutor| {
+                let eth_deps = rpc::EthDeps {
+                    client: client.clone(),
+                    pool: pool.clone(),
+                    graph: pool.clone(),
+                    converter: Some(TransactionConverter),
+                    is_authority,
+                    enable_dev_signer,
+                    network: network.clone(),
+                    sync: sync_service.clone(),
+                    frontier_backend: match &*frontier_backend {
+                        fc_db::Backend::KeyValue(b) => b.clone(),
+                        fc_db::Backend::Sql(b) => b.clone(),
+                    },
+                    overrides: overrides.clone(),
+                    block_data_cache: block_data_cache.clone(),
+                    filter_pool: filter_pool.clone(),
+                    max_past_logs,
+                    max_block_range,
+                    fee_history_cache: fee_history_cache.clone(),
+                    fee_history_cache_limit,
+                    execute_gas_limit_multiplier,
+                    forced_parent_hashes: None,
+                    pending_create_inherent_data_providers: pending_create_inherent_data_providers
+                        .clone(),
+                    pending_consensus_data_provider: Some(rpc::BabeConsensusDataProvider::new()),
+                };
+                let deps = rpc::FullDeps {
+                    client: client.clone(),
+                    pool: pool.clone(),
+                    command_sink: if sealing.is_some() {
+                        Some(command_sink.clone())
+                    } else {
+                        None
+                    },
+                    eth: eth_deps,
+                    babe: rpc::BabeDeps {
+                        babe_worker: babe_worker.clone(),
+                        keystore: keystore.clone(),
+                    },
+                    select_chain: select_chain.clone(),
+                    grandpa: enable_grandpa.then(|| rpc::GrandpaDeps {
+                        finality_provider: finality_provider.clone(),
+                        justification_stream: justification_stream.clone(),
+                        shared_authority_set: shared_authority_set.clone(),
+                        shared_voter_state: shared_voter_state.clone(),
+                        subscription_executor: subscription_task_executor.clone(),
+                    }),
+                    chain_spec: chain_spec.cloned_box(),
+                };
+                rpc::create_full(
+                    deps,
+                    subscription_task_executor,
+                    Some(rpc::TracingConfig {
+                        tracing_requesters: tracing_requesters.clone(),
+                        trace_filter_max_count: eth_config.ethapi_trace_max_count,
+                    }),
+                    pubsub_notification_sinks.clone(),
+                )
+                .map_err(Into::into)
+            },
+        )
+    };
+
+    let _rpc_handlers = sc_service::spawn_tasks(sc_service::SpawnTasksParams {
+        config,
+        client: client.clone(),
+        backend: backend.clone(),
+        task_manager: &mut task_manager,
+        keystore: keystore_container.keystore(),
+        transaction_pool: transaction_pool.clone(),
+        rpc_builder,
+        network: network.clone(),
+        system_rpc_tx,
+        tx_handler_controller,
+        sync_service: sync_service.clone(),
+        telemetry: telemetry.as_mut(),
+        tracing_execute_block: None,
+    })?;
+
+    spawn_frontier_tasks(
+        &task_manager,
+        client.clone(),
+        backend,
+        frontier_backend,
+        filter_pool,
+        overrides,
+        fee_history_cache,
+        fee_history_cache_limit,
+        sync_service.clone(),
+        pubsub_notification_sinks,
+    )
+    .await;
+
+    if role.is_authority() {
+        // manual-seal authorship
+        if let Some(sealing) = sealing {
+            run_manual_seal_authorship(
+                &eth_config,
+                sealing,
+                client,
+                keystore_container.keystore(),
+                babe_link,
+                transaction_pool,
+                select_chain,
+                block_import,
+                &task_manager,
+                prometheus_registry.as_ref(),
+                telemetry.as_ref(),
+                commands_stream,
+            )?;
+
+            return Ok(task_manager);
+        }
+
+        let proposer_factory = sc_basic_authorship::ProposerFactory::new(
+            task_manager.spawn_handle(),
+            client.clone(),
+            transaction_pool.clone(),
+            prometheus_registry.as_ref(),
+            telemetry.as_ref().map(|x| x.handle()),
+        );
+
+        let slot_duration = sc_consensus_babe::configuration(&*client)?.slot_duration();
+        let target_gas_price = eth_config.target_gas_price;
+
+        let create_inherent_data_providers = move |_parent, ()| async move {
+            let timestamp = sp_timestamp::InherentDataProvider::from_system_time();
+
+            let slot =
+                sp_consensus_babe::inherents::InherentDataProvider::from_timestamp_and_slot_duration(
+                    *timestamp,
+                    slot_duration,
+                );
+
+            let dynamic_fee: fp_dynamic_fee::InherentDataProvider =
+                fp_dynamic_fee::InherentDataProvider(U256::from(target_gas_price));
+
+            Ok((slot, timestamp, dynamic_fee))
+        };
+
+        let babe = sc_consensus_babe::start_babe(sc_consensus_babe::BabeParams {
+            keystore: keystore_container.keystore(),
+            client,
+            select_chain,
+            env: proposer_factory,
+            block_import,
+            sync_oracle: sync_service.clone(),
+            justification_sync_link: sync_service.clone(),
+            create_inherent_data_providers,
+            force_authoring,
+            backoff_authoring_blocks: None::<()>,
+            babe_link,
+            block_proposal_slot_portion: sc_consensus_babe::SlotProportion::new(2f32 / 3f32),
+            max_block_proposal_slot_portion: None,
+            telemetry: telemetry.as_ref().map(|x| x.handle()),
+        })?;
+        // the BABE authoring task is considered essential, i.e. if it
+        // fails we take down the service with it.
+        task_manager
+            .spawn_essential_handle()
+            .spawn_blocking("babe", Some("block-authoring"), babe);
+    }
+
+    if enable_grandpa {
+        // if the node isn't actively participating in consensus then it doesn't
+        // need a keystore, regardless of which protocol we use below.
+        let keystore = if role.is_authority() {
+            Some(keystore_container.keystore())
+        } else {
+            None
+        };
+
+        let grandpa_config = sc_consensus_grandpa::Config {
+            // FIXME #1578 make this available through chainspec
+            gossip_duration: Duration::from_millis(333),
+            justification_generation_period: GRANDPA_JUSTIFICATION_PERIOD,
+            name: Some(name),
+            observer_enabled: false,
+            keystore,
+            local_role: role,
+            telemetry: telemetry.as_ref().map(|x| x.handle()),
+            protocol_name: grandpa_protocol_name,
+        };
+
+        // start the full GRANDPA voter
+        // NOTE: non-authorities could run the GRANDPA observer protocol, but at
+        // this point the full voter should provide better guarantees of block
+        // and vote data availability than the observer. The observer has not
+        // been tested extensively yet and having most nodes in a network run it
+        // could lead to finality stalls.
+        let grandpa_voter =
+            sc_consensus_grandpa::run_grandpa_voter(sc_consensus_grandpa::GrandpaParams {
+                config: grandpa_config,
+                link: grandpa_link,
+                network,
+                sync: sync_service,
+                voting_rule: sc_consensus_grandpa::VotingRulesBuilder::default().build(),
+                prometheus_registry,
+                shared_voter_state,
+                telemetry: telemetry.as_ref().map(|x| x.handle()),
+                offchain_tx_pool_factory: OffchainTransactionPoolFactory::new(transaction_pool),
+                notification_service: grandpa_notification_service,
+            })?;
+
+        // the GRANDPA voter task is considered infallible, i.e.
+        // if it fails we take down the service with it.
+        task_manager
+            .spawn_essential_handle()
+            .spawn_blocking("grandpa-voter", None, grandpa_voter);
+    }
+
+    Ok(task_manager)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn run_manual_seal_authorship<RuntimeApi>(
+    eth_config: &EthConfiguration,
+    sealing: Sealing,
+    client: Arc<FullClient<RuntimeApi>>,
+    keystore: sp_keystore::KeystorePtr,
+    babe_link: BabeLink<Block>,
+    transaction_pool: Arc<FullPool<FullClient<RuntimeApi>>>,
+    select_chain: FullSelectChain,
+    block_import: BoxBlockImport,
+    task_manager: &TaskManager,
+    prometheus_registry: Option<&Registry>,
+    telemetry: Option<&Telemetry>,
+    commands_stream: mpsc::Receiver<sc_consensus_manual_seal::rpc::EngineCommand<Hash>>,
+) -> Result<(), ServiceError>
+where
+    RuntimeApi: ConstructRuntimeApi<Block, FullClient<RuntimeApi>>,
+
+    RuntimeApi: Send + Sync + 'static,
+    RuntimeApi::RuntimeApi: RuntimeApiCollection,
+{
+    let proposer_factory = sc_basic_authorship::ProposerFactory::new(
+        task_manager.spawn_handle(),
+        client.clone(),
+        transaction_pool.clone(),
+        prometheus_registry,
+        telemetry.as_ref().map(|x| x.handle()),
+    );
+
+    // Block time advances one slot per sealed block, starting from the best block's slot, so
+    // the BABE slot and the timestamp always agree and epochs end after `EpochDuration`
+    // blocks however quickly they are sealed.
+    let clock = Arc::new(
+        SlotTimestampProvider::new_babe(client.clone())
+            .map_err(|e| ServiceError::Other(format!("manual seal: block clock: {e}")))?,
+    );
+
+    let target_gas_price = eth_config.target_gas_price;
+    let create_inherent_data_providers = move |_, ()| {
+        let clock = clock.clone();
+        async move {
+            let slot = sp_consensus_babe::inherents::InherentDataProvider::new(clock.slot());
+            let timestamp = ManualSealClock(clock);
+            let dynamic_fee = fp_dynamic_fee::InherentDataProvider(U256::from(target_gas_price));
+            Ok((slot, timestamp, dynamic_fee))
+        }
+    };
+
+    let babe_authorities = sc_consensus_babe::configuration(&*client)?.authorities;
+    let consensus_data_provider = BabeConsensusDataProvider::new(
+        client.clone(),
+        keystore,
+        babe_link.epoch_changes().clone(),
+        babe_authorities,
+    )
+    .map_err(|e| ServiceError::Other(format!("manual seal: BABE data provider: {e}")))?;
+
+    let manual_seal = match sealing {
+        Sealing::Manual => future::Either::Left(sc_consensus_manual_seal::run_manual_seal(
+            sc_consensus_manual_seal::ManualSealParams {
+                block_import,
+                env: proposer_factory,
+                client,
+                pool: transaction_pool,
+                commands_stream,
+                select_chain,
+                consensus_data_provider: Some(Box::new(consensus_data_provider)),
+                create_inherent_data_providers,
+            },
+        )),
+        Sealing::Instant => future::Either::Right(sc_consensus_manual_seal::run_instant_seal(
+            sc_consensus_manual_seal::InstantSealParams {
+                block_import,
+                env: proposer_factory,
+                client,
+                pool: transaction_pool,
+                select_chain,
+                consensus_data_provider: Some(Box::new(consensus_data_provider)),
+                create_inherent_data_providers,
+            },
+        )),
+    };
+
+    // we spawn the future on a background thread managed by service.
+    task_manager
+        .spawn_essential_handle()
+        .spawn_blocking("manual-seal", None, manual_seal);
+    Ok(())
+}
+
+pub async fn build_full(
+    config: Configuration,
+    eth_config: EthConfiguration,
+    sealing: Option<Sealing>,
+) -> Result<TaskManager, ServiceError> {
+    new_full::<creditcoin3_runtime::RuntimeApi, sc_network::NetworkWorker<_, _>>(
+        config, eth_config, sealing,
+    )
+    .await
+}
+
+pub fn new_chain_ops(
+    config: &mut Configuration,
+    eth_config: &EthConfiguration,
+) -> Result<
+    (
+        Arc<Client>,
+        Arc<FullBackend>,
+        BasicQueue<Block>,
+        TaskManager,
+        Arc<FrontierBackend<Client>>, //important to return Arc and use only one instance of frontier_backend
+                                      //https://substrate.stackexchange.com/questions/8761/other-io-error-lock-hold-by-current-process-acquire-time-1685847508-acquiring
+    ),
+    ServiceError,
+> {
+    config.keystore = sc_service::config::KeystoreConfig::InMemory;
+    let PartialComponents {
+        client,
+        backend,
+        import_queue,
+        task_manager,
+        other,
+        ..
+    } = new_partial::<creditcoin3_runtime::RuntimeApi, _>(
+        config,
+        eth_config,
+        None,
+        build_babe_grandpa_import_queue,
+    )?;
+    Ok((client, backend, import_queue, task_manager, other.4))
+}
+
+/// The manual-seal block clock as a timestamp inherent; the authorship task also reads its
+/// slot for the BABE inherent of the same block.
+struct ManualSealClock(Arc<SlotTimestampProvider>);
+
+#[async_trait::async_trait]
+impl sp_inherents::InherentDataProvider for ManualSealClock {
+    async fn provide_inherent_data(
+        &self,
+        inherent_data: &mut sp_inherents::InherentData,
+    ) -> Result<(), sp_inherents::Error> {
+        self.0.provide_inherent_data(inherent_data).await
+    }
+
+    async fn try_handle_error(
+        &self,
+        identifier: &sp_inherents::InherentIdentifier,
+        error: &[u8],
+    ) -> Option<Result<(), sp_inherents::Error>> {
+        self.0.try_handle_error(identifier, error).await
+    }
+}

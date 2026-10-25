@@ -1,0 +1,353 @@
+---
+name: Check Prover
+
+"on":
+  schedule:
+    - cron: "0 */12 * * 1-5"
+  workflow_dispatch:
+
+permissions: read-all
+
+jobs:
+  check-for:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # CC3 Devnet, Sepolia Full Archive
+          - creditcoinUrl: "wss://rpc.cc3-devnet.creditcoin.network/ws"
+            proverUrl: "https://prover.cc3-devnet.creditcoin.network"
+            indexerUrl: "https://graphql-usc.cc3-devnet.creditcoin.network"
+            evmV1Decoder: "0xf882f3a71A36E29E86615B7055f42A68D7E4cfBB"
+            chainKey: 1
+
+          # CC3 Devnet, Ethereum Mainnet Full Archive
+          - creditcoinUrl: "wss://rpc.cc3-devnet.creditcoin.network/ws"
+            proverUrl: "https://prover.cc3-devnet.creditcoin.network"
+            indexerUrl: "https://graphql-usc.cc3-devnet.creditcoin.network"
+            evmV1Decoder: "0xf882f3a71A36E29E86615B7055f42A68D7E4cfBB"
+            chainKey: 4
+
+          # CC3 Testnet, Sepolia Full Archive
+          - creditcoinUrl: "wss://rpc.cc3-testnet.creditcoin.network/ws"
+            proverUrl: "https://prover.cc3-testnet.creditcoin.network"
+            indexerUrl: "https://graphql-usc.cc3-testnet.creditcoin.network"
+            evmV1Decoder: "0x731c345d79Fb8BbDC541f9DF3b6317585F849F9f"
+            chainKey: 1
+
+          # CC3 Testnet, Ethereum Mainnet Full Archive
+          - creditcoinUrl: "wss://rpc.cc3-testnet.creditcoin.network/ws"
+            proverUrl: "https://prover.cc3-testnet.creditcoin.network"
+            indexerUrl: "https://graphql-usc.cc3-testnet.creditcoin.network"
+            evmV1Decoder: "0x731c345d79Fb8BbDC541f9DF3b6317585F849F9f"
+            chainKey: 3
+
+    name: CK ${{ matrix.chainKey }} / ${{ matrix.proverUrl }}
+    runs-on: ubuntu-26.04
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: 'yarn'
+          cache-dependency-path: cli/yarn.lock
+      - run: npm install -g yarn
+
+      - name: Install Solidity compiler
+        run: |
+          sudo .github/install-solidity-compiler.sh
+
+      - name: Generate precompiles ABI from source code
+        working-directory: ./precompiles/metadata
+        run: |
+          solc --version
+          ./abi-creator.sh
+
+      - name: Install & build
+        working-directory: ./cli
+        run: |
+          yarn install
+          yarn build
+
+      - name: Discover testing ENV
+        id: test-env
+        run: |
+          NAME=$(echo "${{ matrix.creditcoinUrl }}" | sed "s/wss//" | sed "s/ws//" | tr -d "/" | tr -d ":" | sed "s/rpc.//" | sed "s/.creditcoin.network//")
+          echo "chain-name=$NAME" >> "$GITHUB_OUTPUT"
+
+      - name: DEBUG - Print runner IP address
+        run: |
+          # see https://opensource.com/article/18/5/how-find-ip-address-linux
+          IP_ADDRESS=$(curl https://ifconfig.me)
+          echo "INFO: IP_ADDRESS=$IP_ADDRESS"
+
+      - name: Execute prover-check.ts on checkpoint boundaries
+        working-directory: ./cli
+        env:
+          GO_BACK_BLOCKS: '360'
+          SLEEP_TIME: '500'
+          # CK1 is Sepolia, CK3/CK4 are Ethereum Mainnet. Same mapping audit-automation.yml uses.
+          SOURCE_CHAIN_RPC_URL: ${{ matrix.chainKey == 1 && secrets.SEPOLIA_RPC_URL || secrets.USC_SANITY_ETHEREUM_RPC_URL }}
+        run: |
+          node dist/scripts/prover-check.js \
+            ${{ matrix.creditcoinUrl }} ${{ matrix.chainKey }} ${{ matrix.proverUrl }} \
+            /var/tmp/${{ steps.test-env.outputs.chain-name }}-ck-${{ matrix.chainKey }} ${{ matrix.indexerUrl }} ${{ matrix.evmV1Decoder }}
+
+      - name: Execute prover-check.ts on random blocks
+        working-directory: ./cli
+        env:
+          # LAST_SOURCE_BLOCK: '1000000'
+          GO_BACK_BLOCKS: '400'
+          STEP_THROUGH_BLOCKS: '7'
+          SLEEP_TIME: '500'
+          SOURCE_CHAIN_RPC_URL: ${{ matrix.chainKey == 1 && secrets.SEPOLIA_RPC_URL || secrets.USC_SANITY_ETHEREUM_RPC_URL }}
+        run: |
+          node dist/scripts/prover-check.js \
+            ${{ matrix.creditcoinUrl }} ${{ matrix.chainKey }} ${{ matrix.proverUrl }} \
+            /var/tmp/${{ steps.test-env.outputs.chain-name }}-ck-${{ matrix.chainKey }} "" ${{ matrix.evmV1Decoder }}
+
+      - name: Upload proofs
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: proofs-for-${{ steps.test-env.outputs.chain-name }}-ck-${{ matrix.chainKey }}
+          path: /var/tmp/${{ steps.test-env.outputs.chain-name }}-ck-${{ matrix.chainKey }}
+
+      # Failures only. On always() this job alone posted 4 messages per run, twice a day.
+      - name: Report result to Slack
+        if: failure()
+        uses: act10ns/slack@v2
+        with:
+          webhook-url: ${{ secrets.SLACK_WEBHOOK_URL }}
+          status: ${{ job.status }}
+          inputs: ${{ toJson(matrix) }}
+          channel: "#protocol-internal"
+          message: "[${{ github.workflow }}] Checking CK(${{ matrix.chainKey }})@${{ matrix.proverUrl}} FAILED! cc <!subteam^S028FDV6CCV>"
+
+  submit-verify-and-emit:
+    needs:
+      - check-for
+    # Two matrix jobs per network share one funded submitter key against the
+    # same CC3 RPC. Serialize same-network jobs so their real verifyAndEmit
+    # submissions don't race on the account nonce (cancel-in-progress: false
+    # queues the second job instead of killing the first). Different networks
+    # still run in parallel because they key on distinct creditcoinUrl values.
+    concurrency:
+      group: check-prover-submit-${{ matrix.creditcoinUrl }}
+      cancel-in-progress: false
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # CC3 Devnet, Sepolia Full Archive
+          - creditcoinUrl: "wss://rpc.cc3-devnet.creditcoin.network/ws"
+            proverUrl: "https://prover.cc3-devnet.creditcoin.network"
+            chainKey: 1
+
+          # CC3 Devnet, Ethereum Mainnet Full Archive
+          - creditcoinUrl: "wss://rpc.cc3-devnet.creditcoin.network/ws"
+            proverUrl: "https://prover.cc3-devnet.creditcoin.network"
+            chainKey: 4
+
+          # CC3 Testnet, Sepolia Full Archive
+          - creditcoinUrl: "wss://rpc.cc3-testnet.creditcoin.network/ws"
+            proverUrl: "https://prover.cc3-testnet.creditcoin.network"
+            chainKey: 1
+
+          # CC3 Testnet, Ethereum Mainnet Full Archive
+          - creditcoinUrl: "wss://rpc.cc3-testnet.creditcoin.network/ws"
+            proverUrl: "https://prover.cc3-testnet.creditcoin.network"
+            chainKey: 3
+
+    name: Submit CK ${{ matrix.chainKey }} / ${{ matrix.proverUrl }}
+    runs-on: ubuntu-26.04
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: 'yarn'
+          cache-dependency-path: cli/yarn.lock
+      - run: npm install -g yarn
+
+      - name: Install scripts deps
+        working-directory: ./scripts
+        run: yarn install
+
+      - name: Discover testing ENV
+        id: test-env
+        run: |
+          NAME=$(echo "${{ matrix.creditcoinUrl }}" | sed "s/wss//" | sed "s/ws//" | tr -d "/" | tr -d ":" | sed "s/rpc.//" | sed "s/.creditcoin.network//")
+          echo "chain-name=$NAME" >> "$GITHUB_OUTPUT"
+
+      - name: Download proofs for this network
+        uses: actions/download-artifact@v8
+        with:
+          path: /var/tmp/proofs
+          pattern: proofs-for-${{ steps.test-env.outputs.chain-name }}-ck-${{ matrix.chainKey }}
+          merge-multiple: true
+
+      - name: Submit one verifyAndEmit tx
+        working-directory: ./scripts
+        env:
+          # Funded submitter keys, selected per network below.
+          DEVNET_BOB_EVM_PK: ${{ secrets.DEVNET_BOB_EVM_PK }}
+          TESTNET_BOB_EVM_PK: ${{ secrets.TESTNET_BOB_EVM_PK }}
+          CHAIN_NAME: ${{ steps.test-env.outputs.chain-name }}
+          PROVER_URL: ${{ matrix.proverUrl }}
+          CHAIN_KEY: ${{ matrix.chainKey }}
+          CC3_WSS_URL: ${{ matrix.creditcoinUrl }}
+          PROOF_DIR: /var/tmp/proofs
+        run: |
+          set -eo pipefail
+
+          # Select the funded key for this network.
+          case "$CHAIN_NAME" in
+            *devnet*)  PRIVATE_KEY="$DEVNET_BOB_EVM_PK" ;;
+            *testnet*) PRIVATE_KEY="$TESTNET_BOB_EVM_PK" ;;
+            *)         echo "No funded key mapped for chain '$CHAIN_NAME'"; exit 1 ;;
+          esac
+          if [ -z "$PRIVATE_KEY" ]; then
+            echo "Funded key secret is empty for chain '$CHAIN_NAME'"; exit 1
+          fi
+
+          # Derive the HTTPS CC3 RPC endpoint from the wss URL
+          # (wss://rpc.<chain>.creditcoin.network/ws -> https://rpc.<chain>.creditcoin.network).
+          CC3_HTTP_URL=$(echo "$CC3_WSS_URL" | sed 's#^wss://#https://#' | sed 's#/ws$##')
+
+          # Pick one txHash discovered by prover-check (files are written as
+          # <PROOF_DIR>/<headerNumber>/<txHash>.txt).
+          TX_FILE=$(find "$PROOF_DIR" -type f -name '*.txt' -print -quit)
+          if [ -z "$TX_FILE" ]; then
+            echo "No proof files found in $PROOF_DIR; nothing to submit"; exit 1
+          fi
+          TX_HASH=$(basename "$TX_FILE" .txt)
+
+          echo "Submitting verifyAndEmit for CK=$CHAIN_KEY tx=$TX_HASH"
+          echo "  prover:  $PROVER_URL"
+          echo "  cc3 rpc: $CC3_HTTP_URL"
+
+          node SubmitProof.js "$CHAIN_KEY" "$TX_HASH" \
+            --private-key "$PRIVATE_KEY" \
+            --api-url "$PROVER_URL" \
+            --cc3-rpc-url "$CC3_HTTP_URL"
+
+  compare-proofs-sepolia:
+    needs:
+      - check-for
+    runs-on: ubuntu-26.04
+    steps:
+      - name: Setup
+        run: |
+          sudo apt-get install colordiff unzip
+
+      - name: Download proofs from Sepolia CC3 Devnet
+        uses: actions/download-artifact@v8
+        with:
+          path: /var/tmp/proofs
+          pattern: proofs-for-cc3-devnet-ck-1
+
+      - name: Git commit proofs data
+        working-directory: /var/tmp/proofs
+        run: |
+          git config --global init.defaultBranch main
+          git config --global user.email "creditcoin@gluwa.com"
+          git config --global user.name "gluwa-bot"
+
+          git init
+          git add .
+          git commit -a -m "Import data"
+
+          # remove everything b/c next we'll download data from CC3 Testnet
+          rm -rf ./*
+
+      - name: Download proofs from Sepolia CC3 Testnet
+        uses: actions/download-artifact@v8
+        with:
+          path: /var/tmp/proofs
+          pattern: proofs-for-cc3-testnet-ck-1
+
+      - name: Compare
+        working-directory: /var/tmp/proofs
+        timeout-minutes: 5
+        run: |
+          git status
+
+          set -eo pipefail
+          # filter only modified content b/c between the 2 CI jobs we may not have
+          # proofs for exactly the same set of blocks
+          git diff --diff-filter=M | colordiff
+
+          # will exit non-zero in case of differences
+          git diff --quiet --diff-filter=M
+
+      - name: Report result to Slack
+        if: failure()
+        uses: act10ns/slack@v2
+        with:
+          webhook-url: ${{ secrets.SLACK_WEBHOOK_URL }}
+          status: ${{ job.status }}
+          channel: "#protocol-internal"
+          message: "[${{ github.workflow }}] Proofs diff for Sepolia FAILED! cc <!subteam^S028FDV6CCV>"
+
+  compare-proofs-ethereum:
+    needs:
+      - check-for
+    runs-on: ubuntu-26.04
+    steps:
+      - name: Setup
+        run: |
+          sudo apt-get install colordiff unzip
+
+      - name: Download proofs from Ethereum CC3 Devnet
+        uses: actions/download-artifact@v8
+        with:
+          path: /var/tmp/proofs
+          pattern: proofs-for-cc3-devnet-ck-4
+
+      - name: Git commit proofs data
+        working-directory: /var/tmp/proofs
+        run: |
+          git config --global init.defaultBranch main
+          git config --global user.email "creditcoin@gluwa.com"
+          git config --global user.name "gluwa-bot"
+
+          git init
+          git add .
+          git commit -a -m "Import data"
+
+          # remove everything b/c next we'll download data from CC3 Testnet
+          rm -rf ./*
+
+      - name: Download proofs from Ethereum CC3 Testnet
+        uses: actions/download-artifact@v8
+        with:
+          path: /var/tmp/proofs
+          pattern: proofs-for-cc3-testnet-ck-3
+
+      - name: Compare Testnet vs Devnet
+        working-directory: /var/tmp/proofs
+        timeout-minutes: 5
+        run: |
+          git status
+
+          set -eo pipefail
+          # filter only modified content b/c between the 2 CI jobs we may not have
+          # proofs for exactly the same set of blocks
+          git diff --diff-filter=M | colordiff
+
+          # will exit non-zero in case of differences
+          git diff --quiet --diff-filter=M
+
+      - name: Report result to Slack
+        if: failure()
+        uses: act10ns/slack@v2
+        with:
+          webhook-url: ${{ secrets.SLACK_WEBHOOK_URL }}
+          status: ${{ job.status }}
+          channel: "#protocol-internal"
+          message: "[${{ github.workflow }}] Proofs diff for Ethereum FAILED! cc <!subteam^S028FDV6CCV>"

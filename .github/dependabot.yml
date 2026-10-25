@@ -1,0 +1,165 @@
+---
+version: 2
+updates:
+  # Maintain dependencies for GitHub Actions
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "monthly"
+    open-pull-requests-limit: 5
+    rebase-strategy: "disabled"
+    groups:
+      all-dependencies:
+        dependency-type: "production"
+        applies-to: version-updates
+
+  # Maintain dependencies for Docker images
+  - package-ecosystem: "docker"
+    directories:
+      - "/"
+      - "/cc3-indexer"
+      - "/cc3-indexer/postgres"
+      - "/proof-gen-api-server"
+      - "/scripts/stress-test"
+      - "/scripts/usc-audit-automation"
+    schedule:
+      interval: "monthly"
+    open-pull-requests-limit: 5
+    rebase-strategy: "disabled"
+    groups:
+      all-dependencies:
+        dependency-type: "production"
+        applies-to: version-updates
+
+  # Maintain dependencies for docker-compose files
+  - package-ecosystem: "docker-compose"
+    directories:
+      - "/"
+      - "/cc3-indexer"
+    schedule:
+      interval: "monthly"
+    open-pull-requests-limit: 5
+    rebase-strategy: "disabled"
+    groups:
+      docker-compose:
+        dependency-type: "production"
+        applies-to: version-updates
+
+  # Maintain dependencies for Rust
+  # Note: Dependabot can't recursively search directories at the moment
+  - package-ecosystem: "cargo"
+    directories:
+      - "/"
+      - "/attestor/attestor"
+      - "/attestor/pool"
+      - "/attestor/metrics"
+      - "/attestor/common"
+      - "/attestor/zombienet"
+      - "/checkpoint-builder"
+      - "/common/cc-client"
+      - "/common/continuity"
+      - "/common/eth"
+      - "/common/merkle"
+      - "/common/utils"
+      - "/common/prometheus"
+      - "/common/indexer-client"
+      - "/common/builder"
+      - "/common/streams/eth"
+      - "/common/streams/cc3"
+      - "/common/streams/attestation"
+      - "/common/streams/util"
+      - "/common/streams/stream"
+      - "/node"
+      - "/node/cli-opt"
+      - "/pallets/attestation"
+      - "/pallets/randomness"
+      - "/pallets/supported-chains"
+      - "/precompiles/attestor-stash"
+      - "/precompiles/chain-info"
+      - "/precompiles/block-prover"
+      - "/precompiles/ed25519-verifier"
+      - "/precompiles/sr25519-verifier"
+      - "/precompiles/substrate-transfer"
+      - "/proof-gen-api-server"
+      - "/primitives/account"
+      - "/primitives/attestor"
+      - "/primitives/core"
+      - "/primitives/randomness"
+      - "/primitives/supported-chains"
+      - "/primitives/user"
+      - "/query-cli"
+      - "/runtime"
+      - "/runtime/generate-bags"
+      - "/archiver"
+      - "/tracing/client/evm-tracing"
+      - "/tracing/client/rpc-core/debug"
+      - "/tracing/client/rpc-core/trace"
+      - "/tracing/client/rpc-core/types"
+      - "/tracing/client/rpc/debug"
+      - "/tracing/client/rpc/trace"
+      - "/tracing/primitives/ext"
+      - "/tracing/primitives/rpc/debug"
+      - "/tracing/primitives/rpc/evm-tracing-events"
+      - "/tracing/runtime/evm_tracer"
+    groups:
+      prod-dependencies:
+        dependency-type: "production"
+        applies-to: version-updates
+      dev-dependencies:
+        dependency-type: "development"
+        applies-to: version-updates
+    schedule:
+      interval: "monthly"
+
+  # Maintain dependencies for Node.js
+  - package-ecosystem: "npm"
+    directories:
+      - "/attestor/scripts"
+      - "/cc3-indexer"
+      - "/checkpoint-verifier"
+      - "/cli"
+      - "/common/eth/contracts"
+      - "/common/eth/contracts/get-contract-state"
+      - "/docs/smart-contract-development/with-hardhat"
+      - "/docs/smart-contract-development/with-ethers.js"
+      - "/scripts"
+      - "/scripts/changelog-warnings"
+    groups:
+      # The @polkadot/* packages must move in lockstep: bumping only some of them installs two
+      # copies of @polkadot/types and the cli stops type-checking. Listed first so it takes
+      # these packages before the prod/dev groups below.
+      polkadot:
+        patterns:
+          - "@polkadot/*"
+        applies-to: version-updates
+      prod-dependencies:
+        dependency-type: "production"
+        applies-to: version-updates
+      dev-dependencies:
+        dependency-type: "development"
+        applies-to: version-updates
+    schedule:
+      interval: "monthly"
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-patch"]
+      # execa >=6 is ESM-only, but cli/ is compiled to CommonJS and requires it
+      # from CJS test helpers, so major bumps break the TypeScript build
+      - dependency-name: "execa"
+        update-types: ["version-update:semver-major"]
+      # @polkadot 17 makes the cli's unbonding countdown read inconsistent derive values at era
+      # boundaries and fails the withdraw-unbonded integration test (#1473). Hold majors until
+      # validatorStatus reads that state at a single block.
+      - dependency-name: "@polkadot/*"
+        update-types: ["version-update:semver-major"]
+
+  # Python dependencies for Linode
+  - package-ecosystem: "pip"
+    directories:
+      - "/.github"
+    groups:
+      linode-dependencies:
+        dependency-type: "production"
+        applies-to: version-updates
+    schedule:
+      interval: "monthly"

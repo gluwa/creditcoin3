@@ -1,0 +1,80 @@
+/data/
+
+logs/*
+**/dist/
+**/target/
+**/node_modules/
+**/*.rs.bk
+*.swp
+.wasm-binaries
+polkadot/runtime/wasm/target/
+core/executor/wasm/target/
+core/test-runtime/wasm/target/
+pwasm-alloc/target/
+pwasm-libc/target/
+pwasm-alloc/Cargo.lock
+pwasm-libc/Cargo.lock
+node/runtime/wasm/target/
+**/._*
+**/.criterion/
+.vscode
+polkadot.*
+.DS_Store
+.idea/
+.cargo-remote.toml
+.cargo/
+
+# Nix artifacts
+result*
+
+# Zombienet bin
+attestor/zombie/zombienet-linux-x64
+attestor/zombie/zombienet-macos*
+
+# Attestor Zombienet config
+attestor_zombienet/config.yaml
+
+# Cairo
+cairo/scripts/verify_merkle_proof_compiled.json
+cairo/lang/cpu_air_params.json
+__pycache__/
+
+# Attestor
+attestor/scripts/.env
+attestor/scripts/checkpoints.json
+
+
+
+# Added by cargo
+/target
+
+# NixOS development environment
+.envrc
+
+**/throwaway
+
+# hardhat
+**/cache/
+**/typechain-types/
+**/ignition/deployments/
+docs/smart-contract-development/with-hardhat/artifacts/*
+
+# Bridge usage example
+bridge-usage-example/out/*
+bridge-usage-example/lib/*
+
+**/*output.txt
+**/program_input*.json
+#**/block_*.json
+**/*compiled.json
+**/*trace.json
+**/*memory.json
+**/claim_attestation*.json
+./config.json
+primitives/data/*
+prover/artifacts/*
+
+# Editor / IDE local settings (Claude Code, etc.). Shared team skills under .claude/skills are
+# committed; everything else in .claude (settings.local.json, per-user state) stays local.
+.claude/*
+!.claude/skills/

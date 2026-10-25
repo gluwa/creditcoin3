@@ -1,0 +1,180 @@
+use clap::Parser;
+use std::env;
+use std::num::NonZeroUsize;
+use std::path::PathBuf;
+use tracing::{debug, info};
+
+use proof_gen_api_server::config::{ChainConfig, Config};
+use proof_gen_api_server::Server;
+
+#[derive(Parser, Debug)]
+#[command(name = "proof-gen-api-server")]
+pub struct ProofGenApiServer {
+    #[arg(short, long)]
+    verbose: bool,
+
+    #[arg(long, help = "Reset the database to its initial state")]
+    reset_db: bool,
+
+    /// Load multi-chain YAML configuration (see `config.example.yaml`).
+    /// May also be set via `PROOF_GEN_CONFIG_FILE`.
+    #[arg(long, env = "PROOF_GEN_CONFIG_FILE")]
+    config: Option<PathBuf>,
+
+    /// Creditcoin3 RPC (WebSocket). `CC3_RPC_URL` or `--cc3-rpc-url` (CLI overrides env; not in YAML).
+    #[arg(long, default_value = "ws://localhost:9944", env = "CC3_RPC_URL")]
+    cc3_rpc_url: String,
+
+    #[arg(
+        long,
+        required = false,
+        help = "Creditcoin3 mnemonic/seed. If omitted, falls back to CC3_KEY env var."
+    )]
+    cc3_key: Option<String>,
+
+    #[arg(long, default_value = "ws://localhost:8545")]
+    eth_rpc_url: String,
+
+    #[arg(
+        long,
+        default_value = "0.0.0.0",
+        help = "IP address which the proof gen server binds to for API requests (e.g., '0.0.0.0', '::1')"
+    )]
+    bind_host: String,
+
+    #[arg(
+        long,
+        default_value_t = 3100,
+        help = "Port which the proof gen server binds to for API requests"
+    )]
+    bind_port: u16,
+
+    #[arg(
+        long,
+        required = false,
+        hide = true,
+        help = "[DEPRECATED — ignored] CC3 Indexer GraphQL URL. The indexer is no longer used."
+    )]
+    indexer_url: Option<String>,
+
+    #[arg(
+        long,
+        default_value = "10",
+        value_parser = clap::value_parser!(NonZeroUsize),
+        env = "MAX_BATCH_SIZE",
+        help = "Maximum amount of concurrent futures spawned when generating proofs for batch requests or when extracting transaction indexes from transaction hashes. Adjust based on expected load and RPC rate limits. Must be greater than 0."
+    )]
+    max_batch_size: NonZeroUsize,
+
+    #[arg(
+        long,
+        required = false,
+        env = "ARCHIVER_URL",
+        help = "Archiver HTTP URL for the legacy single-chain mode (e.g. http://localhost:8080)."
+    )]
+    archiver_url: Option<String>,
+
+    #[arg(
+        long,
+        default_value = "1000",
+        env = "MAX_BATCH_SPAN",
+        help = "Maximum allowed block span (highest - lowest block) in a single batch request. Prevents small batches from forcing proof generation over extremely large ranges."
+    )]
+    max_batch_span: u64,
+
+    #[arg(
+        long,
+        env = "BLOCK_CONFIRMATION_DEPTH",
+        hide = true,
+        help = "Deprecated and ignored. Heights are confirmed against the attested set on \
+                Creditcoin, not against this process's own view of the source tip."
+    )]
+    block_confirmation_depth: Option<u64>,
+}
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    dotenvy::dotenv().ok();
+
+    let args = ProofGenApiServer::parse();
+
+    let env_filter = if args.verbose {
+        debug!("debug mode enabled!");
+        "debug"
+    } else {
+        "info"
+    };
+
+    let _ = tracing_subscriber::fmt()
+        .compact()
+        .with_file(false)
+        .with_target(args.verbose)
+        .with_env_filter(env_filter)
+        .try_init();
+
+    if let Some(depth) = args.block_confirmation_depth {
+        tracing::warn!(
+            block_confirmation_depth = depth,
+            "--block-confirmation-depth / BLOCK_CONFIRMATION_DEPTH is deprecated and ignored: \
+             heights are confirmed against the attested set, not against this process's view of \
+             the source tip. Remove it."
+        );
+    }
+
+    let resolved_cc3_key = args.cc3_key.or_else(|| env::var("CC3_KEY").ok());
+
+    let config = if let Some(path) = args.config.clone() {
+        let mut c = Config::from_yaml_file(&path, args.cc3_rpc_url.clone())?;
+        if c.cc3_key.is_none() {
+            c.cc3_key = resolved_cc3_key;
+        }
+        // MAX_BATCH_SIZE env/CLI overrides YAML when explicitly set.
+        if let Ok(raw) = env::var("MAX_BATCH_SIZE") {
+            if let Ok(n) = raw.parse::<NonZeroUsize>() {
+                c.max_batch_size = n;
+            }
+        }
+        // MAX_BATCH_SPAN env/CLI overrides YAML when explicitly set.
+        if let Ok(raw) = env::var("MAX_BATCH_SPAN") {
+            if let Ok(n) = raw.parse::<u64>() {
+                c.max_batch_span = n;
+            }
+        }
+        c
+    } else {
+        // Legacy single-chain mode: chain key from CHAIN_KEY env (default 2).
+        let chain_key = env::var("CHAIN_KEY")
+            .ok()
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(2);
+        Config {
+            bind_host: args.bind_host,
+            bind_port: args.bind_port,
+            cc3_rpc_url: args.cc3_rpc_url,
+            cc3_key: resolved_cc3_key,
+            chains: vec![ChainConfig {
+                chain_key,
+                eth_rpc_url: args.eth_rpc_url,
+                // Fallback RPC URLs are only configurable via the multi-chain
+                // YAML; the legacy single-chain CLI path stays single-URL.
+                eth_rpc_fallback_urls: Vec::new(),
+                archiver_url: args.archiver_url,
+                // Per-chain cache sizing is expressed in the YAML config only, like
+                // `eth_rpc_fallback_urls`. Legacy single-chain mode takes the defaults.
+                cache: proof_gen_api_server::config::ChainCacheConfig::default(),
+            }],
+            max_batch_size: args.max_batch_size,
+            max_batch_span: args.max_batch_span,
+            admission: proof_gen_api_server::config::AdmissionConfig::default(),
+        }
+    };
+    // MAX_IN_FLIGHT_REQUESTS / MAX_IN_FLIGHT_PER_CHAIN / REQUEST_TIMEOUT_SECS override YAML.
+    let mut config = config;
+    config.admission.apply_env_overrides()?;
+
+    let server = Server::new(config).await?;
+    server.run().await?;
+    info!("🛑 Server exited");
+
+    Ok(())
+}

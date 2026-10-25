@@ -1,0 +1,81 @@
+[package]
+authors = { workspace = true }
+description = "A Precompile exposing stash-facing operations of pallet-attestation (register, unregister, withdraw_unbonded)."
+edition = "2021"
+name = "pallet-evm-precompile-attestor-stash"
+version = "0.1.0"
+
+[lints.clippy]
+missing_errors_doc = "allow"
+missing_panics_doc = "allow"
+too_many_arguments = "allow"
+type_complexity = "allow"
+
+[dependencies]
+# Moonbeam
+precompile-utils = { workspace = true }
+
+# Primitives
+attestor-primitives = { workspace = true }
+
+# Pallets
+pallet-attestation = { workspace = true, default-features = false }
+
+# Substrate
+frame-support = { workspace = true }
+frame-system = { workspace = true }
+parity-scale-codec = { workspace = true, features = [
+    "max-encoded-len",
+], default-features = false }
+scale-info = { workspace = true, features = ["derive"] }
+sp-core = { workspace = true }
+sp-io = { workspace = true }
+sp-runtime = { workspace = true }
+sp-staking = { workspace = true }
+sp-std = { workspace = true }
+
+# Frontier
+fp-evm = { workspace = true }
+pallet-evm = { workspace = true, features = ["forbid-evm-reentrancy"] }
+
+[dev-dependencies]
+derive_more = { workspace = true }
+env_logger = { workspace = true }
+frame-election-provider-support = { workspace = true }
+pallet-attestation = { workspace = true }
+pallet-babe = { workspace = true }
+pallet-balances = { workspace = true }
+pallet-session = { workspace = true }
+pallet-staking = { workspace = true }
+pallet-staking-reward-curve = { workspace = true, default-features = false }
+pallet-supported-chains = { workspace = true }
+pallet-timestamp = { workspace = true, features = ["std"] }
+precompile-utils = { workspace = true, features = ["std", "testing"] }
+serde = { workspace = true }
+supported-chains-primitives = { workspace = true }
+
+[features]
+default = ["std"]
+std = [
+    "precompile-utils/std",
+    "fp-evm/std",
+    "frame-support/std",
+    "frame-system/std",
+    "pallet-balances/std",
+    "pallet-timestamp/std",
+    "pallet-evm/std",
+    "parity-scale-codec/std",
+    "scale-info/std",
+    "sp-core/std",
+    "sp-io/std",
+    "sp-runtime/std",
+    "sp-std/std",
+    "pallet-attestation/std",
+    "attestor-primitives/std",
+    "pallet-babe/std",
+    "pallet-supported-chains/std",
+    "supported-chains-primitives/std",
+    "pallet-staking/std",
+    "pallet-session/std",
+    "sp-staking/std",
+]

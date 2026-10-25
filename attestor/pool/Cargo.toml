@@ -1,0 +1,29 @@
+[package]
+authors.workspace = true
+edition.workspace = true
+license.workspace = true
+name = "attestor_pool"
+publish.workspace = true
+repository.workspace = true
+version.workspace = true
+
+[lib]
+name = "attestor_pool"
+path = "./src/lib.rs"
+
+[dependencies]
+attestor-primitives = { workspace = true }
+bls-signatures = { workspace = true }
+builder = { workspace = true }
+cc-client = { workspace = true }
+common = { path = "../common" }
+parity-scale-codec = { workspace = true }
+parking_lot = { workspace = true }
+sp-core = { workspace = true }
+tracing = { workspace = true }
+# `Receiver::recv` uses `tokio::sync::Notify` — needs the `sync` feature, that's it.
+tokio = { workspace = true, features = ["sync"] }
+
+[dev-dependencies]
+# Async regression tests for the notify seams (`recv()` wake-ups) need a runtime + timeouts.
+tokio = { workspace = true, features = ["macros", "rt", "sync", "time"] }

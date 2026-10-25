@@ -1,0 +1,36 @@
+{
+    "name": "changelog-warnings",
+    "version": "1.0.0",
+    "description": "Builds release notes grouped by topic and appends operator warnings",
+    "type": "commonjs",
+    "scripts": {
+        "build": "tsc",
+        "typecheck": "tsc --noEmit",
+        "start": "tsx src/index.ts",
+        "notes": "tsx src/notes.ts",
+        "format": "prettier --write \"src/**/*.ts\"",
+        "check-format": "prettier --check \"src/**/*.ts\"",
+        "lint": "eslint --max-warnings 0 \"src/**/*.ts\"",
+        "lint:fix": "eslint --fix \"src/**/*.ts\""
+    },
+    "dependencies": {
+        "js-yaml": "^5.4.1",
+        "minimatch": "^10.2.4"
+    },
+    "devDependencies": {
+        "@types/js-yaml": "^4.0.9",
+        "@types/minimatch": "^5.1.2",
+        "@types/node": "^26.6.5",
+        "@typescript-eslint/eslint-plugin": "8.71.1",
+        "@typescript-eslint/parser": "8.71.1",
+        "eslint": "^8.57.0",
+        "eslint-config-prettier": "^10.1.8",
+        "prettier": "3.9.4",
+        "tsx": "^4.23.1",
+        "typescript": "5.9.2"
+    },
+    "engines": {
+        "node": ">=18.0.0"
+    },
+    "license": "MIT"
+}

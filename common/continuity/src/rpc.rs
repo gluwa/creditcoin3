@@ -1,0 +1,755 @@
+//! RPC provider traits for Creditcoin3 and source chain interactions.
+//!
+//! This module defines abstract traits for RPC operations required by the
+//! continuity builder. Implementations exist for real RPC clients, and mock
+//! implementations are provided for testing.
+
+use anyhow::{anyhow, Context, Result};
+use async_trait::async_trait;
+use attestor_primitives::{block::Block, AttestationCheckpoint, SignedAttestation};
+use cc_client::{AccountId32, Client as CcClient};
+use eth::continuity::Manager as ContinuityManager;
+use sp_core::H256;
+use std::{future::Future, sync::Arc, time::Duration};
+use tokio::sync::RwLock;
+use tokio_retry::strategy::{jitter, ExponentialBackoff};
+use tracing::warn;
+use usc_abi_encoding::common::EncodingVersion;
+use user::prelude::*;
+use utils::block_item_traits::BlockItem;
+
+/// Total attempts (call + retries-after-reconnect) for a single RPC operation.
+const ETH_RPC_MAX_ATTEMPTS: usize = 3;
+
+/// Backoff used when reconnecting the shared client (mirrors the attestor's CC3 reconnect).
+const RECONNECT_BACKOFF_BASE_MS: u64 = 100;
+const RECONNECT_BACKOFF_MAX_MS: u64 = 5_000;
+/// Total reconnect attempts (initial call + retries). `tokio_retry` treats the strategy length
+/// as the number of *retries*, so we pass `RECONNECT_MAX_ATTEMPTS - 1` to `.take(..)`.
+const RECONNECT_MAX_ATTEMPTS: usize = 5;
+
+/// Upper bound on one attempt of one RPC operation, wrapping every retry `eth::Client` does
+/// internally. Transports carry their own per-request deadlines, but a WebSocket request has
+/// none, and no deadline at all means a single hung request pins a caller (and its batch)
+/// forever. Generous on purpose: a 1000-block continuity range on a slow RPC is minutes.
+const ETH_RPC_CALL_TIMEOUT: Duration = Duration::from_secs(300);
+/// Extra deadline granted per block to a range fetch (`build_continuity_blocks`), on top of
+/// `call_timeout`. Hangs inside the range are already cut off by the transports' own deadlines
+/// and the eth client's fallback walk; this outer bound only has to catch a wedged future, so
+/// it scales with the work instead of failing a merely slow 1000-block range at a flat 300 s
+/// and retrying it from scratch until the proof fails.
+const ETH_RPC_PER_BLOCK_BUDGET: Duration = Duration::from_secs(2);
+/// Per-provider deadline for the health probe's tip read. The `/health` route gives the whole
+/// probe 5 s, so a primary that accepts TCP and never answers must be given up on fast enough
+/// for the fallback to still answer inside that budget; the regular `call_timeout` (15 s) would
+/// overrun it and report a replica degraded that can serve everything from its fallback.
+const HEALTH_PROBE_CALL_TIMEOUT: Duration = Duration::from_secs(2);
+/// Upper bound on re-dialling the *primary* during one repair (chain-id read included).
+/// Fallbacks are re-dialled after it under `eth`'s own per-fallback bound and never decide
+/// the repair's outcome.
+const ETH_RPC_DIAL_TIMEOUT: Duration = Duration::from_secs(30);
+
+/// ETH RPC provider that owns one long-lived [`eth::Client`] and reconnects it on transport
+/// failures.
+///
+/// The pattern mirrors the attestor's CC3 [`ReconnectingRuntimeApi`]: keep a single client,
+/// retry the call after reconnecting with exponential backoff + jitter, and surface a clean
+/// error if reconnection itself can't recover.
+///
+/// Repairs never hold the client lock across network I/O. A replacement connection is dialled
+/// on a clone, under a deadline, and swapped in atomically once it is up; callers keep reading
+/// the current client meanwhile and are never queued behind someone else's slow dial.
+/// Concurrent failures share one repair: each caller remembers the connection generation it
+/// failed against and only dials if nobody has published a newer one since.
+///
+/// [`ReconnectingRuntimeApi`]: cc_client::api::ReconnectingRuntimeApi
+#[derive(Debug)]
+pub struct ReconnectingEthRpcProvider {
+    client: RwLock<eth::Client>,
+    /// Bumped every time a repaired client is published.
+    generation: std::sync::atomic::AtomicU64,
+    /// Serialises repairs so N simultaneous failures cost one dial, not N.
+    repair: tokio::sync::Mutex<()>,
+    call_timeout: Duration,
+    dial_timeout: Duration,
+    /// Source-chain block encoding, derived from CC3 supported-chain metadata at
+    /// startup. Used for all block fetching / continuity building so that a
+    /// per-chain or future encoding change is honoured instead of assuming V1.
+    encoding: EncodingVersion,
+}
+
+impl ReconnectingEthRpcProvider {
+    pub fn new(client: eth::Client, encoding: EncodingVersion) -> Self {
+        Self {
+            client: RwLock::new(client),
+            generation: std::sync::atomic::AtomicU64::new(0),
+            repair: tokio::sync::Mutex::new(()),
+            call_timeout: ETH_RPC_CALL_TIMEOUT,
+            dial_timeout: ETH_RPC_DIAL_TIMEOUT,
+            encoding,
+        }
+    }
+
+    /// Override the per-attempt call deadline and the per-repair primary dial deadline.
+    #[must_use]
+    pub fn with_timeouts(mut self, call_timeout: Duration, dial_timeout: Duration) -> Self {
+        self.call_timeout = call_timeout;
+        self.dial_timeout = dial_timeout;
+        self
+    }
+
+    /// Connection generation currently published. Changes only when a repair succeeds.
+    pub fn generation(&self) -> u64 {
+        self.generation.load(std::sync::atomic::Ordering::Acquire)
+    }
+
+    /// Cheap snapshot of the live client plus the generation it belongs to.
+    async fn snapshot(&self) -> (eth::Client, u64) {
+        let guard = self.client.read().await;
+        let generation = self.generation();
+        (guard.clone(), generation)
+    }
+
+    /// Run a single RPC call under `call_timeout`, reconnecting and retrying on failure.
+    ///
+    /// `op` is a short identifier (e.g. `"get_chain_id"`) used in tracing.
+    async fn run<T, F, Fut>(&self, op: &'static str, call: F) -> Result<T>
+    where
+        F: FnMut(eth::Client) -> Fut,
+        Fut: Future<Output = Result<T>>,
+    {
+        self.run_within(op, self.call_timeout, call).await
+    }
+
+    /// Run an RPC operation with an explicit per-attempt `deadline`, reconnecting and retrying
+    /// on failure. Every attempt gets the full deadline again.
+    async fn run_within<T, F, Fut>(
+        &self,
+        op: &'static str,
+        deadline: Duration,
+        mut call: F,
+    ) -> Result<T>
+    where
+        F: FnMut(eth::Client) -> Fut,
+        Fut: Future<Output = Result<T>>,
+    {
+        let mut last_err: Option<anyhow::Error> = None;
+
+        for attempt in 1..=ETH_RPC_MAX_ATTEMPTS {
+            let (client, generation) = self.snapshot().await;
+            let err = match tokio::time::timeout(deadline, call(client)).await {
+                Ok(Ok(value)) => return Ok(value),
+                Ok(Err(err)) => {
+                    // A user-initiated shutdown (Ctrl+C / service stop) surfaces here as an
+                    // `anyhow::Error` carrying `user::Shutdown` (via `propagate_shutdown` in the
+                    // block-fetch closures). It is not a transport failure, so do not reconnect
+                    // or burn the remaining retry budget — return immediately so the service
+                    // exits promptly.
+                    if err.chain().any(|cause| cause.is::<user::Shutdown>()) {
+                        warn!(
+                            op,
+                            attempt, "ETH RPC call interrupted by shutdown; not retrying"
+                        );
+                        return Err(err);
+                    }
+                    if eth::anyhow_chain_is_inconsistent_block_payload(&err) {
+                        warn!(
+                            op,
+                            attempt,
+                            max = ETH_RPC_MAX_ATTEMPTS,
+                            error = %err,
+                            "ETH RPC returned block data inconsistent with header; not retrying with reconnect",
+                        );
+                        return Err(err);
+                    }
+                    // Every provider answered `null` for a block tag: the node does not serve
+                    // that tag. Deterministic and permanent, so reconnecting only churns the
+                    // shared client for every other in-flight request.
+                    if eth::anyhow_chain_is_unsupported_block_tag(&err) {
+                        warn!(
+                            op,
+                            attempt,
+                            error = %err,
+                            "ETH RPC node does not serve the requested block tag; not retrying with reconnect",
+                        );
+                        return Err(err);
+                    }
+                    err
+                }
+                Err(_elapsed) => anyhow!("{op} timed out after {deadline:?} (attempt {attempt})"),
+            };
+            warn!(
+                op,
+                attempt,
+                max = ETH_RPC_MAX_ATTEMPTS,
+                error = %err,
+                "ETH RPC call failed",
+            );
+            last_err = Some(err);
+
+            if attempt < ETH_RPC_MAX_ATTEMPTS {
+                self.reconnect(op, generation).await?;
+            }
+        }
+
+        Err(last_err
+            .unwrap_or_else(|| anyhow!("no error captured"))
+            .context(format!("{op} failed after {ETH_RPC_MAX_ATTEMPTS} attempts")))
+    }
+
+    /// Repair the shared client unless someone already did since `observed_generation`.
+    ///
+    /// Dials happen on a clone, outside the client lock and under `dial_timeout`; the lock is
+    /// taken only for the instantaneous swap, so callers running other operations are never
+    /// blocked behind a slow or black-holed endpoint.
+    async fn reconnect(&self, op: &'static str, observed_generation: u64) -> Result<()> {
+        let _serialised = self.repair.lock().await;
+        if self.generation() != observed_generation {
+            tracing::debug!(
+                op,
+                observed_generation,
+                current = self.generation(),
+                "ETH RPC client already repaired by another caller; retrying on it"
+            );
+            return Ok(());
+        }
+
+        // `tokio_retry` runs the action once, then drains the strategy iterator on each retry.
+        // Subtract one so `RECONNECT_MAX_ATTEMPTS` reflects total attempts (matches
+        // `ETH_RPC_MAX_ATTEMPTS`).
+        let strategy = ExponentialBackoff::from_millis(RECONNECT_BACKOFF_BASE_MS)
+            .max_delay(Duration::from_millis(RECONNECT_BACKOFF_MAX_MS))
+            .map(jitter)
+            .take(RECONNECT_MAX_ATTEMPTS.saturating_sub(1));
+
+        tokio_retry::Retry::spawn(strategy, || async {
+            warn!(op, "reconnecting ETH RPC client");
+            let mut candidate = self.client.read().await.clone();
+            candidate
+                .reconnect_with_deadline(self.dial_timeout)
+                .await
+                .map_err(|e| anyhow!("{e}"))?;
+            *self.client.write().await = candidate;
+            self.generation
+                .fetch_add(1, std::sync::atomic::Ordering::AcqRel);
+            Ok::<(), anyhow::Error>(())
+        })
+        .await
+        .with_context(|| format!("failed to reconnect ETH RPC client for {op}"))?;
+
+        Ok(())
+    }
+}
+
+/// Abstraction over Creditcoin3 RPC operations.
+///
+/// Deadline for one attempt at fetching the `start..=end` range: `call_timeout` plus a per-block
+/// budget, see [`ETH_RPC_PER_BLOCK_BUDGET`]. An inverted range counts as one block.
+fn range_deadline(call_timeout: Duration, start: u64, end: u64) -> Duration {
+    let blocks = end.saturating_sub(start).saturating_add(1);
+    let blocks = u32::try_from(blocks).unwrap_or(u32::MAX);
+    call_timeout.saturating_add(ETH_RPC_PER_BLOCK_BUDGET.saturating_mul(blocks))
+}
+
+/// This trait defines all CC3 chain operations required for continuity proof generation.
+/// It's implemented by `cc_client::Client` and can be mocked for testing.
+///
+/// # Implementation
+///
+/// The production implementation delegates to `cc_client::Client`, which uses the
+/// Substrate RPC client to query the CC3 chain.
+#[async_trait]
+pub trait CcRpcProvider: Send + Sync {
+    /// Fetch all attestations for a chain.
+    ///
+    /// Returns all attestations currently stored in the CC3 chain's retention buffer.
+    /// This is used when no indexer is available.
+    async fn get_attestations_for_chain(
+        &self,
+        chain_key: u64,
+    ) -> Result<Vec<SignedAttestation<H256, AccountId32>>>;
+
+    /// Get the most recent checkpoint for a chain.
+    async fn get_last_checkpoint(&self, chain_key: u64) -> Result<Option<AttestationCheckpoint>>;
+
+    /// Fetch all checkpoints for a chain.
+    ///
+    /// Checkpoints provide long-term storage of attestation data and occur
+    /// at regular intervals (e.g., every 10 attestations).
+    async fn get_checkpoints_for_chain(&self, chain_key: u64)
+        -> Result<Vec<AttestationCheckpoint>>;
+
+    /// Get a specific checkpoint by block height.
+    async fn get_checkpoint_by_height(
+        &self,
+        chain_key: u64,
+        block_number: u64,
+    ) -> Result<Option<AttestationCheckpoint>>;
+
+    /// Get the attestation genesis block number.
+    ///
+    /// This is the first source chain block that can be attested to.
+    /// Blocks before this cannot have proofs generated.
+    async fn get_attestation_chain_genesis_block_number(&self, chain_key: u64) -> Result<u64>;
+
+    /// Get the last attestation digest for a chain.
+    ///
+    /// This is a lightweight query that only fetches the digest without
+    /// the full attestation data.
+    async fn fetch_last_digest(&self, chain_key: u64) -> Result<Option<H256>>;
+
+    /// Get a specific attestation by its digest.
+    ///
+    /// Used in combination with `fetch_last_digest` to efficiently query
+    /// the last attestation without fetching all attestations.
+    async fn get_attestation_by_digest(
+        &self,
+        chain_key: u64,
+        digest: H256,
+    ) -> Result<Option<SignedAttestation<H256, AccountId32>>>;
+
+    /// Get the attestation interval for a chain.
+    ///
+    /// Returns the number of source chain blocks between attestations.
+    /// For example, if attestations occur every 10 blocks, this returns `10`.
+    async fn get_attestation_interval(&self, chain_key: u64) -> Result<Option<u64>>;
+
+    /// Get the checkpoint interval for a chain.
+    ///
+    /// Returns the number of attestations between checkpoints.
+    /// For example, if checkpoints occur every 10 attestations, this returns `10`.
+    async fn get_checkpoint_interval(&self, chain_key: u64) -> Result<Option<u64>>;
+
+    /// Hash and height of the Creditcoin node's current finalized head, so a caller can take
+    /// every startup read at one block and replay events from there. `None` when the provider
+    /// cannot pin reads to a block (mocks); callers then read latest state.
+    async fn finalized_head(&self) -> Result<Option<(H256, u64)>> {
+        Ok(None)
+    }
+
+    /// [`Self::get_attestations_for_chain`] as of block `at`. Defaults to the latest read for
+    /// providers that cannot pin.
+    async fn get_attestations_for_chain_at(
+        &self,
+        chain_key: u64,
+        _at: H256,
+    ) -> Result<Vec<SignedAttestation<H256, AccountId32>>> {
+        self.get_attestations_for_chain(chain_key).await
+    }
+
+    /// [`Self::get_checkpoints_for_chain`] as of block `at`.
+    async fn get_checkpoints_for_chain_at(
+        &self,
+        chain_key: u64,
+        _at: H256,
+    ) -> Result<Vec<AttestationCheckpoint>> {
+        self.get_checkpoints_for_chain(chain_key).await
+    }
+
+    /// [`Self::get_attestation_chain_genesis_block_number`] as of block `at`.
+    async fn get_attestation_chain_genesis_block_number_at(
+        &self,
+        chain_key: u64,
+        _at: H256,
+    ) -> Result<u64> {
+        self.get_attestation_chain_genesis_block_number(chain_key)
+            .await
+    }
+}
+
+/// Abstraction over source chain (Ethereum/EVM) RPC operations.
+///
+/// This trait defines all source chain operations required for building
+/// continuity fragments. It's implemented by [`ReconnectingEthRpcProvider`] (production)
+/// and can be mocked for testing.
+#[async_trait]
+pub trait EthRpcProvider: Send + Sync {
+    /// Build a sequence of continuity blocks from the source chain.
+    ///
+    /// This is the core operation for building proofs - it fetches blocks from
+    /// the source chain and computes the continuity chain with proper digests.
+    ///
+    /// # Arguments
+    ///
+    /// * `lower_digest` - The digest to link from (prev_digest of first block)
+    /// * `start` - First block number to include
+    /// * `end` - Last block number to include
+    ///
+    /// # Returns
+    ///
+    /// A vector of blocks forming a valid continuity chain.
+    async fn build_continuity_blocks(
+        &self,
+        lower_digest: H256,
+        start: u64,
+        end: u64,
+    ) -> Result<Vec<Block>>;
+
+    /// Fetch raw transaction bytes for a block.
+    ///
+    /// Returns transaction data in canonical order (as they appear in the block).
+    /// Used for building merkle proofs.
+    async fn get_block_tx_bytes(&self, block_number: u64) -> Result<Vec<Vec<u8>>>;
+
+    /// Get the transaction hash at a specific index.
+    ///
+    /// # Returns
+    ///
+    /// `Some(hash)` if the transaction exists, `None` if index is out of bounds.
+    async fn get_tx_hash_by_index(&self, block_number: u64, tx_index: u64) -> Result<Option<H256>>;
+
+    /// Fetch a block's transaction bytes **and** the transaction hash at `tx_index` from a
+    /// single block fetch, instead of two separate `get_block` round-trips (one for the bytes,
+    /// one for the hash). Providers backed by a real RPC override this to fetch the block once;
+    /// the default falls back to the two separate calls for mocks / unoptimized providers.
+    async fn get_block_tx_bytes_and_tx_hash(
+        &self,
+        block_number: u64,
+        tx_index: u64,
+    ) -> Result<(Vec<Vec<u8>>, Option<H256>)> {
+        let bytes = self.get_block_tx_bytes(block_number).await?;
+        let hash = self.get_tx_hash_by_index(block_number, tx_index).await?;
+        Ok((bytes, hash))
+    }
+
+    /// Fetch all tx hashes and encoded tx bytes for a block in canonical order.
+    async fn get_block_tx_data(&self, block_number: u64) -> Result<Vec<(H256, Vec<u8>)>> {
+        let bytes = self.get_block_tx_bytes(block_number).await?;
+        let mut txs = Vec::with_capacity(bytes.len());
+        for (idx, tx_bytes) in bytes.into_iter().enumerate() {
+            if let Some(tx_hash) = self.get_tx_hash_by_index(block_number, idx as u64).await? {
+                txs.push((tx_hash, tx_bytes));
+            }
+        }
+        Ok(txs)
+    }
+
+    /// Resolve a transaction hash to its position.
+    ///
+    /// # Returns
+    ///
+    /// `Some((block_number, tx_index))` if the transaction exists on chain,
+    /// `None` if the transaction hash is not found.
+    async fn get_tx_position_by_hash(&self, tx_hash: H256) -> Result<Option<(u64, u64)>>;
+
+    /// Get the current source chain block height.
+    async fn get_last_block(&self) -> Result<u64>;
+
+    /// Get the source chain ID.
+    ///
+    /// Useful for validation and health checks.
+    async fn get_chain_id(&self) -> Result<u64>;
+
+    /// Check if the source chain RPC is healthy.
+    async fn is_healthy(&self) -> Result<bool>;
+}
+
+#[async_trait]
+impl CcRpcProvider for CcClient {
+    async fn get_attestations_for_chain(
+        &self,
+        chain_key: u64,
+    ) -> Result<Vec<SignedAttestation<H256, AccountId32>>> {
+        self.get_attestations_for_chain(chain_key)
+            .await
+            .context("Failed to fetch attestations")
+    }
+
+    async fn get_last_checkpoint(&self, chain_key: u64) -> Result<Option<AttestationCheckpoint>> {
+        self.get_last_checkpoint(chain_key)
+            .await
+            .context("Failed to fetch last checkpoint")
+    }
+
+    async fn get_checkpoints_for_chain(
+        &self,
+        chain_key: u64,
+    ) -> Result<Vec<AttestationCheckpoint>> {
+        self.get_checkpoints_for_chain(chain_key)
+            .await
+            .context("Failed to fetch checkpoints")
+    }
+
+    async fn get_checkpoint_by_height(
+        &self,
+        chain_key: u64,
+        block_number: u64,
+    ) -> Result<Option<AttestationCheckpoint>> {
+        self.get_checkpoint_by_height(chain_key, block_number)
+            .await
+            .map_err(|e| anyhow!("Failed to fetch checkpoint by height: {e}"))
+    }
+
+    async fn get_attestation_chain_genesis_block_number(&self, chain_key: u64) -> Result<u64> {
+        self.get_attestation_chain_genesis_block_number(chain_key)
+            .await
+            .map_err(|e| anyhow!("Failed to fetch genesis block number: {e}"))
+    }
+
+    async fn fetch_last_digest(&self, chain_key: u64) -> Result<Option<H256>> {
+        self.fetch_last_digest(chain_key)
+            .await
+            .map(|opt| opt.map(|d| H256::from_slice(d.as_bytes())))
+            .map_err(|e| anyhow!("Failed to fetch last digest: {e}"))
+    }
+
+    async fn get_attestation_by_digest(
+        &self,
+        chain_key: u64,
+        digest: H256,
+    ) -> Result<Option<SignedAttestation<H256, AccountId32>>> {
+        let sp_digest = sp_core::H256::from_slice(digest.as_bytes());
+        self.get_attestation_by_digest(chain_key, sp_digest)
+            .await
+            .map(|opt| {
+                opt.map(|att| SignedAttestation {
+                    attestation: att.attestation,
+                    signature: att.signature,
+                    attestors: att.attestors,
+                    continuity_proof: att.continuity_proof,
+                })
+            })
+            .map_err(|e| anyhow!("Failed to fetch attestation by digest: {e}"))
+    }
+
+    async fn get_attestation_interval(&self, chain_key: u64) -> Result<Option<u64>> {
+        self.chain_attestation_interval(chain_key)
+            .await
+            .map_err(|e| anyhow!("Failed to fetch attestation interval: {e}"))
+    }
+
+    async fn get_checkpoint_interval(&self, chain_key: u64) -> Result<Option<u64>> {
+        self.chain_checkpoint_interval(chain_key)
+            .await
+            .map_err(|e| anyhow!("Failed to fetch checkpoint interval: {e}"))
+    }
+
+    async fn finalized_head(&self) -> Result<Option<(H256, u64)>> {
+        let (hash, number) = CcClient::finalized_head(self)
+            .await
+            .map_err(|e| anyhow!("Failed to fetch finalized head: {e}"))?;
+        Ok(Some((H256::from_slice(hash.as_bytes()), number)))
+    }
+
+    async fn get_attestations_for_chain_at(
+        &self,
+        chain_key: u64,
+        at: H256,
+    ) -> Result<Vec<SignedAttestation<H256, AccountId32>>> {
+        CcClient::get_attestations_for_chain_at(self, chain_key, Some(cc_hash(at)))
+            .await
+            .context("Failed to fetch attestations at snapshot")
+    }
+
+    async fn get_checkpoints_for_chain_at(
+        &self,
+        chain_key: u64,
+        at: H256,
+    ) -> Result<Vec<AttestationCheckpoint>> {
+        CcClient::get_checkpoints_for_chain_at(self, chain_key, Some(cc_hash(at)))
+            .await
+            .context("Failed to fetch checkpoints at snapshot")
+    }
+
+    async fn get_attestation_chain_genesis_block_number_at(
+        &self,
+        chain_key: u64,
+        at: H256,
+    ) -> Result<u64> {
+        CcClient::get_attestation_chain_genesis_block_number_at(self, chain_key, Some(cc_hash(at)))
+            .await
+            .map_err(|e| anyhow!("Failed to fetch genesis block number at snapshot: {e}"))
+    }
+}
+
+/// `sp_core::H256` → the cc-client's (subxt) `H256`; same 32 bytes, different crates.
+fn cc_hash(hash: H256) -> cc_client::H256 {
+    cc_client::H256::from_slice(hash.as_bytes())
+}
+
+#[async_trait]
+impl EthRpcProvider for ReconnectingEthRpcProvider {
+    async fn build_continuity_blocks(
+        &self,
+        lower_digest: H256,
+        start: u64,
+        end: u64,
+    ) -> Result<Vec<Block>> {
+        let encoding = self.encoding;
+        let deadline = range_deadline(self.call_timeout, start, end);
+        self.run_within(
+            "build_continuity_blocks",
+            deadline,
+            move |client| async move {
+                ContinuityManager::new(start, end, &client)
+                    .create(lower_digest, encoding)
+                    .await
+                    .context("Failed to create continuity blocks")
+            },
+        )
+        .await
+    }
+
+    async fn get_block_tx_bytes(&self, block_number: u64) -> Result<Vec<Vec<u8>>> {
+        let encoding = self.encoding;
+        self.run("get_block_tx_bytes", move |client| async move {
+            let ordered = client
+                .get_block(block_number, encoding)
+                .await
+                // Propagate a user-initiated `Interrupt::Stop` as a typed `Shutdown` error
+                // (carried inside this `anyhow::Error`) instead of panicking, so Ctrl+C /
+                // service shutdown exits gracefully.
+                .propagate_shutdown::<anyhow::Error>()
+                .context("Failed to fetch block transactions")?;
+
+            Ok(ordered.items().iter().map(|item| item.to_bytes()).collect())
+        })
+        .await
+    }
+
+    async fn get_tx_hash_by_index(&self, block_number: u64, tx_index: u64) -> Result<Option<H256>> {
+        let encoding = self.encoding;
+        self.run("get_tx_hash_by_index", move |client| async move {
+            let ordered = client
+                .get_block(block_number, encoding)
+                .await
+                .propagate_shutdown::<anyhow::Error>()
+                .context("Failed to fetch block")?;
+
+            Ok(ordered.items().get(tx_index as usize).map(|item| {
+                let hash_bytes = item.tx_hash().0;
+                H256::from_slice(&hash_bytes)
+            }))
+        })
+        .await
+    }
+
+    async fn get_block_tx_bytes_and_tx_hash(
+        &self,
+        block_number: u64,
+        tx_index: u64,
+    ) -> Result<(Vec<Vec<u8>>, Option<H256>)> {
+        let encoding = self.encoding;
+        self.run("get_block_tx_bytes_and_tx_hash", move |client| async move {
+            // One block fetch yields both the ordered tx bytes and the tx hash at `tx_index`,
+            // replacing the previous two separate `get_block` calls.
+            let ordered = client
+                .get_block(block_number, encoding)
+                .await
+                .propagate_shutdown::<anyhow::Error>()
+                .context("Failed to fetch block")?;
+
+            let bytes = ordered.items().iter().map(|item| item.to_bytes()).collect();
+            let hash = ordered
+                .items()
+                .get(tx_index as usize)
+                .map(|item| H256::from_slice(&item.tx_hash().0));
+            Ok((bytes, hash))
+        })
+        .await
+    }
+
+    async fn get_block_tx_data(&self, block_number: u64) -> Result<Vec<(H256, Vec<u8>)>> {
+        let encoding = self.encoding;
+        self.run("get_block_tx_data", move |client| async move {
+            let ordered = client
+                .get_block(block_number, encoding)
+                .await
+                .propagate_shutdown::<anyhow::Error>()
+                .context("Failed to fetch block")?;
+
+            Ok(ordered
+                .items()
+                .iter()
+                .map(|item| (H256::from_slice(&item.tx_hash().0), item.to_bytes()))
+                .collect())
+        })
+        .await
+    }
+
+    async fn get_tx_position_by_hash(&self, tx_hash: H256) -> Result<Option<(u64, u64)>> {
+        self.run("get_tx_position_by_hash", move |client| async move {
+            client
+                .get_tx_position_by_hash(tx_hash)
+                .await
+                .map_err(|e| anyhow!("{e}"))
+                .context("Rpc error resolving tx position")
+        })
+        .await
+    }
+
+    async fn get_last_block(&self) -> Result<u64> {
+        self.run("get_last_block", |client| async move {
+            client
+                .get_last_block()
+                .await
+                .map_err(|e| anyhow!("Failed to get current block height: {e}"))
+        })
+        .await
+    }
+
+    async fn get_chain_id(&self) -> Result<u64> {
+        self.run("get_chain_id", |client| async move {
+            client
+                .get_chain_id()
+                .await
+                .map_err(|e| anyhow!("Failed to get chain ID: {e}"))
+        })
+        .await
+    }
+
+    async fn is_healthy(&self) -> Result<bool> {
+        // Serving ability, not primary reachability. `get_last_block` walks the primary and
+        // every fallback under per-provider deadlines, so a replica whose primary is down but
+        // whose fallback still answers tip and block reads reports healthy, instead of being
+        // marked degraded and repaired for a connection it is not depending on.
+        //
+        // Observe, do not repair. The probe deliberately bypasses `run()`: a failed probe is a
+        // *report* for `/health`, not a transport fault to recover from, and `/health` cancels
+        // the probe at its 5 s budget, which would otherwise abort a shared repair halfway and
+        // leave every other caller retrying against a half-repaired client. Serving calls
+        // repair on their own failures; the probe just reads whatever client they use.
+        let (client, _generation) = self.snapshot().await;
+        client
+            .with_call_timeout(HEALTH_PROBE_CALL_TIMEOUT)
+            .get_last_block()
+            .await
+            .map(|_| true)
+            .map_err(|e| anyhow!("Failed to read the source tip: {e}"))
+    }
+}
+
+/// Type alias for a shared (Arc-wrapped) Creditcoin3 RPC provider.
+///
+/// This allows multiple builders or services to share the same CC3 client,
+/// avoiding duplicate connections.
+pub type SharedCcProvider = Arc<dyn CcRpcProvider>;
+
+/// Type alias for a shared (Arc-wrapped) source chain RPC provider.
+///
+/// This allows multiple builders or services to share the same ETH client,
+/// which is especially useful when block caching is enabled.
+pub type SharedEthProvider = Arc<dyn EthRpcProvider>;
+
+#[cfg(test)]
+mod range_deadline_tests {
+    use super::*;
+
+    #[test]
+    fn a_range_fetch_gets_a_deadline_that_scales_with_its_size() {
+        let base = Duration::from_secs(300);
+        assert_eq!(
+            range_deadline(base, 10, 10),
+            base + ETH_RPC_PER_BLOCK_BUDGET
+        );
+        assert_eq!(
+            range_deadline(base, 1, 1000),
+            base + ETH_RPC_PER_BLOCK_BUDGET * 1000
+        );
+        assert_eq!(
+            range_deadline(base, 5, 1),
+            base + ETH_RPC_PER_BLOCK_BUDGET,
+            "an inverted range is one block, never a panic"
+        );
+    }
+}

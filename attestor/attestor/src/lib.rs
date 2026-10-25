@@ -1,0 +1,636 @@
+//! attestor — async tasks, JoinSet supervisor, lightweight-vote protocol.
+//!
+//! # Layout
+//!
+//! - [`Attestor::run`] is the orchestrator. It does the synchronous startup work
+//!   (resolve endpoints, register BLS, wait for eligibility, fetch chain config), constructs
+//!   the [`shared::Shared`] state, then spawns four async tasks on a single tokio runtime:
+//!   `api`, `p2p`, `production`, `validation`.
+//! - There is **one** `Arc<cc_client::Client>` — every task shares it, so any `cc3.reconnect()`
+//!   from any task is observed everywhere (the inner `ArcSwap` is shared).
+//! - There are **no** OS threads spawned for workers. No per-worker tokio runtime.
+//! - There is **one** CC3 finality subscription, owned by the production task. The validation
+//!   task watches `latest_finalized` via a `watch::Receiver` instead of subscribing again.
+//! - Cancellation is a single [`tokio_util::sync::CancellationToken`]. Ctrl+C is handled here
+//!   in `run` — tasks just observe `token.cancelled()`. No `Interrupt::Stop` propagation.
+
+pub mod attestation;
+pub mod bls;
+pub mod error;
+pub mod health;
+pub mod proof_cache;
+pub mod retry;
+pub mod secret;
+pub mod shared;
+pub mod startup;
+pub mod tasks;
+pub mod vote;
+
+pub use error::Error;
+
+use std::num::NonZero;
+use std::sync::Arc;
+
+use tokio::sync::{mpsc, watch};
+use tokio::task::JoinSet;
+use tokio_util::sync::CancellationToken;
+
+use crate::shared::{AttestationInfo, Shared};
+
+// -------------------------------------- [ Configuration ] ------------------------------------ //
+
+#[derive(builder::Builder)]
+pub struct Config {
+    name: String,
+    chain_key: attestor_primitives::ChainKey,
+    stream: secret::Config,
+    attestation: attestation::Config,
+    p2p: tasks::p2p::ConfigIncomplete,
+    api: tasks::api::Config,
+}
+
+// ---------------------------------------- [ Attestor ] ---------------------------------------- //
+
+pub struct Attestor {
+    config: Config,
+}
+
+impl Attestor {
+    pub fn new(config: Config) -> Self {
+        Self { config }
+    }
+
+    #[tracing::instrument(
+        name = "attestor",
+        skip_all,
+        fields(name = self.config.name, chain_key = %self.config.chain_key),
+    )]
+    pub async fn run(self) -> Result<(), Error> {
+        let token = CancellationToken::new();
+
+        // Watch for Ctrl+C / SIGTERM from the very first await so a shutdown during the
+        // synchronous startup phase (waiting on RPC endpoints, election) takes effect promptly
+        // instead of hanging until the task supervisor is up. The supervisor below also selects
+        // on the same signals; both cancelling the same token is idempotent.
+        tokio::spawn({
+            let token = token.clone();
+            async move {
+                shutdown_signal().await;
+                token.cancel();
+            }
+        });
+
+        // ----------------------------------* identity *--------------------------------------- //
+
+        let chain_key = self.config.chain_key;
+
+        let secret_str = self.config.stream.secret.to_secret_uri_string();
+        let signer = cc_client::signer::CC3Signer::new(secret_str.as_str()).map_err(Error::Init)?;
+        let account_id = signer.account_id();
+        let attestor_id = attestor_primitives::AttestorId::from_public(account_id.0);
+
+        let mut seed = self.config.stream.secret.to_seed_bytes_32();
+        let keypair_p2p =
+            libp2p::identity::Keypair::ed25519_from_bytes(&mut *seed).expect("ed25519 keypair");
+        let peer_id = libp2p::PeerId::from_public_key(&keypair_p2p.public());
+
+        let bls_seed = self.config.stream.secret.to_bls_seed_bytes();
+        let bls_key = bls_signatures::PrivateKey::new(bls_seed.as_slice());
+
+        tracing::info!(name = %self.config.name, %account_id, %chain_key, "🙋‍♀️ starting attestor");
+
+        // ----------------------------------* endpoints *-------------------------------------- //
+
+        match startup::wait_for_endpoints(
+            &token,
+            &self.config.stream.url_eth,
+            &self.config.stream.url_cc3,
+        )
+        .await
+        {
+            Ok(()) => {}
+            Err(Error::ShutdownDuringStartup) => {
+                tracing::info!("🔌 shutdown during startup (endpoint wait)");
+                return Ok(());
+            }
+            Err(e) => return Err(e),
+        }
+
+        // ONE cc3 client, shared everywhere.
+        let cc3_raw = tokio::select! {
+            _ = token.cancelled() => {
+                tracing::info!("🔌 shutdown during startup (cc3 client)");
+                return Ok(());
+            }
+            result = cc_client::Client::new(
+                self.config.stream.url_cc3.as_ref().as_ref(),
+                secret_str.as_str(),
+            ) => result.map_err(Error::Init)?,
+        };
+        let cc3 = Arc::new(cc3_raw);
+
+        // -------------------------* liveness endpoint (early) *------------------------------- //
+        //
+        // Bind and serve /health + /metrics BEFORE the long startup phases: the election wait
+        // below can take days and the BLS fetch rides out outages unboundedly. Without an
+        // endpoint during those, a k8s livenessProbe gets connection-refused throughout a
+        // legitimate wait — forcing either kill-loops or a huge initialDelaySeconds that blunts
+        // real wedge detection. /health serves `starting` (200) until the tasks spawn
+        // (health.note_started below); /metrics serves 503 until the registry — which needs
+        // post-election chain state — is dropped into the OnceLock slot. Binding here also
+        // surfaces a port conflict immediately instead of after the election wait. The only
+        // phase still uncovered is the endpoint wait above, which needs no cc3 client and is
+        // where "connection refused" is a fair description of the pod's state anyway.
+        let health: crate::health::SharedHealth = Arc::new(crate::health::Health::new());
+        let api_metrics: Arc<std::sync::OnceLock<metrics::Metrics>> =
+            Arc::new(std::sync::OnceLock::new());
+        let api_listener =
+            tokio::net::TcpListener::bind(format!("0.0.0.0:{}", self.config.api.port))
+                .await
+                .map_err(Error::Io)?;
+
+        let mut set: JoinSet<Result<&'static str, Error>> = JoinSet::new();
+        {
+            let token = token.clone();
+            let health = health.clone();
+            let cc3 = cc3.clone();
+            let api_metrics = api_metrics.clone();
+            set.spawn(async move {
+                tasks::api::run(token, health, cc3, api_metrics, api_listener)
+                    .await
+                    .map(|_| "api")
+            });
+        }
+
+        // Reconcile the metadata the binary was compiled against with the chain's live
+        // metadata before doing anything that depends on extrinsic encoding. Applies the
+        // chain's metadata into the OnlineClient on a compatible drift; refuses to boot on
+        // a breaking Attestation pallet change.
+        startup::reconcile_metadata(&cc3).await?;
+
+        let eth = tokio::select! {
+            _ = token.cancelled() => {
+                tracing::info!("🔌 shutdown during startup (eth client)");
+                return Ok(());
+            }
+            result = eth::Client::new(self.config.stream.url_eth.as_ref().as_ref(), None) => {
+                result.map_err(Error::Init)?
+            }
+        };
+        let eth = match self.config.stream.eth_rps {
+            Some(rps) => eth.with_rate_limit(rps),
+            None => eth,
+        };
+        tracing::info!(
+            eth_rps = self.config.stream.eth_rps.map(|rps| rps.get()),
+            eth_max_concurrency = self.config.stream.eth_max_concurrency.get(),
+            eth_head_poll_secs = self.config.stream.eth_head_poll_interval.as_secs(),
+            subscriptions = eth.supports_subscriptions(),
+            "🚦 source-chain RPC pacing"
+        );
+
+        // ----------------------------------* chain config *----------------------------------- //
+
+        let supported_chain = cc3
+            .get_supported_chain(chain_key)
+            .await?
+            .ok_or(Error::ChainKeyNotSupported(chain_key))?;
+        if supported_chain.chain_id != eth.chain_id() {
+            return Err(Error::ChainIdMismatch {
+                runtime: supported_chain.chain_id,
+                rpc: eth.chain_id(),
+            });
+        }
+
+        let strategy: supported_chains_primitives::MaturityStrategy = supported_chain
+            .maturity_strategy
+            .as_str()
+            .try_into()
+            .map_err(|e| Error::InvalidMaturityStrategy(chain_key, e))?;
+        let maturity = stream::eth::maturity_from_strategy(&strategy)
+            .ok_or(Error::UnsupportedMaturityStrategy(strategy))?;
+        tracing::info!(chain_key, %maturity, "⏳ block maturity resolved from on-chain strategy");
+        let encoding =
+            usc_abi_encoding::common::EncodingVersion::from(supported_chain.chain_encoding);
+
+        // ----------------------------------* balance check *---------------------------------- //
+
+        let free = cc3.get_free_balance(&account_id).await?;
+        if free < common::constants::MIN_BALANCE {
+            return Err(Error::Init(anyhow::anyhow!(
+                "insufficient balance: {free} < {}",
+                common::constants::MIN_BALANCE
+            )));
+        }
+        tracing::info!(%account_id, balance = %free, "🔍 balance ok");
+
+        // ----------------------------------* register + eligibility *------------------------- //
+
+        startup::register_bls(chain_key, &cc3, &account_id, &bls_key).await?;
+        let attestors = match startup::wait_for_eligible(&token, chain_key, &cc3, &account_id).await
+        {
+            Ok(a) => a,
+            Err(Error::ShutdownDuringStartup) => {
+                tracing::info!("🔌 shutdown during startup (election wait)");
+                return Ok(());
+            }
+            Err(e) => return Err(e),
+        };
+
+        let bls_store = Arc::new(
+            match bls::BlsStore::new(&cc3, &token, chain_key, &attestors).await {
+                Ok(store) => store,
+                // `with_retries` inside the fetch maps a fired cancellation token to a synthetic
+                // RPC error — SIGTERM during the post-election BLS fetch is a clean shutdown, not
+                // a failure. Mirror the `ShutdownDuringStartup` handling of the waits above.
+                Err(_) if token.is_cancelled() => {
+                    tracing::info!("🔌 shutdown during startup (BLS fetch)");
+                    return Ok(());
+                }
+                Err(e) => return Err(Error::Rpc(e)),
+            },
+        );
+
+        // ----------------------------------* attestation params *----------------------------- //
+
+        let interval_on_chain = cc3
+            .chain_attestation_interval(chain_key)
+            .await?
+            .and_then(NonZero::new);
+        let interval_attestation =
+            if let Some(forced) = self.config.attestation.attestation_interval {
+                // The runtime only accepts an attestation at least the on-chain interval past
+                // the last one, so a shorter forced interval gets most attestations rejected.
+                if let Some(on_chain) = interval_on_chain.filter(|on_chain| forced < *on_chain) {
+                    tracing::warn!(
+                        "⚠️ forced attestation interval {forced} is below the on-chain interval \
+                         {on_chain}; attestations closer than {on_chain} blocks to the last one \
+                         are rejected"
+                    );
+                }
+                forced
+            } else {
+                interval_on_chain.ok_or(Error::MissingAttestationInterval(chain_key))?
+            };
+
+        let (genesis_height, start_attestation) =
+            startup::fetch_start_point(chain_key, cc3.as_ref()).await?;
+        let start_height = self
+            .config
+            .attestation
+            .start_height
+            .or_else(|| start_attestation.as_ref().map(|i| i.height + 1))
+            .unwrap_or(genesis_height);
+
+        // Live quorum: `2/3+1` of `|ActiveAttestors|`. Read from the chain rather than derived
+        // locally so this node enforces exactly what the runtime does — a threshold computed from
+        // anything else either burns fees on `MajorityNotReached` (too low) or leaves the node
+        // booting healthy and silently never submitting (too high).
+        let quorum = NonZero::new(
+            cc3.quorum(chain_key)
+                .await
+                .map_err(|_| Error::QuorumReadFailed(chain_key))? as usize,
+        )
+        .expect("quorum > 0");
+        health.set_p2p_expected(quorum.get() > 1);
+
+        // On-chain `MaxCatchup` (block-count bound per continuity proof). `Client::max_catchup`
+        // uses `fetch_or_default`, so an `Ok` is always the effective runtime value — a transport
+        // failure is the *only* `Err`, and must fail the boot (like the quorum above)
+        // rather than silently substitute a default that would leave the pool / p2p / proof
+        // windows permanently wrong until a `MaxCatchupChanged` event that may never arrive. The
+        // `NonZero` fallback then only guards a chain whose runtime default is genuinely zero (the
+        // runtime rejects zero at `set_max_catchup`, so this is the default-free case).
+        let max_catchup = NonZero::new(u64::from(
+            cc3.max_catchup(chain_key)
+                .await
+                .map_err(|_| Error::MissingMaxCatchup(chain_key))?,
+        ))
+        .unwrap_or(common::constants::MAX_CATCHUP);
+
+        tracing::info!(
+            quorum = %quorum,
+            interval = %interval_attestation,
+            max_catchup = %max_catchup,
+            start_height,
+            ?start_attestation,
+            "🧑‍🤝‍🧑 chain data");
+
+        // ----------------------------------* shared state *----------------------------------- //
+
+        let proof_cache = proof_cache::ProofCache::new();
+
+        // Metrics
+        let metrics_cfg = metrics::ConfigBuilder::new()
+            .with_name(self.config.name.clone())
+            .with_address(account_id.clone())
+            .with_peer_id(peer_id)
+            .with_chain_key(chain_key)
+            .with_start_height(start_height)
+            .with_start_attestation(start_attestation.map(|i| stream::util::AttestationInfo {
+                height: i.height,
+                digest: i.digest,
+            }))
+            .with_genesis(genesis_height)
+            .with_attestation_latest_eth(start_height)
+            .with_attestation_interval(interval_attestation)
+            .build();
+        let metrics = metrics::Metrics::new(metrics_cfg);
+        // Un-degrade /metrics: the early-spawned api task serves 503 until this lands.
+        let _ = api_metrics.set(metrics.clone());
+
+        // Pool — wires its MetricsHook to our Prometheus registry.
+        struct PoolMetrics(metrics::Metrics);
+        impl attestor_pool::MetricsHook for PoolMetrics {
+            fn quorum_delay(&self, elapsed: std::time::Duration) {
+                self.0.observe_quorum_delay(elapsed);
+            }
+            fn invalid_vote(&self) {
+                self.0.increase_invalid_attestation_count();
+            }
+            fn equivocation(&self) {
+                self.0.increase_equivocation_count();
+            }
+        }
+
+        let (pool_send, pool_recv) = attestor_pool::attestation_pool(
+            attestor_pool::ConfigBuilder::new()
+                .with_attestors(attestors)
+                .with_quorum(quorum)
+                .with_attestation_interval(interval_attestation)
+                .with_start_height(start_height)
+                .with_max_catchup(max_catchup)
+                .with_start_digest(start_attestation.map(|i| i.digest))
+                .with_start_height_finalized(start_attestation.map(|i| i.height))
+                .with_metrics(
+                    Box::new(PoolMetrics(metrics.clone())) as Box<dyn attestor_pool::MetricsHook>
+                )
+                .build(),
+        );
+
+        // Channels and watches. The gossip channel is unbounded: production must neither block
+        // on nor drop a locally signed vote (see `Shared::gossip_tx`); the p2p task drains it
+        // unconditionally and its own retry queue is bounded.
+        let (gossip_tx, gossip_rx) = mpsc::unbounded_channel::<vote::Vote>();
+        // Production → p2p nudge to evict a chilled/kicked attestor's peer. Unbounded: rare
+        // (committee-change) events that must not apply backpressure to the production task.
+        let (peer_deactivated_tx, peer_deactivated_rx) =
+            mpsc::unbounded_channel::<attestor_primitives::AttestorId>();
+        let (can_attest_tx, can_attest_rx) = watch::channel::<bool>(true);
+        // `None` until the production task observes the first BlockAttested event. Validation's
+        // `wait_for_finalized` helper waits for `Some(info)` with `info.height >= target`, so it
+        // can't be tricked by a placeholder zero-digest value.
+        let (latest_finalized_tx, latest_finalized_rx) =
+            watch::channel::<Option<AttestationInfo>>(start_attestation);
+
+        // `None` until production caches its first local AttestationData. p2p uses this to
+        // drain a buffer of votes that arrived ahead of our local production at that height.
+        let (local_produced_tx, local_produced_rx) =
+            watch::channel::<Option<attestor_primitives::Height>>(None);
+
+        let shared = Arc::new(Shared {
+            name: self.config.name.clone(),
+            chain_key,
+            encoding,
+            account_id,
+            attestor_id,
+
+            signer,
+            bls_key,
+
+            cc3: cc3.clone(),
+            eth,
+            eth_max_concurrency: self.config.stream.eth_max_concurrency,
+            eth_head_poll_interval: self.config.stream.eth_head_poll_interval,
+
+            bls_store,
+            metrics,
+            // The instance the early-spawned api task already serves — one watchdog, one view.
+            health: health.clone(),
+
+            pool_send,
+            gossip_tx,
+            peer_deactivated_tx,
+
+            attest_target: std::sync::atomic::AtomicBool::new(true),
+            eligibility_gen: std::sync::atomic::AtomicU64::new(0),
+            can_attest_tx,
+            can_attest_rx,
+
+            latest_finalized_tx,
+            latest_finalized_rx,
+
+            local_produced_tx,
+            local_produced_rx,
+
+            proof_cache,
+
+            interval_attestation: parking_lot::RwLock::new(interval_attestation),
+            max_catchup: parking_lot::RwLock::new(max_catchup),
+            maturity,
+            start_height,
+            genesis: genesis_height,
+
+            token: token.clone(),
+        });
+
+        // ----------------------------------* spawn tasks *------------------------------------ //
+        //
+        // (`set` was created up top so the api task could spawn before the startup waits.)
+
+        // Leave the watchdog's Starting state and re-seed its deadlines: the tasks are about to
+        // run, so "no progress yet" starts counting from here, not from construction (which may
+        // be days ago if the election wait was long).
+        health.note_started();
+
+        {
+            let shared = shared.clone();
+            let cfg = self
+                .config
+                .p2p
+                .with_keypair(keypair_p2p)
+                .with_chain_key(chain_key)
+                .build();
+            set.spawn(async move {
+                tasks::p2p::run(shared, cfg, gossip_rx, peer_deactivated_rx)
+                    .await
+                    .map(|_| "p2p")
+            });
+        }
+
+        {
+            let shared = shared.clone();
+            set.spawn(async move {
+                tasks::production::run(shared, start_attestation)
+                    .await
+                    .map(|_| "production")
+            });
+        }
+
+        {
+            let shared = shared.clone();
+            set.spawn(async move {
+                tasks::validation::run(shared, pool_recv)
+                    .await
+                    .map(|_| "validation")
+            });
+        }
+
+        {
+            let shared = shared.clone();
+            set.spawn(async move {
+                tasks::runtime_updater::run(shared)
+                    .await
+                    .map(|_| "runtime_updater")
+            });
+        }
+
+        tracing::info!("✅ all services online");
+
+        // ----------------------------------* supervise *-------------------------------------- //
+        //
+        // The supervision loop is now ~15 lines: select on (ctrl_c, joinset). First
+        // ctrl_c → cancel token, drain remaining tasks. First failing task → cancel token,
+        // drain. This replaces the v1 `CancellationMonitor + Notify + wait_for_worker`
+        // (~100 lines) with this:
+
+        let mut result: Result<(), Error> = Ok(());
+
+        // First signal wins: either ctrl_c, or the first task to exit. Every branch ends the
+        // select (no looping) — we then cancel and drain. Tasks are meant to run until
+        // `token.cancelled()`, so *any* task exit here is the trigger to shut the whole set down.
+        tokio::select! {
+            _ = shutdown_signal() => {
+                tracing::info!("🔌 shutdown signal");
+                token.cancel();
+            }
+            Some(joined) = set.join_next() => {
+                match joined {
+                    // A task returning Ok while the token is still live is not a clean shutdown —
+                    // it's a core service quietly dying while the rest of the pod (notably the
+                    // /metrics endpoint) keeps reporting healthy. Promote it to a failure so we
+                    // cancel + drain + exit nonzero and k8s restarts us, rather than limping on
+                    // half-dead. If the token is already cancelled, ctrl_c won the race and this
+                    // is a legitimate shutdown exit. (No task self-cancels: fatal conditions like
+                    // runtime-metadata drift return Err and are handled below.)
+                    Ok(Ok(name)) => {
+                        if token.is_cancelled() {
+                            tracing::info!(task = name, "🟢 task exited after shutdown was requested");
+                        } else {
+                            tracing::error!(task = name, "⛔ task exited before shutdown was requested");
+                            result = Err(Error::TaskExitedEarly(name));
+                        }
+                    }
+                    Ok(Err(err)) => {
+                        if token.is_cancelled() {
+                            // Shutdown was already requested (the signal watcher cancels the
+                            // token directly), so this is the same cancellation artifact the
+                            // drain below tolerates — most commonly `with_retries` mapping the
+                            // fired token to a synthetic RPC error that the task propagates
+                            // with `?`. Not a fault, not a nonzero exit; the drain collects
+                            // the remaining tasks.
+                            tracing::warn!(%err, "🌀 task errored after shutdown was requested — cancellation noise");
+                        } else {
+                            tracing::error!(%err, "⛔ task failed");
+                            result = Err(err);
+                        }
+                    }
+                    Err(join_err) => {
+                        tracing::error!(%join_err, "⛔ task join error");
+                        result = Err(Error::TaskJoin(join_err));
+                    }
+                }
+                // Flip /health to unhealthy now so a livenessProbe restarts us promptly even if
+                // the drain below stalls on a wedged sibling task.
+                if result.is_err() {
+                    shared.health.note_fault();
+                }
+                token.cancel();
+            }
+        }
+
+        // Give cooperative cancellation a bounded window. A task stuck in a non-cancellable
+        // dependency must not hold the process past the pod's termination grace period.
+        const SHUTDOWN_DRAIN_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(20);
+        let drained = tokio::time::timeout(SHUTDOWN_DRAIN_TIMEOUT, async {
+            let mut joined_tasks = Vec::new();
+            while let Some(joined) = set.join_next().await {
+                joined_tasks.push(joined);
+            }
+            joined_tasks
+        })
+        .await;
+
+        let joined_tasks = match drained {
+            Ok(joined_tasks) => joined_tasks,
+            Err(_) => {
+                tracing::error!(
+                    timeout_secs = SHUTDOWN_DRAIN_TIMEOUT.as_secs(),
+                    remaining = set.len(),
+                    "⏰ shutdown drain timed out — aborting remaining tasks"
+                );
+                set.abort_all();
+                while set.join_next().await.is_some() {}
+                Vec::new()
+            }
+        };
+
+        for joined in joined_tasks {
+            match joined {
+                Ok(Ok(name)) => tracing::info!(task = name, "🟢 task exited cleanly"),
+                Ok(Err(err)) => {
+                    // Not promoted into the process result. Tasks legitimately surface errors
+                    // on the way out of a cancellation-driven drain — most commonly
+                    // `with_retries` mapping the fired token to a synthetic RPC error that the
+                    // task then propagates with `?` — and promoting those turned every clean
+                    // SIGTERM into a nonzero exit. This costs nothing for real faults: a
+                    // shutdown *caused by* a task failure already carries that failure in
+                    // `result` (the promotion above only ever fired on the clean-signal path),
+                    // and panics during the drain are still promoted below — a panic is never
+                    // part of a clean exit.
+                    tracing::warn!(%err, "🌀 task errored during shutdown drain (expected when cancellation interrupts in-flight RPC)");
+                }
+                Err(join_err) => {
+                    tracing::error!(%join_err, "⛔ task join error during shutdown");
+                    if result.is_ok() {
+                        result = Err(Error::TaskJoin(join_err));
+                    }
+                }
+            }
+        }
+
+        result
+    }
+}
+
+/// Resolves on SIGINT (Ctrl-C) or SIGTERM. Kubernetes stops pods with SIGTERM; handling only
+/// Ctrl-C meant every k8s stop skipped the clean cancel-and-drain path and rode out the
+/// termination grace period to the SIGKILL.
+async fn shutdown_signal() {
+    let ctrl_c = tokio::signal::ctrl_c();
+
+    #[cfg(unix)]
+    {
+        let mut sigterm =
+            match tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()) {
+                Ok(sigterm) => sigterm,
+                Err(err) => {
+                    tracing::warn!(
+                        ?err,
+                        "failed to install SIGTERM handler — only Ctrl-C triggers clean shutdown"
+                    );
+                    let _ = ctrl_c.await;
+                    return;
+                }
+            };
+        tokio::select! {
+            _ = ctrl_c => {}
+            _ = sigterm.recv() => {}
+        }
+    }
+
+    #[cfg(not(unix))]
+    {
+        let _ = ctrl_c.await;
+    }
+}

@@ -1,0 +1,377 @@
+[workspace]
+exclude = ["attestor/vendor/libp2p-gossipsub"]
+members = [
+    "archiver",
+    "node",
+    "runtime",
+    "runtime/generate-bags",
+    "pallets/attestation",
+    "pallets/randomness",
+    "pallets/supported-chains",
+    "primitives/attestor",
+    "primitives/randomness",
+    "primitives/supported-chains",
+    "primitives/user",
+    "precompiles/chain-info",
+    "precompiles/ed25519-verifier",
+    "precompiles/sr25519-verifier",
+    "precompiles/substrate-transfer",
+    "precompiles/block-prover",
+    "precompiles/attestor-stash",
+    "common/cc-client",
+    "common/continuity",
+    "common/eth",
+    "common/indexer-client",
+    "common/merkle",
+    "common/utils",
+    "common/builder",
+    "common/streams/eth",
+    "common/streams/cc3",
+    "common/streams/attestation",
+    "common/streams/util",
+    "common/streams/stream",
+    "query-cli",
+    "proof-gen-api-server",
+    # Attestor
+    "attestor/attestor",
+    "attestor/pool",
+    "attestor/zombienet",
+    "attestor/metrics",
+    "attestor/common",
+    "checkpoint-builder",
+    # Vendored tracing crates (formerly from gluwa/moonbeam)
+    "tracing/primitives/ext",
+    "tracing/primitives/rpc/debug",
+    "tracing/primitives/rpc/evm-tracing-events",
+    "tracing/runtime/evm_tracer",
+    "tracing/client/evm-tracing",
+    "tracing/client/rpc-core/types",
+    "tracing/client/rpc-core/debug",
+    "tracing/client/rpc-core/trace",
+    "tracing/client/rpc/debug",
+    "tracing/client/rpc/trace",
+]
+resolver = "2"
+
+[workspace.package]
+authors = ["Gluwa Inc. Developer Support <support.dev@gluwa.com>"]
+edition = "2021"
+license = "Unlicense"
+publish = false
+repository = "https://github.com/gluwa/creditcoin3-next/"
+version = "3.140.0"
+
+[workspace.dependencies]
+arc-swap = "1.9.1"
+assert_matches = "1.5.0"
+bn = { package = "substrate-bn", version = "0.6", default-features = false }
+finality-grandpa = "0.16.3"
+pretty_assertions = { version = "1.4.1" }
+proptest = "1.10.0"
+rstest = "0.26.1"
+sync_wrapper = "1.0.2"
+tokio-retry = "0.3"
+tokio-test = "0.4.4"
+
+# Substrate Client
+affix = "0.1"
+anyhow = { version = "1.0.68", default-features = false }
+async-stream = { version = "0.3.6" }
+async-trait = { version = "0.1.42" }
+axum = { version = "0.8" }
+bip32 = { version = "0.5.1", default-features = false, features = ["bip39"] }
+clap = { version = "4.5.3", features = ["derive", "env"] }
+derive_more = "0.99.17"
+dotenvy = "0.15"
+ed25519-dalek = { version = "2.2.0", default-features = false }
+env_logger = "0.11"
+environmental = { version = "1.1.4", default-features = false }
+ethereum = { version = "0.18.2", default-features = false }
+ethereum-types = { version = "0.14.1", default-features = false }
+futures = { version = "0.3.30" }
+futures-timer = { version = "3.0" }
+futures-util = { version = "0.3", default-features = false }
+hex = { version = "0.4.3", default-features = false }
+hex-literal = { version = "0.4.1", default-features = false }
+impl-trait-for-tuples = { version = "0.2.2" }
+jsonrpsee = { version = "0.24.7", default-features = false }
+libsecp256k1 = { version = "0.7", default-features = false }
+log = { version = "0.4.21", default-features = false }
+num_enum = { version = "0.5.3", default-features = false }
+once_cell = { version = "1.19.0" }
+parity-scale-codec = { version = "3.6", default-features = false, features = [
+    "derive",
+] }
+parking_lot = "0.12.1"
+paste = "1.0.14"
+primitive-types = "0.12.1"
+rayon = { version = "1.10.0" }
+redis = { version = "1.0", default-features = false }
+reqwest = { version = "0.12", features = ["multipart", "json"] }
+scale-info = { version = "2.11", default-features = false, features = [
+    "derive",
+] }
+serde = { version = "1.0.197", default-features = false }
+serde_json = { version = "1.0.145", default-features = false }
+serde_yaml = { version = "0.9.34" }
+sha3 = { version = "0.10", default-features = false }
+similar-asserts = "1.6.0"
+sled = "0.34"
+slices = "0.2.0"
+snap = "1.1"
+sqlx = { version = "0.7.4", default-features = false, features = ["macros"] }
+tempfile = { version = "3.10", default-features = false }
+thiserror = { version = "1.0.63", default-features = false }
+tiny-bip39 = { version = "0.8", default-features = false }
+tokio = { version = "1.37.0" }
+tokio-tungstenite = { version = "0.26.2" }
+tower = { version = "0.5", default-features = false }
+tower-http = { version = "0.6", features = ["trace", "cors"] }
+tracing = "0.1.37"
+tracing-appender = "0.2.3"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+url = { version = "2.4.0" }
+wasm-timer = { version = "0.2" }
+zeroize = { version = "1.8", features = ["derive"] }
+# Alloy
+alloy = { version = "0.11", features = [
+    "node-bindings",
+    "providers",
+    "provider-http",
+    "provider-ws",
+    "rpc-client",
+    "rpc-types",
+    "rpc-types-eth",
+    "consensus",
+    "rlp",
+    "contract",
+    "sol-types",
+    "signers",
+] }
+
+# Starknet dependencies removed - no longer needed
+
+cumulus-primitives-proof-size-hostfunction = { git = "https://github.com/paritytech/polkadot-sdk", branch = "stable2512" }
+frame-benchmarking = { git = "https://github.com/paritytech/polkadot-sdk", branch = "stable2512", default-features = false }
+frame-benchmarking-cli = { git = "https://github.com/paritytech/polkadot-sdk", branch = "stable2512" }
+frame-election-provider-support = { git = "https://github.com/paritytech/polkadot-sdk", branch = "stable2512", default-features = false }
+frame-executive = { git = "https://github.com/paritytech/polkadot-sdk", branch = "stable2512", default-features = false }
+frame-metadata-hash-extension = { git = "https://github.com/paritytech/polkadot-sdk", branch = "stable2512", default-features = false }
+frame-support = { git = "https://github.com/paritytech/polkadot-sdk", branch = "stable2512", default-features = false }
+frame-system = { git = "https://github.com/paritytech/polkadot-sdk", branch = "stable2512", default-features = false }
+frame-system-benchmarking = { git = "https://github.com/paritytech/polkadot-sdk", branch = "stable2512", default-features = false }
+frame-system-rpc-runtime-api = { git = "https://github.com/paritytech/polkadot-sdk", branch = "stable2512", default-features = false }
+frame-try-runtime = { git = "https://github.com/paritytech/polkadot-sdk", branch = "stable2512", default-features = false }
+generate-bags = { git = "https://github.com/paritytech/polkadot-sdk", branch = "stable2512" }
+pallet-authorship = { git = "https://github.com/paritytech/polkadot-sdk", branch = "stable2512", default-features = false }
+pallet-babe = { git = "https://github.com/paritytech/polkadot-sdk", branch = "stable2512", default-features = false }
+pallet-bags-list = { git = "https://github.com/paritytech/polkadot-sdk", branch = "stable2512", default-features = false }
+pallet-balances = { git = "https://github.com/paritytech/polkadot-sdk", branch = "stable2512", default-features = false }
+pallet-fast-unstake = { git = "https://github.com/paritytech/polkadot-sdk", branch = "stable2512", default-features = false }
+pallet-grandpa = { git = "https://github.com/paritytech/polkadot-sdk", branch = "stable2512", default-features = false }
+pallet-identity = { git = "https://github.com/paritytech/polkadot-sdk", branch = "stable2512", default-features = false }
+pallet-im-online = { git = "https://github.com/paritytech/polkadot-sdk", branch = "stable2512", default-features = false }
+pallet-membership = { git = "https://github.com/paritytech/polkadot-sdk", branch = "stable2512", default-features = false }
+pallet-migrations = { git = "https://github.com/paritytech/polkadot-sdk", branch = "stable2512", default-features = false }
+pallet-nomination-pools = { git = "https://github.com/paritytech/polkadot-sdk", branch = "stable2512", default-features = false }
+pallet-nomination-pools-runtime-api = { git = "https://github.com/paritytech/polkadot-sdk", branch = "stable2512", default-features = false }
+pallet-offences = { git = "https://github.com/paritytech/polkadot-sdk", branch = "stable2512", default-features = false }
+pallet-proxy = { git = "https://github.com/paritytech/polkadot-sdk", branch = "stable2512", default-features = false }
+pallet-session = { git = "https://github.com/paritytech/polkadot-sdk", branch = "stable2512", default-features = false }
+pallet-staking = { git = "https://github.com/paritytech/polkadot-sdk", branch = "stable2512", default-features = false }
+pallet-staking-reward-curve = { git = "https://github.com/paritytech/polkadot-sdk", branch = "stable2512", default-features = false }
+pallet-sudo = { git = "https://github.com/paritytech/polkadot-sdk", branch = "stable2512", default-features = false }
+pallet-timestamp = { git = "https://github.com/paritytech/polkadot-sdk", branch = "stable2512", default-features = false }
+pallet-transaction-payment = { git = "https://github.com/paritytech/polkadot-sdk", branch = "stable2512", default-features = false }
+pallet-transaction-payment-rpc = { git = "https://github.com/paritytech/polkadot-sdk", branch = "stable2512" }
+pallet-transaction-payment-rpc-runtime-api = { git = "https://github.com/paritytech/polkadot-sdk", branch = "stable2512", default-features = false }
+pallet-utility = { git = "https://github.com/paritytech/polkadot-sdk", branch = "stable2512", default-features = false }
+sc-basic-authorship = { git = "https://github.com/paritytech/polkadot-sdk", branch = "stable2512" }
+sc-chain-spec = { git = "https://github.com/paritytech/polkadot-sdk", branch = "stable2512" }
+sc-cli = { git = "https://github.com/paritytech/polkadot-sdk", branch = "stable2512", default-features = false }
+sc-client-api = { git = "https://github.com/paritytech/polkadot-sdk", branch = "stable2512" }
+sc-consensus = { git = "https://github.com/paritytech/polkadot-sdk", branch = "stable2512" }
+sc-consensus-babe = { git = "https://github.com/paritytech/polkadot-sdk", branch = "stable2512" }
+sc-consensus-babe-rpc = { git = "https://github.com/paritytech/polkadot-sdk", branch = "stable2512" }
+sc-consensus-grandpa = { git = "https://github.com/paritytech/polkadot-sdk", branch = "stable2512" }
+sc-consensus-grandpa-rpc = { git = "https://github.com/paritytech/polkadot-sdk", branch = "stable2512" }
+sc-consensus-manual-seal = { git = "https://github.com/paritytech/polkadot-sdk", branch = "stable2512" }
+sc-executor = { git = "https://github.com/paritytech/polkadot-sdk", branch = "stable2512" }
+sc-network = { git = "https://github.com/paritytech/polkadot-sdk", branch = "stable2512" }
+sc-network-common = { git = "https://github.com/paritytech/polkadot-sdk", branch = "stable2512" }
+sc-network-gossip = { git = "https://github.com/paritytech/polkadot-sdk", branch = "stable2512" }
+sc-network-sync = { git = "https://github.com/paritytech/polkadot-sdk", branch = "stable2512" }
+sc-network-test = { git = "https://github.com/paritytech/polkadot-sdk", branch = "stable2512" }
+sc-network-types = { git = "https://github.com/paritytech/polkadot-sdk", branch = "stable2512" }
+sc-offchain = { git = "https://github.com/paritytech/polkadot-sdk", branch = "stable2512" }
+sc-rpc = { git = "https://github.com/paritytech/polkadot-sdk", branch = "stable2512" }
+sc-rpc-api = { git = "https://github.com/paritytech/polkadot-sdk", branch = "stable2512" }
+sc-service = { git = "https://github.com/paritytech/polkadot-sdk", branch = "stable2512", default-features = false }
+sc-sync-state-rpc = { git = "https://github.com/paritytech/polkadot-sdk", branch = "stable2512" }
+sc-telemetry = { git = "https://github.com/paritytech/polkadot-sdk", branch = "stable2512" }
+sc-transaction-pool = { git = "https://github.com/paritytech/polkadot-sdk", branch = "stable2512" }
+sc-transaction-pool-api = { git = "https://github.com/paritytech/polkadot-sdk", branch = "stable2512" }
+sc-utils = { git = "https://github.com/paritytech/polkadot-sdk", branch = "stable2512" }
+sp-api = { git = "https://github.com/paritytech/polkadot-sdk", branch = "stable2512", default-features = false }
+sp-application-crypto = { git = "https://github.com/paritytech/polkadot-sdk", branch = "stable2512", default-features = false }
+sp-block-builder = { git = "https://github.com/paritytech/polkadot-sdk", branch = "stable2512", default-features = false }
+sp-blockchain = { git = "https://github.com/paritytech/polkadot-sdk", branch = "stable2512" }
+sp-consensus = { git = "https://github.com/paritytech/polkadot-sdk", branch = "stable2512" }
+sp-consensus-babe = { git = "https://github.com/paritytech/polkadot-sdk", branch = "stable2512", default-features = false }
+sp-consensus-grandpa = { git = "https://github.com/paritytech/polkadot-sdk", branch = "stable2512", default-features = false }
+sp-core = { git = "https://github.com/paritytech/polkadot-sdk", branch = "stable2512", default-features = false }
+sp-genesis-builder = { git = "https://github.com/paritytech/polkadot-sdk", branch = "stable2512", default-features = false }
+sp-inherents = { git = "https://github.com/paritytech/polkadot-sdk", branch = "stable2512", default-features = false }
+sp-io = { git = "https://github.com/paritytech/polkadot-sdk", branch = "stable2512", default-features = false }
+sp-keystore = { git = "https://github.com/paritytech/polkadot-sdk", branch = "stable2512" }
+sp-offchain = { git = "https://github.com/paritytech/polkadot-sdk", branch = "stable2512", default-features = false }
+sp-runtime = { git = "https://github.com/paritytech/polkadot-sdk", branch = "stable2512", default-features = false }
+sp-runtime-interface = { git = "https://github.com/paritytech/polkadot-sdk", branch = "stable2512", default-features = false }
+sp-session = { git = "https://github.com/paritytech/polkadot-sdk", branch = "stable2512", default-features = false }
+sp-staking = { git = "https://github.com/paritytech/polkadot-sdk", branch = "stable2512", default-features = false }
+sp-state-machine = { git = "https://github.com/paritytech/polkadot-sdk", branch = "stable2512", default-features = false }
+sp-std = { git = "https://github.com/paritytech/polkadot-sdk", branch = "stable2512", default-features = false }
+sp-timestamp = { git = "https://github.com/paritytech/polkadot-sdk", branch = "stable2512", default-features = false }
+sp-transaction-pool = { git = "https://github.com/paritytech/polkadot-sdk", branch = "stable2512", default-features = false }
+sp-trie = { git = "https://github.com/paritytech/polkadot-sdk", branch = "stable2512" }
+sp-version = { git = "https://github.com/paritytech/polkadot-sdk", branch = "stable2512", default-features = false }
+sp-weights = { git = "https://github.com/paritytech/polkadot-sdk", branch = "stable2512", default-features = false }
+substrate-build-script-utils = { git = "https://github.com/paritytech/polkadot-sdk", branch = "stable2512" }
+substrate-frame-rpc-system = { git = "https://github.com/paritytech/polkadot-sdk", branch = "stable2512" }
+substrate-prometheus-endpoint = { git = "https://github.com/paritytech/polkadot-sdk", branch = "stable2512" }
+substrate-wasm-builder = { git = "https://github.com/paritytech/polkadot-sdk", branch = "stable2512" }
+xcm = { package = "staging-xcm", git = "https://github.com/paritytech/polkadot-sdk", branch = "stable2512" }
+
+# Frontier Client
+fc-api = { git = "https://github.com/gluwa/frontier_2", branch = "stable2512_patch_no_extension" }
+fc-cli = { git = "https://github.com/gluwa/frontier_2", branch = "stable2512_patch_no_extension", default-features = false }
+fc-consensus = { git = "https://github.com/gluwa/frontier_2", branch = "stable2512_patch_no_extension" }
+fc-db = { git = "https://github.com/gluwa/frontier_2", branch = "stable2512_patch_no_extension", default-features = false }
+fc-mapping-sync = { git = "https://github.com/gluwa/frontier_2", branch = "stable2512_patch_no_extension", default-features = false }
+fc-rpc = { git = "https://github.com/gluwa/frontier_2", branch = "stable2512_patch_no_extension", default-features = false }
+fc-rpc-core = { git = "https://github.com/gluwa/frontier_2", branch = "stable2512_patch_no_extension" }
+fc-storage = { git = "https://github.com/gluwa/frontier_2", branch = "stable2512_patch_no_extension" }
+# Frontier Primitive
+fp-account = { git = "https://github.com/gluwa/frontier_2", branch = "stable2512_patch_no_extension", default-features = false }
+fp-consensus = { git = "https://github.com/gluwa/frontier_2", branch = "stable2512_patch_no_extension", default-features = false }
+fp-dynamic-fee = { git = "https://github.com/gluwa/frontier_2", branch = "stable2512_patch_no_extension", default-features = false }
+fp-ethereum = { git = "https://github.com/gluwa/frontier_2", branch = "stable2512_patch_no_extension", default-features = false }
+fp-evm = { git = "https://github.com/gluwa/frontier_2", branch = "stable2512_patch_no_extension", default-features = false }
+fp-rpc = { git = "https://github.com/gluwa/frontier_2", branch = "stable2512_patch_no_extension", default-features = false }
+fp-self-contained = { git = "https://github.com/gluwa/frontier_2", branch = "stable2512_patch_no_extension", default-features = false }
+fp-storage = { git = "https://github.com/gluwa/frontier_2", branch = "stable2512_patch_no_extension", default-features = false }
+# Frontier FRAME
+pallet-base-fee = { git = "https://github.com/gluwa/frontier_2", branch = "stable2512_patch_no_extension", default-features = false }
+pallet-dynamic-fee = { git = "https://github.com/gluwa/frontier_2", branch = "stable2512_patch_no_extension", default-features = false }
+pallet-ethereum = { git = "https://github.com/gluwa/frontier_2", branch = "stable2512_patch_no_extension", default-features = false }
+pallet-evm = { git = "https://github.com/gluwa/frontier_2", branch = "stable2512_patch_no_extension", default-features = false }
+pallet-evm-chain-id = { git = "https://github.com/gluwa/frontier_2", branch = "stable2512_patch_no_extension", default-features = false }
+pallet-evm-precompile-bn128 = { git = "https://github.com/gluwa/frontier_2", branch = "stable2512_patch_no_extension", default-features = false }
+pallet-evm-precompile-modexp = { git = "https://github.com/gluwa/frontier_2", branch = "stable2512_patch_no_extension", default-features = false }
+pallet-evm-precompile-sha3fips = { git = "https://github.com/gluwa/frontier_2", branch = "stable2512_patch_no_extension", default-features = false }
+pallet-evm-precompile-simple = { git = "https://github.com/gluwa/frontier_2", branch = "stable2512_patch_no_extension", default-features = false }
+pallet-evm-test-vector-support = { git = "https://github.com/gluwa/frontier_2", branch = "stable2512_patch_no_extension" }
+pallet-hotfix-sufficients = { git = "https://github.com/gluwa/frontier_2", branch = "stable2512_patch_no_extension", default-features = false }
+subxt = { version = "0.44.3", features = ["reconnecting-rpc-client"] }
+subxt-signer = "0.44.3"
+
+# Frontier Utility
+precompile-utils = { git = "https://github.com/gluwa/frontier_2", branch = "stable2512_patch_no_extension", default-features = false }
+
+# Gluwa
+creditcoin3-runtime = { path = "runtime", default-features = false }
+pallet-attestation = { path = "pallets/attestation", default-features = false }
+pallet-randomness = { path = "pallets/randomness", default-features = false }
+pallet-supported-chains = { path = "pallets/supported-chains", default-features = false }
+
+# Encoding
+usc-abi-encoding = { version = "0.5" }
+usc-query-builder = { version = "0.7" }
+
+# Precompiles
+ethabi = { version = "18.0.0", default-features = false }
+# Usc
+pallet-evm-precompile-attestor-stash = { path = "precompiles/attestor-stash", default-features = false }
+pallet-evm-precompile-block-prover = { path = "precompiles/block-prover", default-features = false }
+pallet-evm-precompile-chain-info = { path = "precompiles/chain-info", default-features = false }
+# Signature verifier
+pallet-evm-precompile-ed25519-verifier = { path = "precompiles/ed25519-verifier", default-features = false }
+pallet-evm-precompile-sr25519-verifier = { path = "precompiles/sr25519-verifier", default-features = false }
+# Substrate transfer
+pallet-evm-precompile-substrate-transfer = { path = "precompiles/substrate-transfer", default-features = false }
+
+# Tracing (rust-ethereum/evm, same v0.43 API as moonbeam-foundation fork)
+evm = { git = "https://github.com/rust-ethereum/evm", branch = "v0.x", default-features = false, features = [
+    "tracing",
+] }
+evm-gasometer = { git = "https://github.com/rust-ethereum/evm", branch = "v0.x", default-features = false, features = [
+    "tracing",
+] }
+evm-runtime = { git = "https://github.com/rust-ethereum/evm", branch = "v0.x", default-features = false, features = [
+    "tracing",
+] }
+
+creditcoin3-cli-opt = { path = "node/cli-opt", default-features = false }
+
+# Vendored tracing crates (formerly from gluwa/moonbeam, now maintained locally)
+creditcoin3-primitives-ext = { path = "tracing/primitives/ext", package = "moonbeam-primitives-ext", default-features = false }
+evm-tracing-events = { path = "tracing/primitives/rpc/evm-tracing-events", default-features = false }
+moonbeam-client-evm-tracing = { path = "tracing/client/evm-tracing" }
+moonbeam-evm-tracer = { path = "tracing/runtime/evm_tracer", default-features = false }
+moonbeam-rpc-core-debug = { path = "tracing/client/rpc-core/debug" }
+moonbeam-rpc-core-trace = { path = "tracing/client/rpc-core/trace" }
+moonbeam-rpc-core-types = { path = "tracing/client/rpc-core/types" }
+moonbeam-rpc-debug = { path = "tracing/client/rpc/debug" }
+moonbeam-rpc-primitives-debug = { path = "tracing/primitives/rpc/debug", default-features = false }
+moonbeam-rpc-trace = { path = "tracing/client/rpc/trace" }
+
+# Attestation
+attestor = { path = "attestor/attestor" }
+attestor-primitives = { path = "primitives/attestor", default-features = false }
+attestor_pool = { path = "attestor/pool" }
+supported-chains-primitives = { path = "primitives/supported-chains", default-features = false }
+
+# Using an old version of rand as it is already in the dependency graph
+rand = { version = "0.9.0", default-features = false }
+randomness-primitives = { path = "primitives/randomness", default-features = false }
+
+user = { path = "primitives/user" }
+
+# Common
+bls-signatures = { git = "https://github.com/gluwa/bls-signatures", tag = "v0.15.0", default-features = false, features = [
+    "pairing",
+] }
+builder = { path = "common/builder" }
+cc-client = { path = "common/cc-client" }
+continuity = { path = "common/continuity", default-features = false }
+eth = { path = "common/eth", default-features = false }
+indexer-client = { path = "common/indexer-client" }
+libp2p = { version = "0.54.1", default-features = false }
+merkle = { path = "common/merkle", default-features = false }
+prometheus-client = { version = "0.24.0" }
+stream = { path = "common/streams/stream" }
+stream_attestation = { path = "common/streams/attestation" }
+stream_cc3 = { path = "common/streams/cc3" }
+stream_eth = { path = "common/streams/eth" }
+stream_util = { path = "common/streams/util" }
+sysinfo = { version = "0.37.2" }
+utils = { path = "common/utils", default-features = false }
+
+[profile.release]
+# Substrate runtime requires unwinding.
+panic = "unwind"
+
+[profile.production]
+inherits = "release"
+
+# Sacrifice compile speed for execution speed by using optimization flags:
+
+# https://doc.rust-lang.org/rustc/linker-plugin-lto.html
+codegen-units = 1
+lto = "fat"
+
+# Local copy of libp2p-gossipsub 0.47.0 carrying upstream backoff hardening
+# (rust-libp2p 0.49.3/0.49.4). libp2p 0.54 cannot take gossipsub >= 0.48, and
+# sc-network pins libp2p 0.54. Drop once the workspace moves past libp2p 0.54.
+[patch.crates-io]
+libp2p-gossipsub = { path = "attestor/vendor/libp2p-gossipsub" }

@@ -1,0 +1,320 @@
+---
+name: Build Release Artifacts
+
+"on":
+  push:
+    tags:
+      - "*"
+
+concurrency:
+  group: ${{ github.ref }}-${{ github.workflow }}
+  cancel-in-progress: true
+
+permissions: read-all
+
+jobs:
+  sanity-check:
+    runs-on: ubuntu-26.04
+    outputs:
+      TAG_NAME: ${{ steps.identify-tag.outputs.TAG_NAME }}
+    steps:
+      - name: Report to Slack
+        uses: act10ns/slack@v2
+        with:
+          webhook-url: ${{ secrets.SLACK_WEBHOOK_URL }}
+          status: ${{ job.status }}
+          channel: "#protocol-internal"
+          message: "Release pipeline started!"
+
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Figure out tag name
+        id: identify-tag
+        shell: bash
+        run: |
+          # Use the ref that triggered this run, not `git describe`. A release
+          # commit can carry more than one tag (e.g. both -devnet and -mainnet
+          # once a branch is promoted by fast-forward), and `git describe` picks
+          # only one of them, so it can report a tag we are not releasing.
+          if [[ "$GITHUB_REF_TYPE" != "tag" ]]; then
+              echo "FAIL: expected a tag push, got ref type '$GITHUB_REF_TYPE'"
+              exit 1
+          fi
+
+          TAG_NAME="$GITHUB_REF_NAME"
+          echo "INFO: releasing tag '$TAG_NAME'"
+          echo "TAG_NAME=$TAG_NAME" >> "$GITHUB_ENV"
+          echo "TAG_NAME=$TAG_NAME" >> "$GITHUB_OUTPUT"
+
+      - name: Sanity check tag name suffix
+        run: |
+          echo "${{ env.TAG_NAME }}" | grep -E "mainnet|testnet|devnet"
+          .github/check-tag-suffix-vs-origin-branch.sh
+
+      - name: Check tag name vs. Cargo.toml version
+        run: |
+          ./.github/check-version-vs-git-tag.sh
+
+      - name: Install Solidity compiler
+        run: |
+          sudo .github/install-solidity-compiler.sh
+
+      - name: Generate precompiles ABI from source code
+        working-directory: ./precompiles/metadata
+        run: |
+          solc --version
+          ./abi-creator.sh
+
+      - name: Check if tag name is a valid NPM version
+        working-directory: ./cli
+        run: |
+          yarn install
+          yarn build
+          node dist/scripts/npm-semver-check.js "${{ env.TAG_NAME }}"
+
+  setup:
+    runs-on: ubuntu-26.04
+    needs: sanity-check
+    outputs:
+      build_options: ${{ steps.set-build-options.outputs.build_options}}
+      previous_release: ${{ steps.devnet-env.outputs.previous_release || steps.asc-devnet-env.outputs.previous_release || steps.testnet-env.outputs.previous_release || steps.mainnet-env.outputs.previous_release }}
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Set-Up
+        run: |
+          sudo apt-get update
+          sudo apt install -y jq
+
+      - name: Set build options
+        id: set-build-options
+        shell: bash
+        run: |
+          # Deliberately a substring match: asc-devnet is devnet-flavoured too.
+          echo "build_options=${{ contains( needs.sanity-check.outputs.TAG_NAME, 'devnet') && '--features devnet,metadata-hash' || '--features metadata-hash' }}" >> "$GITHUB_OUTPUT"
+
+      - name: View the build options
+        shell: bash
+        run: |
+          echo "build_options = ${{ steps.set-build-options.outputs.build_options }}"
+
+      - name: Devnet ENV
+        id: devnet-env
+        if: endsWith( needs.sanity-check.outputs.TAG_NAME, '-devnet') && !endsWith( needs.sanity-check.outputs.TAG_NAME, '-asc-devnet')
+        run: |
+          # shellcheck disable=SC2129
+          PREV_RELEASE=$(.github/extract-release-tag.sh "devnet")
+          echo "previous_release=$PREV_RELEASE" >> "$GITHUB_OUTPUT"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+
+      - name: ASC Devnet ENV
+        id: asc-devnet-env
+        if: endsWith( needs.sanity-check.outputs.TAG_NAME, '-asc-devnet')
+        run: |
+          # shellcheck disable=SC2129
+          PREV_RELEASE=$(.github/extract-release-tag.sh "asc-devnet")
+          # asc-dev branched from dev, so its first release is described relative to
+          # the latest devnet release.
+          if [ -z "$PREV_RELEASE" ]; then
+              PREV_RELEASE=$(.github/extract-release-tag.sh "devnet")
+          fi
+          echo "previous_release=$PREV_RELEASE" >> "$GITHUB_OUTPUT"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+
+      - name: Testnet ENV
+        id: testnet-env
+        if: contains( needs.sanity-check.outputs.TAG_NAME, 'testnet')
+        run: |
+          # shellcheck disable=SC2129
+          PREV_RELEASE=$(.github/extract-release-tag.sh "testnet")
+          echo "previous_release=$PREV_RELEASE" >> "$GITHUB_OUTPUT"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+
+      - name: Mainnet ENV
+        id: mainnet-env
+        if: contains( needs.sanity-check.outputs.TAG_NAME, 'mainnet')
+        run: |
+          # shellcheck disable=SC2129
+          PREV_RELEASE=$(.github/extract-release-tag.sh "mainnet")
+          echo "previous_release=$PREV_RELEASE" >> "$GITHUB_OUTPUT"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+
+  generate-changelog:
+    needs:
+      - sanity-check
+      - setup
+    uses: ./.github/workflows/generate-changelog.yml
+    with:
+      previous-release: "${{ needs.setup.outputs.previous_release }}"
+      release-tag: "${{ needs.sanity-check.outputs.TAG_NAME }}"
+    secrets: inherit
+
+  build-native-runtime:
+    needs:
+      - sanity-check
+      - setup
+    uses: ./.github/workflows/build-native.yml
+    with:
+      build-options: "--release --features metadata-hash ${{ needs.setup.outputs.build_options}}"
+      build-subxt: true
+      git-lfs-checkout: true
+      version-string: "${{ needs.sanity-check.outputs.TAG_NAME }}-x86_64-unknown-linux-gnu"
+      # Warmed daily on the default branch by cache-warm.yml with the release features, so
+      # a tag build starts from compiled dependencies instead of from cold.
+      cache-key-name: build-release
+      runs-on: "['ubuntu-26.04']"
+    secrets: inherit
+
+  build-wasm-runtime:
+    needs:
+      - sanity-check
+      - setup
+    uses: ./.github/workflows/build-wasm.yml
+    with:
+      build-options: "--features metadata-hash ${{ needs.setup.outputs.build_options }}"
+      build-subwasm: true
+      version-string: ${{ needs.sanity-check.outputs.TAG_NAME }}
+      runs-on: "['ubuntu-26.04']"
+
+  verify-metadata-hash-flag:
+    runs-on: ubuntu-26.04
+    needs:
+      - sanity-check
+      - setup
+    steps:
+      - name: Check metadata-hash feature is enabled for this release build
+        shell: bash
+        run: |
+          BUILD_OPTIONS="${{ needs.setup.outputs.build_options }}"
+          echo "build_options = $BUILD_OPTIONS"
+          if ! echo "$BUILD_OPTIONS" | grep -q "metadata-hash"; then
+            echo "::error::metadata-hash feature flag is missing from the release build options ('$BUILD_OPTIONS') for tag ${{ needs.sanity-check.outputs.TAG_NAME }}"
+            exit 1
+          fi
+
+  docker-build:
+    needs:
+      - sanity-check
+      - setup
+      - verify-metadata-hash-flag
+    uses: ./.github/workflows/build-docker.yml
+    with:
+      build-options: "BUILD_ARGS=${{ needs.setup.outputs.build_options }} --features metadata-hash"
+      version-string: ${{ needs.sanity-check.outputs.TAG_NAME }}
+      runs-on: "['ubuntu-26.04']"
+    secrets: inherit
+
+  create-release:
+    permissions:
+      contents: write
+    runs-on: ubuntu-26.04
+    needs:
+      - sanity-check
+      - setup
+      - generate-changelog
+      - build-native-runtime
+      - build-wasm-runtime
+      - docker-build
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Install Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+
+      - name: Download binaries
+        uses: actions/download-artifact@v8
+        with:
+          path: artifact
+          pattern: binary-for-*
+          merge-multiple: true
+
+      - name: Download subwasm
+        uses: actions/download-artifact@v8
+        with:
+          path: artifact
+          name: subwasm
+          merge-multiple: true
+
+      - name: Download subxt
+        uses: actions/download-artifact@v8
+        with:
+          path: artifact
+          name: subxt
+          merge-multiple: true
+
+      - name: Download changelog
+        uses: actions/download-artifact@v8
+        with:
+          pattern: changelog
+
+      - name: Install changelog-warnings dependencies
+        working-directory: ./scripts/changelog-warnings
+        run: npm install
+
+      - name: Append operator warnings to changelog
+        continue-on-error: true
+        run: |
+          npx tsx scripts/changelog-warnings/src/index.ts \
+            --previous-tag "${{ needs.setup.outputs.previous_release }}" \
+            --changelog changelog.md
+
+      - name: Compress native binaries
+        shell: bash
+        working-directory: artifact/
+        run: |
+          # NOTE: -m removes the uncompressed file(s) b/c we don't want to be uploading them
+          zip -m "creditcoin-${{ needs.sanity-check.outputs.TAG_NAME }}-$(uname -m)-unknown-linux-gnu.zip" creditcoin3-node
+          zip -m "attestor-binaries-${{ needs.sanity-check.outputs.TAG_NAME }}-$(uname -m)-unknown-linux-gnu.zip" attestor*
+          zip -m "proof-gen-api-server-${{ needs.sanity-check.outputs.TAG_NAME }}-$(uname -m)-unknown-linux-gnu.zip" proof-gen-api-server
+          zip -m "archiver-${{ needs.sanity-check.outputs.TAG_NAME }}-$(uname -m)-unknown-linux-gnu.zip" archiver
+
+          ls -lR
+
+      - name: Install Solidity compiler
+        run: |
+          sudo .github/install-solidity-compiler.sh
+
+      - name: Generate precompiles ABI from source code
+        working-directory: ./precompiles/metadata
+        run: |
+          solc --version
+          ./abi-creator.sh
+
+      - name: Make the release
+        uses: softprops/action-gh-release@v3
+        with:
+          files: |
+            artifact/archiver-${{ needs.sanity-check.outputs.TAG_NAME }}*
+            artifact/attestor-binaries-${{ needs.sanity-check.outputs.TAG_NAME }}*
+            artifact/creditcoin-${{ needs.sanity-check.outputs.TAG_NAME }}*
+            artifact/proof-gen-api-server-${{ needs.sanity-check.outputs.TAG_NAME }}*
+            artifact/subwasm
+            artifact/subxt
+            precompiles/metadata/abi/*.json
+          fail_on_unmatched_files: true
+          name: ${{ needs.sanity-check.outputs.TAG_NAME  }}
+          body_path: changelog.md
+
+      - name: Report result to Slack
+        if: always()
+        uses: act10ns/slack@v2
+        with:
+          webhook-url: ${{ secrets.SLACK_WEBHOOK_URL }}
+          status: ${{ job.status }}
+          channel: "#protocol-internal"
+          message: "Release pipeline finished! ${{ job.status == 'failure' && 'cc <!subteam^S028FDV6CCV>' || '' }}"

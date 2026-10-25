@@ -1,0 +1,208 @@
+#[derive(builder::Builder, Clone)]
+pub struct Config {
+    pub client: eth::Client,
+    /// How the mature tip is derived from each new source head. See [`eth::Maturity`].
+    pub maturity: eth::Maturity,
+    pub start_height: attestor_primitives::Height,
+    /// See [`crate::roots::Config::head_silence_timeout`]; same watchdog, same default.
+    #[default(std::time::Duration::from_secs(120))]
+    pub head_silence_timeout: std::time::Duration,
+    /// How often to poll `eth_blockNumber` when the client has no subscription transport
+    /// (HTTP), and how often a block-tag maturity is resolved regardless of transport. See
+    /// [`crate::roots::Config::head_poll_interval`]; same default.
+    #[default(crate::roots::DEFAULT_HEAD_POLL_INTERVAL)]
+    pub head_poll_interval: std::time::Duration,
+}
+
+/// The stream of head numbers this tip follows: `newHeads` over a WebSocket client, a periodic
+/// `eth_blockNumber` poll over HTTP (`Client::supports_subscriptions`). Both are wrapped in the
+/// silence watchdog so a dead endpoint ends the stream and the caller reconnects.
+async fn head_numbers(
+    client: &eth::Client,
+    start_height: attestor_primitives::Height,
+    silence: std::time::Duration,
+    poll_interval: std::time::Duration,
+    pace_lookups: bool,
+) -> Result<stream_util::BoxedStream<u64>, eth::Error> {
+    use futures::StreamExt as _;
+    let heads: stream_util::BoxedStream<u64> = if client.supports_subscriptions() {
+        client
+            .subscribe()
+            .await?
+            .skip_while(move |header| futures::future::ready(header.number < start_height))
+            .map(|header| header.number)
+            .boxed()
+    } else {
+        // Seed with the current head so the first mature tip is resolved immediately rather
+        // than one poll interval from now.
+        let head = client.get_last_block().await?;
+        futures::stream::once(futures::future::ready(head))
+            .chain(crate::roots::polled_heads(
+                client.clone(),
+                poll_interval,
+                crate::roots::DEFAULT_RPC_CALL_TIMEOUT,
+            ))
+            .skip_while(move |head| futures::future::ready(*head < start_height))
+            .boxed()
+    };
+    let watched = crate::roots::end_on_silence(heads, client.clone(), silence, None).boxed();
+    // Block-tag lookups are paced to the head-poll interval (see `roots::throttle_heads`): a
+    // tag cannot move faster than the chain finalizes, and on a sub-second chain one lookup per
+    // head is wasted budget. The newest head of a burst is held and released when the interval
+    // elapses, so a chain that goes quiet still gets its last head resolved. The watchdog above
+    // sees the raw heads, so pacing never looks like silence. A fixed lag is arithmetic and
+    // is not paced.
+    Ok(if pace_lookups {
+        crate::roots::throttle_heads(watched, poll_interval).boxed()
+    } else {
+        watched
+    })
+}
+
+/// Follows the latest Eth chain tip, backed by [`eth::Client`] under the hood.
+///
+/// Implements capped exponential retry without unbounded attempts in order to handle RPC
+/// disconnections. This stream can be considered infinite and will never return [`None`].
+pub struct StreamTip {
+    stream: sync_wrapper::SyncStream<stream_util::BoxedStream<attestor_primitives::Height>>,
+    config: Config,
+}
+
+impl StreamTip {
+    pub async fn new(mut config: Config) -> Self {
+        use futures::StreamExt as _;
+
+        // Initial subscribe, repairing the client between attempts. `eth::Client` is a value
+        // clone — a dead connection inside it never self-heals — and this path also runs from
+        // `reset()` (chain-parameter changes rebuild the stream from a config whose client may
+        // have died long after construction). Without the `reconnect()` between attempts this
+        // loop can retry a dead client forever, pinning production until the watchdog restarts
+        // the pod. The first attempt goes straight to `subscribe()` so a healthy construction
+        // pays no extra dial.
+        let mut delays = tokio_retry::strategy::ExponentialBackoff::from_millis(100)
+            .max_delay(std::time::Duration::from_millis(5_000))
+            .map(tokio_retry::strategy::jitter);
+        let start_height = config.start_height;
+        let silence = config.head_silence_timeout;
+        let poll_interval = config.head_poll_interval;
+        let pace_lookups = config.maturity.needs_rpc();
+        let mut stream_headers = loop {
+            match head_numbers(
+                &config.client,
+                start_height,
+                silence,
+                poll_interval,
+                pace_lookups,
+            )
+            .await
+            {
+                Ok(stream) => break stream,
+                Err(err) => {
+                    tracing::warn!(?err, "Eth subscribe failed — repairing client and retrying");
+                    if let Err(err) = config.client.reconnect().await {
+                        tracing::warn!(?err, "Eth client reconnect failed");
+                    }
+                    let delay = delays
+                        .next()
+                        .unwrap_or(std::time::Duration::from_millis(5_000));
+                    tokio::time::sleep(delay).await;
+                }
+            }
+        };
+
+        // Captured *after* the connect loop, so a repair above lands in the backup too and a
+        // later `reset()` starts from the freshest client this stream has seen.
+        let backup = config.clone();
+
+        let stream = async_stream::stream! {
+            let mut tip = None;
+
+            loop {
+                match stream_headers.next().await {
+                    Some(head) => {
+                        // Resolve the mature height for this head. A fixed lag is arithmetic; a
+                        // block tag is one RPC round-trip on the same client. A failed lookup is
+                        // logged and skipped — the next head retries, and the tip only ever moves
+                        // forward, so a transient RPC error can never rewind it.
+                        let tip_new = match config.maturity.mature_height(&config.client, head).await {
+                            Ok(Some(tip_new)) => tip_new,
+                            Ok(None) => continue,
+                            Err(err) => {
+                                tracing::warn!(
+                                    head,
+                                    maturity = %config.maturity,
+                                    %err,
+                                    "could not resolve mature tip for this head; retrying on the next one"
+                                );
+                                continue;
+                            }
+                        };
+                        if tip.is_none_or(|tip| tip_new > tip) {
+                            tip = Some(tip_new);
+                            yield tip_new
+                        }
+                    },
+                    None => {
+                        tracing::error!("Eth connection lost");
+
+                        let strategy = tokio_retry::strategy::ExponentialBackoff::from_millis(100)
+                            .max_delay(std::time::Duration::from_millis(5_000))
+                            .map(tokio_retry::strategy::jitter);
+
+                        let reconnect = || {
+                            tracing::warn!("Reconnecting to Eth...");
+
+                            let mut client = config.client.clone();
+                            let start_height = config.start_height;
+                            async move {
+                                client.reconnect().await?;
+                                let stream = head_numbers(
+                                    &client,
+                                    start_height,
+                                    silence,
+                                    poll_interval,
+                                    pace_lookups,
+                                )
+                                .await?;
+                                Ok::<_, eth::Error>((client, stream))
+                            }
+                        };
+
+                        let retry = tokio_retry::Retry::spawn(strategy, reconnect);
+                        let (client, stream) = retry.await.expect("Unbounded retry cannot error");
+
+                        config.client = client;
+                        stream_headers = stream;
+                    },
+                }
+            }
+        }
+        .boxed();
+
+        Self {
+            stream: sync_wrapper::SyncStream::new(stream),
+            config: backup,
+        }
+    }
+}
+
+impl futures::Stream for StreamTip {
+    type Item = attestor_primitives::Height;
+
+    fn poll_next(
+        mut self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Option<Self::Item>> {
+        use futures::StreamExt as _;
+        self.stream.poll_next_unpin(cx)
+    }
+}
+
+impl stream_util::ChainData<attestor_primitives::Height> for StreamTip {
+    async fn reset(&self, info: stream_util::AttestationInfo) -> Self {
+        let mut config = self.config.clone();
+        config.start_height = info.height;
+
+        Self::new(config).await
+    }
+}

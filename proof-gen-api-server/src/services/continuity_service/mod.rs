@@ -1,0 +1,2040 @@
+use anyhow::{Context, Result};
+use chrono::{DateTime, Utc};
+use hex;
+use serde::{Deserialize, Serialize};
+use sp_core::H256;
+use std::collections::{BTreeMap, HashMap};
+use std::sync::{
+    atomic::{AtomicU64, Ordering},
+    Arc,
+};
+use std::time::{Duration, Instant};
+
+use crate::config::ChainCacheConfig;
+use crate::prom::{CacheOccupancy, Metrics};
+use crate::services::continuity_service::helpers::*;
+use attestor_primitives::block::ContinuityProof;
+use continuity::ContinuityBuilder;
+use merkle::proof::TransactionMerkleProof;
+use merkle_cache::{MerkleCacheStats, MerkleProofCache};
+
+pub mod helpers;
+mod merkle_cache;
+
+/// Per-source-chain state: ETH-backed builder and CC3-derived caches.
+pub struct ChainState {
+    pub builder: Arc<ContinuityBuilder>,
+    pub checkpoint_cache: tokio::sync::RwLock<BTreeMap<u64, H256>>,
+    pub attestation_cache: tokio::sync::RwLock<BTreeMap<u64, H256>>,
+    pub merkle_proof_cache: MerkleProofCache,
+    pub attestation_genesis_block: AtomicU64,
+    pub checkpoint_interval: AtomicU64,
+    pub attestation_interval: AtomicU64,
+    /// Wall-clock instant of the last event-driven write to the attestation or checkpoint
+    /// cache. This is the health signal that actually tracks serving ability: proofs are
+    /// answered from these caches, and the caches are fed by the cc3 finalized-block
+    /// subscription. If this stops advancing, the subscription is dead and the replica will
+    /// start returning `BlockNotReady` for anything newer than its frozen view — regardless
+    /// of what a point-in-time RPC probe says. Initialised to construction time so a fresh
+    /// pod counts as healthy until real events land (same convention as the attestor's
+    /// liveness watchdog).
+    pub last_cache_advance: std::sync::Mutex<Instant>,
+    /// Per-chain cache sizing. Defaults reproduce the pre-configuration behavior.
+    pub cache_config: ChainCacheConfig,
+    /// Bounds simultaneous source-block fetches for the merkle cache (requests + backfill).
+    pub fill_permits: Arc<tokio::sync::Semaphore>,
+    /// Heights currently being filled, so concurrent misses for one block share a single
+    /// fetch+build instead of each doing their own.
+    pub in_flight_fills: std::sync::Mutex<HashMap<u64, Arc<tokio::sync::Notify>>>,
+}
+
+impl ChainState {
+    /// Record that the cc3 event subscription just advanced one of the caches.
+    fn touch_cache(&self) {
+        let mut guard = self
+            .last_cache_advance
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        *guard = Instant::now();
+    }
+
+    /// Time since the cc3 event subscription last advanced a cache.
+    fn cache_age(&self) -> Duration {
+        self.last_cache_advance
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .elapsed()
+    }
+}
+
+// Single block proof query object, used in batch requests to specify which transactions to include merkle proofs for. If a block is included in the batch but not listed in the tx_indexes, it will be processed with tx_index = None (continuity proof only)
+#[derive(Debug, Serialize, Deserialize, Clone, utoipa::ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ProofQuery {
+    pub header_number: u64,
+    #[serde(default)]
+    pub tx_indexes: Vec<u64>, // Empty vector means no merkle proof, just continuity proof
+}
+
+// Merkle proof object. This is what we will enter in the DB and perhaps
+// also what we return from api calls
+#[derive(Debug, Clone)]
+pub struct MerkleProofItem {
+    pub chain_key: u64,
+    pub header_number: u64,
+    pub tx_index: Option<u64>, // Maybe should make this non-null if we remove intended support for full block merkle proofs
+    pub tx_hash: Option<H256>,
+    pub tx_bytes: Option<Vec<u8>>, // Cached transaction bytes (payload only)
+    // Use concrete types for downstream consumers; we'll serialize only at DB boundary.
+    pub merkle_proof: TransactionMerkleProof,
+    pub merkle_root: H256,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, utoipa::ToSchema)]
+#[serde(untagged)]
+pub enum ContinuityResponse {
+    Single(SingleContinuityResponse),
+    Batch(BatchedContinuityResponse),
+}
+
+impl From<SingleContinuityResponse> for ContinuityResponse {
+    fn from(response: SingleContinuityResponse) -> Self {
+        ContinuityResponse::Single(response)
+    }
+}
+
+impl From<BatchedContinuityResponse> for ContinuityResponse {
+    fn from(response: BatchedContinuityResponse) -> Self {
+        ContinuityResponse::Batch(response)
+    }
+}
+
+/// Schema for OpenAPI documentation of ContinuityProof.
+/// Matches the structure of attestor_primitives::block::ContinuityProof.
+#[derive(utoipa::ToSchema)]
+#[schema(rename_all = "camelCase")]
+pub struct ContinuityProofSchema {
+    /// Digest of the block before the continuity chain starts (digest of queryHeight - 1).
+    /// 32-byte Keccak256 hash as hex string (e.g. 0x...).
+    pub lower_endpoint_digest: String,
+    /// Array of merkle roots; digests are computed on-chain.
+    /// Block number for index i = startBlock + i, where startBlock = queryBlockHeight.
+    /// The query block is at index 0.
+    pub roots: Vec<String>,
+}
+
+/// Schema for OpenAPI documentation of a single sibling in a Merkle proof path.
+#[derive(utoipa::ToSchema)]
+#[schema(rename_all = "camelCase")]
+pub struct MerkleProofEntrySchema {
+    /// The sibling hash (32-byte Keccak256 as hex string).
+    pub hash: String,
+    /// True if this sibling is to the left of the current hash in the tree.
+    pub is_left: bool,
+}
+
+/// Schema for OpenAPI documentation of TransactionMerkleProof.
+/// Proves that a transaction is included in a block's Merkle tree.
+#[derive(utoipa::ToSchema)]
+#[schema(rename_all = "camelCase")]
+pub struct TransactionMerkleProofSchema {
+    /// The Merkle root hash of the block's transaction tree (32-byte Keccak256 as hex string).
+    pub root: String,
+    /// Sibling hashes along the path from leaf to root, with position information.
+    pub siblings: Vec<MerkleProofEntrySchema>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, utoipa::ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct SingleContinuityResponse {
+    pub chain_key: u64,
+    pub header_number: u64,
+    pub tx_index: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tx_hash: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tx_bytes: Option<String>, // Hex-encoded transaction bytes (payload only)
+    #[schema(value_type = ContinuityProofSchema)]
+    pub continuity_proof: ContinuityProof,
+    #[schema(value_type = TransactionMerkleProofSchema)]
+    pub merkle_proof: TransactionMerkleProof,
+    pub cached: bool,
+    pub generated_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, utoipa::ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct BatchedContinuityResponse {
+    pub chain_key: u64,
+    pub from_header: u64,
+    pub to_header: u64,
+    #[schema(value_type = ContinuityProofSchema)]
+    pub continuity_proof: ContinuityProof,
+    pub merkle_proofs: BTreeMap<u64, BTreeMap<u64, BatchedMerkleProofEntry>>,
+    pub cached: bool,
+    pub generated_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, utoipa::ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct BatchedMerkleProofEntry {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tx_hash: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tx_bytes: Option<String>, // Hex-encoded transaction bytes (payload only)
+    #[schema(value_type = TransactionMerkleProofSchema)]
+    pub merkle_proof: TransactionMerkleProof,
+}
+
+use crate::services::errors::ServiceError;
+pub type ServiceResult<T> = Result<T, ServiceError>;
+
+pub struct ContinuityService {
+    chains: HashMap<u64, Arc<ChainState>>,
+    start_time: Instant,
+    /// Set (with the reason) when the cc3 event task has ended for good. From that moment
+    /// the caches no longer track the chain and this replica must not be considered ready;
+    /// the supervisor exits the process right after setting this, so the flag mostly serves
+    /// the in-flight drain window and diagnostics.
+    event_stream_dead: std::sync::Mutex<Option<String>>,
+    /// Finalized-block progress of the cc3 event stream (height + when it last advanced),
+    /// written by the stream's watchdog, read by `/health` and `/readyz`.
+    cc3_progress: Arc<stream::cc3::Progress>,
+    /// Creditcoin finalized height every startup read was pinned to, when the provider could
+    /// pin. The event stream resumes from here; the replica is not ready before the stream
+    /// has caught up to it.
+    cc3_snapshot_height: Option<u64>,
+    /// Prometheus metrics for instrumentation (uses NoopMetrics when disabled).
+    metrics: Metrics,
+    /// Maximum amount of concurrent futures spawned when generating proofs for batch requests or when extracting transaction indexes from transaction hashes.
+    max_batch_size: usize,
+    /// Maximum allowed span (highest block − lowest block) in a single batch
+    /// request.  Prevents a small batch from forcing proof generation over an
+    /// extremely large block range.
+    max_batch_span: u64,
+}
+
+/// How long the caches may go without an event-driven write before the cc3 subscription is
+/// considered dead for health purposes. See [`ContinuityService::cc3_cache_freshness`].
+pub const CC3_CACHE_STALE_AFTER: Duration = Duration::from_secs(10 * 60);
+
+/// How long the event stream may go without processing a Creditcoin finalized block before
+/// the replica withdraws readiness. Finality lands every 5-15 s; the stream's own watchdog
+/// replaces a silent subscription after 90 s, so 180 s only trips when recovery itself is
+/// failing.
+pub const CC3_FINALIZED_STALE_AFTER: Duration = Duration::from_secs(180);
+
+/// Result of [`ContinuityService::readiness`].
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct Readiness {
+    pub ready: bool,
+    /// Human-readable reasons when `ready` is false; empty otherwise.
+    pub reasons: Vec<String>,
+}
+
+/// Bounded retry for the startup snapshot reads. A transient cc3 blip must not turn into an
+/// empty cache; a persistent failure is fatal so the orchestrator restarts a replica that
+/// cannot seed instead of it serving wrong `BlockNotReady`s until someone notices.
+async fn retry_startup<T, F, Fut>(what: &str, mut op: F) -> anyhow::Result<T>
+where
+    F: FnMut() -> Fut,
+    Fut: std::future::Future<Output = anyhow::Result<T>>,
+{
+    const ATTEMPTS: usize = 5;
+    let mut delay = Duration::from_millis(250);
+    let mut last_err = None;
+    for attempt in 1..=ATTEMPTS {
+        match op().await {
+            Ok(value) => return Ok(value),
+            Err(err) => {
+                tracing::warn!(
+                    what,
+                    attempt,
+                    max = ATTEMPTS,
+                    error = %err,
+                    "⚠️ 🔗 startup read failed"
+                );
+                last_err = Some(err);
+                if attempt < ATTEMPTS {
+                    tokio::time::sleep(delay).await;
+                    delay = (delay * 2).min(Duration::from_secs(2));
+                }
+            }
+        }
+    }
+    Err(last_err
+        .unwrap_or_else(|| anyhow::anyhow!("no error captured"))
+        .context(format!("{what}: failed after {ATTEMPTS} attempts")))
+}
+
+/// Result of [`ContinuityService::cc3_cache_freshness`].
+#[derive(Debug, Clone)]
+pub struct CacheFreshness {
+    /// True when every configured chain's cache advanced within [`CC3_CACHE_STALE_AFTER`].
+    pub fresh: bool,
+    /// Age of the least-recently-advanced chain's cache.
+    pub max_age_seconds: u64,
+    /// Chains whose cache has not advanced within the window (empty when `fresh`).
+    pub stale_chains: Vec<u64>,
+}
+
+/// How often cache-occupancy gauges are refreshed.
+const CACHE_METRICS_POLL_INTERVAL: Duration = Duration::from_secs(15);
+const MERKLE_BACKFILL_POLL_INTERVAL: Duration = Duration::from_secs(15);
+const MERKLE_BACKFILL_MAX_BLOCKS_PER_TICK: usize = 50;
+/// Backfill's own ceiling on concurrent block fills. Deliberately separate from (and below the
+/// default of) `max_concurrent_block_fills`, which is the chain-wide budget shared with live
+/// proof requests: backfill can use at most this many of those slots, so warming the cache never
+/// starves requests of fill capacity. Raising `max_concurrent_block_fills` adds headroom for
+/// requests, not backfill throughput.
+const MERKLE_BACKFILL_MAX_CONCURRENCY: usize = 8;
+const MERKLE_PROOF_CACHE_CHECKPOINT_RETENTION_MULTIPLIER: u64 = 4;
+
+impl ContinuityService {
+    /// Create a new ContinuityService, fetching the attestation genesis block from the chain.
+    ///
+    /// # Errors
+    /// Returns an error if the attestation genesis block cannot be fetched from RPC.
+    pub async fn new(
+        builders: Vec<Arc<ContinuityBuilder>>,
+        metrics: Metrics,
+        max_batch_size: usize,
+        max_batch_span: u64,
+    ) -> anyhow::Result<Self> {
+        Self::new_with_cache_configs(
+            builders,
+            HashMap::new(),
+            metrics,
+            max_batch_size,
+            max_batch_span,
+        )
+        .await
+    }
+
+    /// Like [`Self::new`], but with per-chain cache sizing.
+    ///
+    /// Cache tuning is deliberately routed here rather than through [`continuity::ContinuityConfig`]:
+    /// that type lives in a crate shared with the attestors, and how this process budgets its own
+    /// caches is none of their business. Chains absent from `cache_configs` get
+    /// [`ChainCacheConfig::default`], i.e. the historical behavior.
+    ///
+    /// # Errors
+    /// Returns an error if the attestation genesis block cannot be fetched from RPC.
+    pub async fn new_with_cache_configs(
+        builders: Vec<Arc<ContinuityBuilder>>,
+        cache_configs: HashMap<u64, ChainCacheConfig>,
+        metrics: Metrics,
+        max_batch_size: usize,
+        max_batch_span: u64,
+    ) -> anyhow::Result<Self> {
+        if builders.is_empty() {
+            anyhow::bail!("ContinuityService requires at least one ContinuityBuilder");
+        }
+
+        // One consistent snapshot for every chain: read the finalized head once and take every
+        // startup read at that block. The event stream then replays from that height
+        // (`resume_from`), so an event landing between snapshot and subscription is never
+        // skipped and old boundaries never go missing for the life of the process. A provider
+        // that cannot pin reads (mocks) reports no head; reads fall back to latest state.
+        let snapshot = {
+            let provider = builders[0].cc_provider.clone();
+            retry_startup("cc3 finalized head", || {
+                let provider = provider.clone();
+                async move { provider.finalized_head().await }
+            })
+            .await?
+        };
+        let snapshot_hash = snapshot.map(|(hash, _)| hash);
+        let snapshot_height = snapshot.map(|(_, height)| height);
+        match snapshot {
+            Some((hash, height)) => tracing::info!(
+                ?hash,
+                height,
+                "🚀 📸 startup snapshot pinned to cc3 finalized head"
+            ),
+            None => tracing::debug!(
+                "🚀 📸 cc3 provider cannot pin a block; startup reads use latest state"
+            ),
+        }
+
+        let mut chains = HashMap::new();
+        for builder in builders {
+            let chain_key = builder.config.chain_key;
+            if chains.contains_key(&chain_key) {
+                anyhow::bail!("duplicate ContinuityBuilder for chain_key {chain_key}");
+            }
+            let provider = builder.cc_provider.clone();
+
+            // Every startup read is retried a bounded number of times and is fatal if it
+            // still fails. The previous behaviour - warn and start with an empty cache - made
+            // a transient cc3 blip into a replica that answered `BlockNotReady` for already
+            // attested data until someone restarted it.
+            tracing::debug!(
+                chain_key,
+                "🚀 🔗 [startup] ContinuityService: fetching attestation genesis block from CC3"
+            );
+            let attestation_genesis_block = retry_startup("attestation genesis block", || {
+                let provider = provider.clone();
+                async move {
+                    match snapshot_hash {
+                        Some(at) => {
+                            provider
+                                .get_attestation_chain_genesis_block_number_at(chain_key, at)
+                                .await
+                        }
+                        None => {
+                            provider
+                                .get_attestation_chain_genesis_block_number(chain_key)
+                                .await
+                        }
+                    }
+                }
+            })
+            .await
+            .with_context(|| {
+                format!(
+                    "Failed to fetch attestation genesis block during ContinuityService init (chain_key={chain_key}); CC3 RPC used by this builder may be down or misconfigured"
+                )
+            })?;
+
+            tracing::debug!(
+                chain_key,
+                attestation_genesis_block,
+                "🚀 ✅ ContinuityService chain initialized with attestation genesis block"
+            );
+
+            // Populate checkpoint cache from CC3 on startup.
+            tracing::debug!(
+                chain_key,
+                "🚀 ⏳ 📝 Populating checkpoint cache from CC3 (this may take a while)..."
+            );
+            let checkpoints = retry_startup("checkpoints", || {
+                let provider = provider.clone();
+                async move {
+                    match snapshot_hash {
+                        Some(at) => provider.get_checkpoints_for_chain_at(chain_key, at).await,
+                        None => provider.get_checkpoints_for_chain(chain_key).await,
+                    }
+                }
+            })
+            .await
+            .with_context(|| {
+                format!("Failed to fetch checkpoints on startup (chain_key={chain_key})")
+            })?;
+            let checkpoint_map: BTreeMap<u64, H256> = checkpoints
+                .into_iter()
+                .map(|cp| (cp.block_number, cp.digest))
+                .collect();
+            tracing::debug!(
+                chain_key,
+                count = checkpoint_map.len(),
+                latest = ?checkpoint_map.keys().next_back(),
+                "🚀 ✅ 📝 Checkpoint cache populated from CC3"
+            );
+            metrics
+                .set_last_checkpoint_height(chain_key, checkpoint_map.keys().next_back().copied());
+            // Align the builder's checkpoint hint with the snapshot. Its configured value came
+            // from an unpinned read taken before the snapshot, and the event stream replays
+            // only what lands *after* the snapshot height, so a checkpoint reached in between
+            // would otherwise stay out of the hint until the next `CheckpointReached` event and
+            // `determine_checkpoint_info` could skip a checkpoint-spanning proof meanwhile.
+            if let Some(latest) = checkpoint_map.keys().next_back().copied() {
+                builder.update_last_checkpoint_block(latest).await;
+            }
+
+            // Populate attestation cache from CC3 on startup.
+            tracing::debug!(
+                chain_key,
+                "🚀 ⏳ 📜 Populating attestation cache from CC3 (this may take a while)..."
+            );
+            let attestations = retry_startup("attestations", || {
+                let provider = provider.clone();
+                async move {
+                    match snapshot_hash {
+                        Some(at) => provider.get_attestations_for_chain_at(chain_key, at).await,
+                        None => provider.get_attestations_for_chain(chain_key).await,
+                    }
+                }
+            })
+            .await
+            .with_context(|| {
+                format!("Failed to fetch attestations on startup (chain_key={chain_key})")
+            })?;
+            let attestation_map: BTreeMap<u64, H256> = attestations
+                .into_iter()
+                .map(|att| (att.attestation.header_number, att.attestation.digest()))
+                .collect();
+            tracing::debug!(
+                chain_key,
+                count = attestation_map.len(),
+                latest = ?attestation_map.keys().next_back(),
+                "🚀 ✅ 📜 Attestation cache populated from CC3"
+            );
+            let latest_attested_height = attestation_map.keys().next_back().copied();
+            metrics.set_last_attested_height(chain_key, latest_attested_height);
+            let checkpoint_interval = builder.config.checkpoint_interval;
+            let attestation_interval = builder.config.attestation_interval;
+            let cache_config = cache_configs.get(&chain_key).cloned().unwrap_or_default();
+
+            chains.insert(
+                chain_key,
+                Arc::new(ChainState {
+                    builder,
+                    checkpoint_cache: tokio::sync::RwLock::new(checkpoint_map),
+                    attestation_cache: tokio::sync::RwLock::new(attestation_map),
+                    merkle_proof_cache: MerkleProofCache::default(),
+                    attestation_genesis_block: AtomicU64::new(attestation_genesis_block),
+                    checkpoint_interval: AtomicU64::new(checkpoint_interval),
+                    attestation_interval: AtomicU64::new(attestation_interval),
+                    last_cache_advance: std::sync::Mutex::new(Instant::now()),
+                    fill_permits: Arc::new(tokio::sync::Semaphore::new(
+                        cache_config.max_concurrent_block_fills.get(),
+                    )),
+                    in_flight_fills: std::sync::Mutex::new(HashMap::new()),
+                    cache_config,
+                }),
+            );
+        }
+
+        Ok(Self {
+            chains,
+            start_time: Instant::now(),
+            event_stream_dead: std::sync::Mutex::new(None),
+            cc3_progress: Arc::new(stream::cc3::Progress::default()),
+            cc3_snapshot_height: snapshot_height,
+            metrics,
+            max_batch_size,
+            max_batch_span,
+        })
+    }
+
+    pub(crate) fn chain_state(&self, chain_key: u64) -> ServiceResult<&Arc<ChainState>> {
+        self.chains
+            .get(&chain_key)
+            .ok_or(ServiceError::UnknownChain { chain_key })
+    }
+
+    pub(crate) fn serves_chain(&self, chain_key: u64) -> bool {
+        self.chains.contains_key(&chain_key)
+    }
+
+    pub(crate) fn configured_chain_keys(&self) -> std::collections::HashSet<u64> {
+        self.chains.keys().copied().collect()
+    }
+
+    /// Sample every chain's cache occupancy into Prometheus on a fixed tick.
+    ///
+    /// Sampled rather than updated at each mutation site: these are observability gauges, the
+    /// reads are cheap, and driving them from a single place keeps metric updates out of the
+    /// cache write paths.
+    pub fn spawn_cache_metrics_updater(
+        service: Arc<Self>,
+        block_caches: HashMap<u64, Arc<eth::mem_block_cache::MemBlockCache>>,
+    ) {
+        tokio::spawn(async move {
+            loop {
+                for (chain_key, chain) in service.chains.iter() {
+                    let (merkle, checkpoint_entries) = Self::cache_occupancy(chain.as_ref()).await;
+                    // One snapshot feeds both the gauges and the clamp.
+                    let retention = Self::retention_blocks_for(chain.as_ref(), merkle);
+                    let (block_cache_blocks, block_cache_txs, block_cache_capacity) =
+                        match block_caches.get(chain_key) {
+                            Some(cache) => {
+                                let (blocks, txs) = cache.occupancy();
+                                (blocks as u64, txs as u64, cache.capacity() as u64)
+                            }
+                            None => (0, 0, 0),
+                        };
+
+                    service.metrics.set_cache_occupancy(
+                        *chain_key,
+                        CacheOccupancy {
+                            merkle_blocks: merkle.blocks,
+                            merkle_txs: merkle.txs,
+                            merkle_bytes: merkle.bytes,
+                            merkle_retention_blocks: retention,
+                            checkpoint_entries,
+                            block_cache_blocks,
+                            block_cache_txs,
+                            block_cache_capacity,
+                        },
+                    );
+                }
+                tokio::time::sleep(CACHE_METRICS_POLL_INTERVAL).await;
+            }
+        });
+    }
+
+    pub fn spawn_merkle_backfill(service: Arc<Self>) {
+        for chain in service.chains.values().cloned().collect::<Vec<_>>() {
+            let service = service.clone();
+            if !chain.cache_config.merkle_backfill_enabled {
+                // Pruning still happens on every checkpoint, so skipping the worker cannot let
+                // the cache grow without bound - it just fills on demand instead of eagerly.
+                tracing::info!(
+                    chain_key = chain.builder.config.chain_key,
+                    "merkle proof cache backfill disabled by config; filling on demand only"
+                );
+                continue;
+            }
+            tokio::spawn(async move {
+                tracing::info!(
+                    chain_key = chain.builder.config.chain_key,
+                    poll_interval_secs = MERKLE_BACKFILL_POLL_INTERVAL.as_secs(),
+                    max_blocks_per_tick = MERKLE_BACKFILL_MAX_BLOCKS_PER_TICK,
+                    max_concurrency = MERKLE_BACKFILL_MAX_CONCURRENCY,
+                    "merkle proof cache backfill worker started"
+                );
+                loop {
+                    if let Err(err) = service.backfill_merkle_cache_for_chain(chain.clone()).await {
+                        tracing::warn!(
+                            chain_key = chain.builder.config.chain_key,
+                            error = %err,
+                            "merkle proof cache backfill tick failed"
+                        );
+                    }
+                    tokio::time::sleep(MERKLE_BACKFILL_POLL_INTERVAL).await;
+                }
+            });
+        }
+    }
+
+    async fn backfill_merkle_cache_for_chain(&self, chain: Arc<ChainState>) -> anyhow::Result<()> {
+        let chain_key = chain.builder.config.chain_key;
+        // The attested set is the boundary: everything at or below the latest attestation is
+        // servable, so that is the cache's tip. No source-chain read is involved in deciding it.
+        let Some(cache_tip) = Self::cached_attested_height(chain.as_ref()).await else {
+            tracing::info!(
+                chain_key,
+                "merkle proof cache backfill waiting for attested height"
+            );
+            return Ok(());
+        };
+        let retention_blocks = self.merkle_cache_retention_blocks(chain.as_ref()).await;
+        let genesis = chain.attestation_genesis_block.load(Ordering::Relaxed);
+        let start = cache_tip.saturating_sub(retention_blocks).max(genesis);
+
+        if start > cache_tip {
+            return Ok(());
+        }
+
+        // Shed everything below the retained window *before* deciding whether there is fill
+        // work. A byte-budget clamp narrows the window precisely into the state where every
+        // remaining height is already processed, so pruning only on the fill path would leave
+        // the blocks the budget just excluded resident until the next checkpoint -- or
+        // indefinitely, if attestations stall and `cache_tip` stops advancing. Filling only
+        // ever adds heights inside the window, so one prune per tick is enough.
+        let removed = chain.merkle_proof_cache.prune_below(start).await;
+        if removed > 0 {
+            tracing::info!(
+                chain_key,
+                min_retained = start,
+                removed,
+                "pruned old merkle proof cache blocks outside the retained window"
+            );
+        }
+
+        let heights = chain
+            .merkle_proof_cache
+            .unprocessed_heights_desc(start, cache_tip, MERKLE_BACKFILL_MAX_BLOCKS_PER_TICK)
+            .await;
+        if heights.is_empty() {
+            let (merkle_stats, checkpoint_entries) = Self::cache_occupancy(chain.as_ref()).await;
+            tracing::info!(
+                chain_key,
+                cache_tip,
+                retained_from = start,
+                retention_blocks,
+                total_cached_blocks = merkle_stats.blocks,
+                total_cached_txs = merkle_stats.txs,
+                total_cached_bytes = merkle_stats.bytes,
+                checkpoint_cache_entries = checkpoint_entries,
+                "merkle proof cache backfill already warm for retained range"
+            );
+            return Ok(());
+        }
+
+        use futures::StreamExt as _;
+
+        let concurrency = self
+            .max_batch_size
+            .clamp(1, MERKLE_BACKFILL_MAX_CONCURRENCY);
+        let results = futures::stream::iter(heights.into_iter().map(|height| {
+            let chain = chain.clone();
+            async move {
+                let result = self.precompute_merkle_cache_block(&chain, height).await;
+                (height, result)
+            }
+        }))
+        .buffer_unordered(concurrency)
+        .collect::<Vec<_>>()
+        .await;
+
+        let mut cached_blocks = 0usize;
+        let mut cached_txs = 0usize;
+        let mut failed_blocks = 0usize;
+        let mut min_height = u64::MAX;
+        let mut max_height = 0u64;
+
+        for (height, result) in results {
+            min_height = min_height.min(height);
+            max_height = max_height.max(height);
+            match result {
+                Ok(tx_count) => {
+                    cached_blocks += 1;
+                    cached_txs += tx_count;
+                    tracing::debug!(
+                        chain_key,
+                        height,
+                        tx_count,
+                        "merkle proof cache backfilled source block"
+                    );
+                }
+                Err(err) => {
+                    failed_blocks += 1;
+                    tracing::warn!(
+                        chain_key,
+                        height,
+                        error = %err,
+                        "failed to backfill merkle proof cache block"
+                    );
+                }
+            }
+        }
+
+        let (merkle_stats, checkpoint_entries) = Self::cache_occupancy(chain.as_ref()).await;
+        tracing::info!(
+            chain_key,
+            cache_tip,
+            retained_from = start,
+            retention_blocks,
+            min_height,
+            max_height,
+            cached_blocks,
+            cached_txs,
+            failed_blocks,
+            total_cached_blocks = merkle_stats.blocks,
+            total_cached_txs = merkle_stats.txs,
+            total_cached_bytes = merkle_stats.bytes,
+            checkpoint_cache_entries = checkpoint_entries,
+            "merkle proof cache backfill tick completed"
+        );
+
+        Ok(())
+    }
+
+    /// Fetch one block and populate the merkle cache with it. Callers go through
+    /// [`Self::fill_block_single_flight`], which bounds concurrency and dedupes.
+    async fn fetch_and_cache_block(
+        &self,
+        chain: &Arc<ChainState>,
+        header_number: u64,
+    ) -> ServiceResult<usize> {
+        let txs = chain
+            .builder
+            .get_block_tx_data(header_number)
+            .await
+            .map_err(|err| map_eth_rpc_anyhow_to_service_error(err, header_number))?;
+
+        if txs.is_empty() {
+            chain
+                .merkle_proof_cache
+                .mark_processed_empty(header_number)
+                .await;
+            return Ok(0);
+        }
+
+        chain
+            .merkle_proof_cache
+            .insert_block(header_number, txs)
+            .await
+            .map_err(|message| ServiceError::MerkleError { message })
+    }
+
+    /// Make sure `header_number` has been processed into the merkle cache, fetching it at most
+    /// once no matter how many callers ask concurrently, and never with more than
+    /// `max_concurrent_block_fills` fetches in flight for the chain.
+    ///
+    /// The first caller for a height becomes the leader and does the fetch; everyone else
+    /// waits on its `Notify` and re-checks the cache when woken. A leader that fails wakes
+    /// the followers too; each then retries as leader on its own, so one bad fetch is not
+    /// broadcast as everyone's error and a transient failure heals on the next attempt.
+    /// Returns the transaction count the leader inserted, or `0` for followers and for blocks
+    /// that were already processed.
+    async fn fill_block_single_flight(
+        &self,
+        chain: &Arc<ChainState>,
+        header_number: u64,
+    ) -> ServiceResult<usize> {
+        loop {
+            if chain.merkle_proof_cache.is_processed(header_number).await {
+                return Ok(0);
+            }
+            let (leader, notify) = {
+                let mut fills = chain
+                    .in_flight_fills
+                    .lock()
+                    .unwrap_or_else(|p| p.into_inner());
+                match fills.get(&header_number) {
+                    Some(existing) => (false, existing.clone()),
+                    None => {
+                        let fresh = Arc::new(tokio::sync::Notify::new());
+                        fills.insert(header_number, fresh.clone());
+                        (true, fresh)
+                    }
+                }
+            };
+
+            if leader {
+                // Cleanup lives in a guard so it also runs when this future is *dropped*: the
+                // admission deadline and `try_join!` cancel handlers by dropping them, and a
+                // leader that vanished without removing its entry would leave every later
+                // caller for this height (requests and backfill alike) waiting on a `Notify`
+                // that never fires.
+                let _cleanup = FillGuard {
+                    chain,
+                    header_number,
+                    notify: &notify,
+                };
+                // A previous leader inserts into the cache *before* its guard removes the map
+                // entry, so a caller that saw "not processed", then found no entry and took
+                // leadership, may be looking at a height that was just filled. Re-check now that
+                // the slot is ours, so a straggler never re-fetches a block (the guard still
+                // releases the slot and wakes anyone who queued behind us).
+                if chain.merkle_proof_cache.is_processed(header_number).await {
+                    return Ok(0);
+                }
+                let result =
+                    async {
+                        let _permit = chain.fill_permits.acquire().await.map_err(|_| {
+                            ServiceError::Internal {
+                                message: "block fill semaphore closed".to_owned(),
+                            }
+                        })?;
+                        self.fetch_and_cache_block(chain, header_number).await
+                    }
+                    .await;
+                if result.is_ok() {
+                    tracing::debug!(
+                        chain_key = chain.builder.config.chain_key,
+                        header_number,
+                        "merkle proof cache fill completed"
+                    );
+                }
+                return result;
+            }
+
+            // Follower: register interest *before* checking whether the leader is still at
+            // work, otherwise a notify between the check and the await would be lost. The
+            // check must be for *this* `Notify`, not merely for the height: if the leader we
+            // cloned from finished (and woke its waiters before we registered) and a new
+            // leader already took the height, the map holds a different `Notify` and ours will
+            // never fire again. Same height, different leader means: re-check the cache and
+            // follow the new one.
+            let notified = notify.notified();
+            let mut notified = std::pin::pin!(notified);
+            notified.as_mut().enable();
+            let same_leader_still_in_flight = chain
+                .in_flight_fills
+                .lock()
+                .unwrap_or_else(|p| p.into_inner())
+                .get(&header_number)
+                .is_some_and(|current| Arc::ptr_eq(current, &notify));
+            if same_leader_still_in_flight {
+                notified.await;
+            }
+            // Loop: the cache is either populated now, or the leader failed and this caller
+            // takes its turn.
+        }
+    }
+
+    async fn precompute_merkle_cache_block(
+        &self,
+        chain: &Arc<ChainState>,
+        header_number: u64,
+    ) -> ServiceResult<usize> {
+        self.fill_block_single_flight(chain, header_number).await
+    }
+}
+
+/// Releases a single-flight leadership slot: removes the height from `in_flight_fills` and
+/// wakes the followers. Runs on normal completion *and* on cancellation (drop), so a leader
+/// cut off by a deadline never leaves its followers waiting forever. Remove first, then wake:
+/// a follower that registered before the removal is woken; one that registers after sees no
+/// entry and re-checks on its own.
+struct FillGuard<'a> {
+    chain: &'a Arc<ChainState>,
+    header_number: u64,
+    notify: &'a Arc<tokio::sync::Notify>,
+}
+
+impl Drop for FillGuard<'_> {
+    fn drop(&mut self) {
+        self.chain
+            .in_flight_fills
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .remove(&self.header_number);
+        self.notify.notify_waiters();
+    }
+}
+
+impl ContinuityService {
+    async fn precompute_merkle_cache_block_for_tx(
+        &self,
+        chain: &Arc<ChainState>,
+        header_number: u64,
+        tx_index: u64,
+    ) -> ServiceResult<Option<MerkleProofItem>> {
+        let chain_key = chain.builder.config.chain_key;
+        if let Some(item) = chain
+            .merkle_proof_cache
+            .get_by_block_index(chain_key, header_number, tx_index)
+            .await
+        {
+            return Ok(Some(item));
+        }
+        self.fill_block_single_flight(chain, header_number).await?;
+        let item = chain
+            .merkle_proof_cache
+            .get_by_block_index(chain_key, header_number, tx_index)
+            .await;
+        tracing::info!(
+            chain_key,
+            header_number,
+            tx_index,
+            cache_hit = item.is_some(),
+            "merkle proof cache on-demand fill completed"
+        );
+        Ok(item)
+    }
+
+    /// Retention window derived from the chain's live on-chain attestation cadence.
+    ///
+    /// Note what this couples: raising `attestation_interval` to *reduce* attestation load on a
+    /// fast chain multiplies this window by the same factor. That is why it can be overridden
+    /// per chain via `cache.merkle_retention_blocks`.
+    fn derived_retention_blocks(chain: &ChainState) -> u64 {
+        let checkpoint_interval = chain.checkpoint_interval.load(Ordering::Relaxed);
+        let attestation_interval = chain.attestation_interval.load(Ordering::Relaxed);
+        attestation_interval
+            .saturating_mul(checkpoint_interval)
+            .saturating_mul(MERKLE_PROOF_CACHE_CHECKPOINT_RETENTION_MULTIPLIER)
+    }
+
+    /// Effective retention window for a chain's merkle cache, in source blocks.
+    ///
+    /// Starts from the configured or derived window, then — when a byte budget is set — narrows
+    /// it using the cache's own measured bytes-per-block so the resident set stays inside the
+    /// budget however many transactions the chain puts in a block.
+    ///
+    /// The budget deliberately moves this window rather than evicting blocks directly.
+    /// [`MerkleProofCache::unprocessed_heights_desc`] drives the backfill worker off
+    /// `processed_blocks`, so a block evicted purely for size would either be treated as
+    /// still-cached (and never refilled) or be refilled immediately because it remains inside
+    /// the window — a fill/evict thrash loop. Narrowing the window instead keeps
+    /// height-ordered `prune_below` as the single eviction path and makes thrash impossible.
+    async fn merkle_cache_retention_blocks(&self, chain: &ChainState) -> u64 {
+        let stats = chain.merkle_proof_cache.size_stats().await;
+
+        Self::retention_blocks_for(chain, stats)
+    }
+
+    /// [`Self::merkle_cache_retention_blocks`] against an already-taken occupancy snapshot, so a
+    /// caller that needs both does not read the cache twice.
+    fn retention_blocks_for(chain: &ChainState, stats: MerkleCacheStats) -> u64 {
+        let configured = chain
+            .cache_config
+            .merkle_retention_blocks
+            .unwrap_or_else(|| Self::derived_retention_blocks(chain));
+
+        let Some(budget) = chain.cache_config.merkle_max_bytes else {
+            return configured;
+        };
+
+        // A cold cache has no density to measure yet; the clamp engages after the first tick.
+        let Some(mean_bytes) = stats.mean_bytes_per_block() else {
+            return configured;
+        };
+
+        // Never shrink below one attestation bracket, so the window a proof is most likely to
+        // need stays resident even under a tight budget.
+        let floor = chain.attestation_interval.load(Ordering::Relaxed).max(1);
+        let affordable = (budget / mean_bytes).max(floor);
+
+        configured.min(affordable)
+    }
+
+    /// Occupancy of a chain's caches, for metrics and logging.
+    async fn cache_occupancy(chain: &ChainState) -> (MerkleCacheStats, u64) {
+        let merkle = chain.merkle_proof_cache.size_stats().await;
+        let checkpoints = chain.checkpoint_cache.read().await.len() as u64;
+
+        (merkle, checkpoints)
+    }
+
+    /// Update the continuity builder's last-checkpoint hint (from on-chain events).
+    pub async fn update_builder_last_checkpoint(&self, chain_key: u64, block_number: u64) {
+        if let Some(chain) = self.chains.get(&chain_key) {
+            chain
+                .builder
+                .update_last_checkpoint_block(block_number)
+                .await;
+        }
+    }
+
+    /// Update the checkpoint interval used by merkle-cache retention sizing.
+    pub fn update_checkpoint_interval(&self, chain_key: u64, checkpoint_interval: u64) {
+        if let Some(chain) = self.chains.get(&chain_key) {
+            chain
+                .checkpoint_interval
+                .store(checkpoint_interval, Ordering::Relaxed);
+        }
+    }
+
+    /// Update the attestation interval used by merkle-cache retention sizing.
+    ///
+    /// The continuity bracket math reads the live interval over RPC, so this value only
+    /// affects cache-retention sizing — but it must track on-chain changes, otherwise a
+    /// runtime interval change leaves retention sized by the stale startup value (pruning
+    /// the merkle cache too early or retaining too much).
+    pub fn update_attestation_interval(&self, chain_key: u64, attestation_interval: u64) {
+        if let Some(chain) = self.chains.get(&chain_key) {
+            chain
+                .attestation_interval
+                .store(attestation_interval, Ordering::Relaxed);
+        }
+    }
+
+    /// Validate that the requested blocks can be processed:
+    /// 1. After attestation genesis
+    /// 2. At or below the latest attested height for the chain
+    ///
+    /// The attested set is the serving boundary. Attestors decide what is mature against their
+    /// own maturity policy and publish the result on Creditcoin; this process reads that result
+    /// from the caches the cc3 event subscription keeps warm. It does not consult the source
+    /// chain here at all: a proof needs an attestation at or above the requested height to
+    /// exist, so a height above the latest attestation cannot be served no matter what the
+    /// source tip says, and a height at or below it is guaranteed an upper bound. The old
+    /// `tip - depth` and block-tag checks against this process's own RPC were a second,
+    /// independent opinion on maturity that could only disagree with the attestors, in either
+    /// direction.
+    ///
+    /// Returns the latest attested height.
+    async fn validate_blocks(
+        &self,
+        chain: &Arc<ChainState>,
+        header_numbers: &[u64],
+    ) -> ServiceResult<u64> {
+        let chain_key = chain.builder.config.chain_key;
+        let genesis_block = chain.attestation_genesis_block.load(Ordering::Acquire);
+
+        // Check genesis bound
+        if let Some(&header_number) = header_numbers.iter().find(|h| **h <= genesis_block) {
+            tracing::warn!(
+                requested_block = header_number,
+                genesis_block,
+                chain_key,
+                "⚠️  Requested block is before or at attestation genesis"
+            );
+            return Err(ServiceError::BlockBeforeOrAtGenesis {
+                requested_block: header_number,
+                genesis_block,
+            });
+        }
+
+        // Check against the attested boundary. Same error the proof builder raises when the
+        // caches cannot bracket a request, so a client sees one code for "not yet attested"
+        // whichever check catches it first; this one is just cheaper and earlier.
+        let Some(latest_attested) = Self::cached_attested_height(chain).await else {
+            tracing::warn!(
+                chain_key,
+                "⚠️  no attestation or checkpoint cached yet; nothing can be served"
+            );
+            return Err(ServiceError::AttestationsMissing { chain_key });
+        };
+
+        if let Some(&header_number) = header_numbers.iter().find(|h| **h > latest_attested) {
+            tracing::warn!(
+                requested_block = header_number,
+                latest_attested,
+                chain_key,
+                "⚠️  ⛓️ Requested block is above the latest attestation; not servable yet"
+            );
+            return Err(ServiceError::BlockNotReady {
+                block_number: header_number,
+                last_attested_block: latest_attested,
+            });
+        }
+
+        Ok(latest_attested)
+    }
+
+    pub fn uptime_seconds(&self) -> u64 {
+        self.start_time.elapsed().as_secs()
+    }
+
+    /// Record that the cc3 event task has ended permanently. Idempotent; the first reason wins.
+    pub fn mark_event_stream_dead(&self, reason: &str) {
+        let mut guard = self
+            .event_stream_dead
+            .lock()
+            .unwrap_or_else(|p| p.into_inner());
+        if guard.is_none() {
+            *guard = Some(reason.to_owned());
+        }
+    }
+
+    /// Shared finalized-block progress record for the cc3 event stream.
+    pub fn cc3_progress(&self) -> Arc<stream::cc3::Progress> {
+        self.cc3_progress.clone()
+    }
+
+    /// Creditcoin finalized height the startup snapshot was read at, if the provider could pin
+    /// one. Hand it to the event stream as `resume_from`.
+    pub fn cc3_snapshot_height(&self) -> Option<u64> {
+        self.cc3_snapshot_height
+    }
+
+    /// Whether this replica should receive traffic, and why not if it should not.
+    ///
+    /// Ready means: the event task is alive, it has caught up to (at least) the startup
+    /// snapshot, and it processed a finalized block within [`CC3_FINALIZED_STALE_AFTER`].
+    /// Freshness is judged on finalized-block progress, not on attestation writes: a quiet
+    /// chain attests rarely but still finalizes, and a dead subscription does neither. The
+    /// source-chain probe is the caller's to add (it is async and per chain).
+    pub fn readiness(&self) -> Readiness {
+        let mut reasons = Vec::new();
+        if let Some(reason) = self.event_stream_dead() {
+            reasons.push(format!("cc3 event stream ended: {reason}"));
+        }
+        match self.cc3_progress.height() {
+            None => {
+                reasons.push("cc3 event stream has not processed a finalized block yet".to_owned())
+            }
+            Some(height) => {
+                if let Some(snapshot) = self.cc3_snapshot_height {
+                    if height < snapshot {
+                        reasons.push(format!(
+                            "catching up: processed finalized block {height}, startup snapshot was taken at {snapshot}"
+                        ));
+                    }
+                }
+                if let Some(age) = self.cc3_progress.age_seconds() {
+                    if age > CC3_FINALIZED_STALE_AFTER.as_secs() {
+                        reasons.push(format!(
+                            "no finalized block processed for {age} s (stale after {} s)",
+                            CC3_FINALIZED_STALE_AFTER.as_secs()
+                        ));
+                    }
+                }
+            }
+        }
+        Readiness {
+            ready: reasons.is_empty(),
+            reasons,
+        }
+    }
+
+    /// Why the cc3 event task ended, if it has. `None` while it is (believed) running.
+    pub fn event_stream_dead(&self) -> Option<String> {
+        self.event_stream_dead
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .clone()
+    }
+
+    /// Live cc3 RPC probe: a lightweight storage read on **every** configured chain.
+    ///
+    /// Previously this probed a single chain picked by `HashMap::iter().next()`, which Rust
+    /// randomises per process — so two replicas of identical code could report opposite
+    /// results, and the failure was never attributable to a chain. Every failing chain is
+    /// now logged with its error; the caller only sees a bool, and without the log line this
+    /// class of fault is undiagnosable (it ran 26 days on devnet with no record of why).
+    ///
+    /// Note this is a *diagnostic*, not the serving signal — see [`Self::cc3_cache_freshness`].
+    pub async fn check_cc3_connectivity(&self) -> anyhow::Result<()> {
+        anyhow::ensure!(!self.chains.is_empty(), "no chains configured");
+        let mut failed: Vec<u64> = Vec::new();
+        for (chain_key, chain) in &self.chains {
+            if let Err(err) = chain.builder.get_attestation_genesis_block().await {
+                tracing::warn!(chain_key, ?err, "🩺 cc3 RPC probe failed");
+                failed.push(*chain_key);
+            }
+        }
+        if failed.is_empty() {
+            Ok(())
+        } else {
+            failed.sort_unstable();
+            anyhow::bail!("cc3 RPC probe failed for chain_key(s) {failed:?}")
+        }
+    }
+
+    /// Whether the cc3 event subscription is still advancing the caches this service serves
+    /// proofs from — the signal that actually reflects serving ability.
+    ///
+    /// A chain is stale once no attestation or checkpoint has been cached for
+    /// [`CC3_CACHE_STALE_AFTER`]. Attestations land roughly every two minutes on the
+    /// current networks (attestation_interval 10 × ~12 s blocks), so the window tolerates
+    /// several missed intervals before declaring the subscription dead.
+    pub fn cc3_cache_freshness(&self) -> CacheFreshness {
+        let mut max_age = Duration::ZERO;
+        let mut stale_chains: Vec<u64> = Vec::new();
+        for (chain_key, chain) in &self.chains {
+            let age = chain.cache_age();
+            if age > max_age {
+                max_age = age;
+            }
+            if age > CC3_CACHE_STALE_AFTER {
+                stale_chains.push(*chain_key);
+            }
+        }
+        stale_chains.sort_unstable();
+        CacheFreshness {
+            fresh: stale_chains.is_empty(),
+            max_age_seconds: max_age.as_secs(),
+            stale_chains,
+        }
+    }
+
+    /// Health check for ETH RPC connectivity
+    pub async fn check_eth_connectivity(&self) -> anyhow::Result<()> {
+        for (chain_key, chain) in &self.chains {
+            chain
+                .builder
+                .eth_provider
+                .is_healthy()
+                .await
+                .map_err(|e| anyhow::anyhow!("eth RPC chain {chain_key}: {e}"))?
+                .then_some(())
+                .ok_or_else(|| anyhow::anyhow!("eth RPC chain {chain_key} is unhealthy"))?;
+        }
+        Ok(())
+    }
+
+    /// Returns the latest attested height in the in-memory cache for a chain.
+    pub async fn attested_height(&self, chain_key: u64) -> ServiceResult<Option<u64>> {
+        let chain = self.chain_state(chain_key)?;
+
+        Ok(Self::cached_attested_height(chain.as_ref()).await)
+    }
+
+    /// Insert an attestation into the in-memory cache (called from event handler).
+    pub async fn insert_attestation(&self, chain_key: u64, block_number: u64, digest: H256) {
+        if let Some(chain) = self.chains.get(&chain_key) {
+            {
+                chain
+                    .attestation_cache
+                    .write()
+                    .await
+                    .insert(block_number, digest);
+            }
+            chain.touch_cache();
+            tracing::debug!(
+                chain_key,
+                block_number,
+                ?digest,
+                "🔧 📦 📜 attestation cached"
+            );
+            self.metrics.set_last_attested_height(
+                chain_key,
+                Self::cached_attestation_height(chain.as_ref()).await,
+            );
+        }
+    }
+
+    async fn cached_attestation_height(chain: &ChainState) -> Option<u64> {
+        let cache = chain.attestation_cache.read().await;
+        cache.keys().next_back().copied()
+    }
+
+    /// The highest height the attested set covers: the greater of the newest attestation and
+    /// the newest checkpoint. Both caches are attested state (a checkpoint is a finalised
+    /// attestation digest), and `build_continuity` brackets against either, so the serving
+    /// boundary must consider both rather than fall back to checkpoints only when no
+    /// attestation is cached. Otherwise a pruned attestation cache that trails a newer
+    /// checkpoint would refuse heights the proof builder can still serve.
+    async fn cached_attested_height(chain: &ChainState) -> Option<u64> {
+        let attestation = Self::cached_attestation_height(chain).await;
+        let checkpoint = Self::cached_checkpoint_height(chain).await;
+        attestation.max(checkpoint)
+    }
+
+    async fn cached_checkpoint_height(chain: &ChainState) -> Option<u64> {
+        let checkpoint_cache = chain.checkpoint_cache.read().await;
+        checkpoint_cache.keys().next_back().copied()
+    }
+
+    /// Truncate attestation and checkpoint caches to the given revert height.
+    /// Removes all entries with block numbers strictly greater than `revert_height`.
+    /// Called when a `RevertedAttestationChainTo` event is received from CC3.
+    pub async fn revert_caches(&self, chain_key: u64, revert_height: u64) {
+        if let Some(chain) = self.chains.get(&chain_key) {
+            // split_off is O(log n) on BTreeMap vs O(n) for retain.
+            let split_key = revert_height.saturating_add(1);
+
+            {
+                let mut att = chain.attestation_cache.write().await;
+                let removed = att.split_off(&split_key).len();
+                tracing::info!(
+                    chain_key,
+                    revert_height,
+                    removed,
+                    remaining = att.len(),
+                    "🔧 ↩️  Reverted attestation cache"
+                );
+            }
+
+            {
+                let mut cp = chain.checkpoint_cache.write().await;
+                let removed = cp.split_off(&split_key).len();
+                tracing::info!(
+                    chain_key,
+                    revert_height,
+                    removed,
+                    remaining = cp.len(),
+                    "🔧 ↩️  Reverted checkpoint cache"
+                );
+            }
+
+            let removed_merkle = chain.merkle_proof_cache.prune_above(revert_height).await;
+            if removed_merkle > 0 {
+                tracing::info!(
+                    chain_key,
+                    revert_height,
+                    removed = removed_merkle,
+                    "🔧 ↩️  Reverted merkle proof cache"
+                );
+            }
+
+            // Reset the builder's last-checkpoint hint so that
+            // determine_checkpoint_info does not skip checks based on stale state.
+            chain.builder.reset_last_checkpoint_block().await;
+            self.metrics.set_last_attested_height(
+                chain_key,
+                Self::cached_attestation_height(chain.as_ref()).await,
+            );
+            self.metrics.set_last_checkpoint_height(
+                chain_key,
+                Self::cached_checkpoint_height(chain.as_ref()).await,
+            );
+        }
+    }
+
+    /// Drop attestation cache entries at or below `height`.
+    ///
+    /// Called after a `CheckpointReached` event. Once a checkpoint absorbs a
+    /// run of attestations, the on-chain pallet appends them to a per-chain
+    /// removal queue (`pallets/attestation/src/impls.rs` `remove_attestations`)
+    /// and evicts the oldest entries once the queue exceeds
+    /// `AttestationRetentionDuration`. Any of those consumed attestations that
+    /// we still hold in cache will eventually point at a digest the on-chain
+    /// verifier no longer recognizes, producing "Continuity proof does not
+    /// match attestation or checkpoint" at verification time. Pruning at the
+    /// checkpoint boundary keeps the cache aligned with the post-checkpoint
+    /// invariant: attestations strictly above the latest checkpoint are the
+    /// only ones the verifier will accept as proof anchors.
+    pub async fn prune_attestations_at_or_below(&self, chain_key: u64, height: u64) {
+        if let Some(chain) = self.chains.get(&chain_key) {
+            {
+                let split_key = height.saturating_add(1);
+                let mut att = chain.attestation_cache.write().await;
+                // split_off mutates `att` in place to hold entries < split_key
+                // and returns entries >= split_key. We want to keep the latter,
+                // so reassign unconditionally — guarding this on `removed > 0`
+                // would silently wipe the cache whenever nothing needed pruning.
+                let kept = att.split_off(&split_key);
+                let removed = att.len();
+                *att = kept;
+                if removed > 0 {
+                    tracing::debug!(
+                        chain_key,
+                        height,
+                        removed,
+                        remaining = att.len(),
+                        "🔧 🧹 pruned consumed attestations after checkpoint"
+                    );
+                }
+            }
+            self.metrics.set_last_attested_height(
+                chain_key,
+                Self::cached_attestation_height(chain.as_ref()).await,
+            );
+        }
+    }
+
+    /// Insert a checkpoint into the in-memory cache (called from event handler).
+    pub async fn insert_checkpoint(&self, chain_key: u64, block_number: u64, digest: H256) {
+        if let Some(chain) = self.chains.get(&chain_key) {
+            {
+                let mut cp = chain.checkpoint_cache.write().await;
+                cp.insert(block_number, digest);
+
+                // Optional cap. Off by default: proof serving resolves a query against the
+                // checkpoint immediately *below* it and has no fallback to chain state on a
+                // miss, so dropping old checkpoints caps how far back proofs can be served.
+                if let Some(max_entries) = chain.cache_config.checkpoint_cache_max_entries {
+                    let mut dropped = 0usize;
+                    while cp.len() > max_entries && cp.pop_first().is_some() {
+                        dropped += 1;
+                    }
+                    if dropped > 0 {
+                        tracing::debug!(
+                            chain_key,
+                            dropped,
+                            max_entries,
+                            oldest_retained = ?cp.keys().next(),
+                            "🔧 🧹 dropped oldest checkpoints to honor checkpoint_cache_max_entries"
+                        );
+                    }
+                }
+            }
+            chain.touch_cache();
+            tracing::debug!(
+                chain_key,
+                block_number,
+                ?digest,
+                "🔧 📦 🚩 checkpoint cached"
+            );
+            self.metrics.set_last_checkpoint_height(
+                chain_key,
+                Self::cached_checkpoint_height(chain.as_ref()).await,
+            );
+
+            let retention_blocks = self.merkle_cache_retention_blocks(chain.as_ref()).await;
+            let genesis = chain.attestation_genesis_block.load(Ordering::Relaxed);
+            let min_retained = block_number.saturating_sub(retention_blocks).max(genesis);
+            let removed = chain.merkle_proof_cache.prune_below(min_retained).await;
+            if removed > 0 {
+                tracing::debug!(
+                    chain_key,
+                    block_number,
+                    min_retained,
+                    removed,
+                    "🔧 🧹 pruned merkle proof cache after checkpoint"
+                );
+            }
+        }
+    }
+
+    /// Look up attestation boundaries around a query range from the local cache.
+    /// Attestations are more granular than checkpoints, so these provide tighter bounds.
+    /// Returns `(lower_block, lower_digest, upper_block, upper_digest)` or `None` if not found.
+    ///
+    /// The upper digest is the on-chain attested digest at `upper_block`; callers should
+    /// verify the proof's computed digest at `upper_block` matches this value so that
+    /// the continuity chain is anchored to a known on-chain upper attestation.
+    pub async fn get_attestation_boundaries(
+        &self,
+        chain: &Arc<ChainState>,
+        min_query: u64,
+        max_query: u64,
+    ) -> Option<(u64, H256, u64, H256)> {
+        let cache = chain.attestation_cache.read().await;
+
+        // Lower: greatest attestation strictly before min_query.
+        let lower = cache.range(..min_query).next_back().map(|(&k, &v)| (k, v));
+
+        // Upper: smallest attestation ≥ max_query
+        let upper = cache.range(max_query..).next().map(|(&k, &v)| (k, v));
+
+        match (lower, upper) {
+            (Some((lower_block, lower_digest)), Some((upper_block, upper_digest))) => {
+                Some((lower_block, lower_digest, upper_block, upper_digest))
+            }
+            _ => None,
+        }
+    }
+
+    /// Look up boundaries that combine one half from each cache, used as a
+    /// fallback when neither the attestation cache nor the checkpoint cache
+    /// brackets the query on its own.
+    ///
+    /// Both caches store `(block_number, on_chain_digest)` pairs that anchor
+    /// the same digest sequence: a checkpoint at block `H` and an attestation
+    /// at block `H` reference the exact same on-chain root. The proof builder
+    /// only needs one anchor strictly below `min_query` and one anchor at or
+    /// above `max_query`; it does not care which cache they come from.
+    ///
+    /// This function exists to handle the steady state introduced by
+    /// [`Self::prune_attestations_at_or_below`]: when a checkpoint at block
+    /// `H` lands, all attestations `<= H` are dropped from the attestation
+    /// cache. A query for the very first post-checkpoint attestation block
+    /// then leaves the attestation cache with only the upper half (no entry
+    /// strictly below) and the checkpoint cache with only the lower half (no
+    /// entry at or above, since the next checkpoint has not landed yet).
+    /// Each cache alone fails to bracket the query, even though the two
+    /// halves together describe a perfectly valid anchor pair.
+    ///
+    /// Tries `(checkpoint_lower, attestation_upper)` first because the
+    /// attestation upper is tighter; falls back to
+    /// `(attestation_lower, checkpoint_upper)` for the symmetric case.
+    /// Returns `(lower_block, lower_digest, upper_block, upper_digest)` or
+    /// `None` if the two caches still cannot jointly bracket the query.
+    pub async fn get_mixed_boundaries(
+        &self,
+        chain: &Arc<ChainState>,
+        min_query: u64,
+        max_query: u64,
+    ) -> Option<(u64, H256, u64, H256)> {
+        let att = chain.attestation_cache.read().await;
+        let cp = chain.checkpoint_cache.read().await;
+
+        // Lower halves: greatest entry strictly before min_query.
+        let att_lower = att.range(..min_query).next_back().map(|(&k, &v)| (k, v));
+        let cp_lower = cp.range(..min_query).next_back().map(|(&k, &v)| (k, v));
+
+        // Upper halves: smallest entry at or above max_query.
+        let att_upper = att.range(max_query..).next().map(|(&k, &v)| (k, v));
+        let cp_upper = cp.range(max_query..).next().map(|(&k, &v)| (k, v));
+
+        // Prefer the attestation upper (tighter) paired with the checkpoint lower.
+        if let (Some((lo_block, lo_digest)), Some((up_block, up_digest))) = (cp_lower, att_upper) {
+            return Some((lo_block, lo_digest, up_block, up_digest));
+        }
+
+        // Symmetric fallback: attestation lower with checkpoint upper.
+        if let (Some((lo_block, lo_digest)), Some((up_block, up_digest))) = (att_lower, cp_upper) {
+            return Some((lo_block, lo_digest, up_block, up_digest));
+        }
+
+        None
+    }
+
+    /// Look up checkpoint boundaries around a query range from the local cache.
+    /// Returns `(lower_block, lower_digest, upper_block, upper_digest)` or `None` if not found.
+    ///
+    /// The upper digest is the on-chain checkpoint digest at `upper_block`; callers should
+    /// verify the proof's computed digest at `upper_block` matches this value so that
+    /// the continuity chain is anchored to a known on-chain upper checkpoint.
+    pub async fn get_checkpoint_boundaries(
+        &self,
+        chain: &Arc<ChainState>,
+        min_query: u64,
+        max_query: u64,
+    ) -> Option<(u64, H256, u64, H256)> {
+        let cache = chain.checkpoint_cache.read().await;
+
+        // Lower: greatest checkpoint strictly before min_query.
+        // Must be strictly less than min_query so that build_proof_from_roots
+        // includes the queried block (it builds from lower_checkpoint + 1).
+        let lower = cache.range(..min_query).next_back().map(|(&k, &v)| (k, v));
+
+        // Upper: smallest checkpoint ≥ max_query
+        let upper = cache.range(max_query..).next().map(|(&k, &v)| (k, v));
+
+        match (lower, upper) {
+            (Some((lower_block, lower_digest)), Some((upper_block, upper_digest))) => {
+                Some((lower_block, lower_digest, upper_block, upper_digest))
+            }
+            _ => None,
+        }
+    }
+
+    /// Operator-oriented detail when boundary resolution failed and we cannot map it to
+    /// [`ServiceError::BlockNotReady`] / [`ServiceError::AttestationsMissing`].
+    fn format_boundary_miss_ops_detail(
+        chain_key: u64,
+        min_query: u64,
+        max_query: u64,
+        att: &BTreeMap<u64, H256>,
+        cp: &BTreeMap<u64, H256>,
+    ) -> String {
+        let att_lower = att.range(..min_query).next_back().map(|(&k, _)| k);
+        let att_upper = att.range(max_query..).next().map(|(&k, _)| k);
+        let att_span = match (att.keys().next().copied(), att.keys().next_back().copied()) {
+            (Some(lo), Some(hi)) => format!("{lo}..={hi}"),
+            _ => "empty".to_string(),
+        };
+        let att_len = att.len();
+
+        let cp_lower = cp.range(..min_query).next_back().map(|(&k, _)| k);
+        let cp_upper = cp.range(max_query..).next().map(|(&k, _)| k);
+        let cp_span = match (cp.keys().next().copied(), cp.keys().next_back().copied()) {
+            (Some(lo), Some(hi)) => format!("{lo}..={hi}"),
+            _ => "empty".to_string(),
+        };
+        let cp_len = cp.len();
+
+        let request_desc = if min_query == max_query {
+            format!("requested block {min_query}")
+        } else {
+            format!("requested blocks {min_query}..={max_query}")
+        };
+
+        format!(
+            "no attestation or checkpoint window in cache (chain_key={chain_key}) for {request_desc}; \
+             need greatest cached block < {min_query} and smallest cached block >= {max_query}. \
+             Attestations: n={att_len} span={att_span} greatest_strictly_before={att_lower:?} smallest_at_or_after={att_upper:?}. \
+             Checkpoints: n={cp_len} span={cp_span} greatest_strictly_before={cp_lower:?} smallest_at_or_after={cp_upper:?}"
+        )
+    }
+
+    /// When attestation and checkpoint caches cannot bracket the query, return a client-safe error
+    /// when the cause is simply that on-chain data has not caught up yet; otherwise
+    /// [`ServiceError::Internal`].
+    async fn boundary_lookup_failed_error(
+        &self,
+        chain: &Arc<ChainState>,
+        min_query: u64,
+        max_query: u64,
+    ) -> ServiceError {
+        let chain_key = chain.builder.config.chain_key;
+        let att = chain.attestation_cache.read().await;
+        let cp = chain.checkpoint_cache.read().await;
+
+        if att.is_empty() && cp.is_empty() {
+            return ServiceError::AttestationsMissing { chain_key };
+        }
+
+        let last_coverage = match (
+            att.keys().next_back().copied(),
+            cp.keys().next_back().copied(),
+        ) {
+            (Some(a), Some(b)) => a.max(b),
+            (Some(a), None) => a,
+            (None, Some(b)) => b,
+            (None, None) => {
+                return ServiceError::AttestationsMissing { chain_key };
+            }
+        };
+
+        if last_coverage < max_query {
+            let ops =
+                Self::format_boundary_miss_ops_detail(chain_key, min_query, max_query, &att, &cp);
+            tracing::debug!(
+                chain_key,
+                min_query,
+                max_query,
+                last_coverage,
+                %ops,
+                "🔧 ⚠️  boundary miss: returning BlockNotReady to client"
+            );
+            return ServiceError::BlockNotReady {
+                block_number: max_query,
+                last_attested_block: last_coverage,
+            };
+        }
+
+        ServiceError::Internal {
+            message: Self::format_boundary_miss_ops_detail(
+                chain_key, min_query, max_query, &att, &cp,
+            ),
+        }
+    }
+
+    /// Updates the attestation genesis block number.
+    /// This will be called when we receive an AttestationChainGenesisBlockNumberSet event from CC3,
+    /// allowing the service to adapt if the attestation genesis block changes (e.g. due to a chain reset or reconfiguration).
+    pub async fn update_genesis_block(&self, chain_key: u64, new_genesis_block: u64) {
+        if let Some(chain) = self.chains.get(&chain_key) {
+            chain
+                .attestation_genesis_block
+                .store(new_genesis_block, Ordering::Release);
+
+            tracing::info!(
+                chain_key,
+                attestation_genesis_block = new_genesis_block,
+                "🔗 ✅ Updated attestation genesis block"
+            );
+        }
+    }
+
+    /// Build continuity proof for the given blocks, validating them first.
+    async fn get_continuity_proof_for(
+        &self,
+        chain: &Arc<ChainState>,
+        headers: &[u64],
+    ) -> ServiceResult<ContinuityProof> {
+        self.build_continuity(chain, headers)
+            .await
+            .inspect(|proof| {
+                // Record metrics
+                self.metrics.observe_proof_blocks(proof.roots.len() as u64);
+                // Record timestamp of successful proof generation
+                let now = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map(|d| d.as_secs_f64())
+                    .unwrap_or(0.0);
+                self.metrics.set_last_proof_generation_timestamp(now);
+
+                tracing::info!(
+                    proof_block_count = proof.roots.len(),
+                    lower_endpoint_digest = ?proof.lower_endpoint_digest,
+                    "🔧 ✨ Generated continuity proof for API response"
+                );
+            })
+    }
+
+    /// Get continuity proof with merkle proof for a transaction at the given index.
+    ///
+    /// Used by:
+    /// - `/api/v1/proof/{chain_key}/{header_number}/{tx_index}`
+    /// - `/api/v1/proof-by-tx/{chain_key}/{tx_hash}` (resolves tx_hash to block/index first)
+    pub async fn get_proof(
+        &self,
+        chain: &Arc<ChainState>,
+        header_number: u64,
+        tx_index: u64,
+    ) -> ServiceResult<SingleContinuityResponse> {
+        let chain_key = chain.builder.config.chain_key;
+
+        // Validate that the requested block can be processed
+        let _current_block = self.validate_blocks(chain, &[header_number]).await?;
+
+        // Record block range metric
+        self.metrics.observe_block_range(header_number);
+
+        // Build the continuity proof (a range fetch over many blocks) and the inclusion merkle
+        // proof (a single block) concurrently. They touch disjoint RPC and have no data
+        // dependency, so overlapping them makes the latency ~max(continuity, merkle) instead of
+        // their sum.
+        let headers = [header_number];
+        let (continuity_proof, merkle) = tokio::try_join!(
+            self.get_continuity_proof_for(chain, &headers),
+            self.generate_merkle_proof(chain, header_number, tx_index),
+        )?;
+
+        let tx_hash = merkle.tx_hash.map(|h| format!("0x{h:x}"));
+        let tx_bytes = merkle.tx_bytes.map(|b| format!("0x{}", hex::encode(&b)));
+
+        Ok(SingleContinuityResponse {
+            chain_key,
+            header_number,
+            tx_index,
+            tx_hash,
+            tx_bytes,
+            continuity_proof,
+            merkle_proof: merkle.merkle_proof,
+            cached: false, // Always false since we generate fresh proofs
+            generated_at: Utc::now(),
+        })
+    }
+
+    async fn get_proof_with_cached_merkle(
+        &self,
+        chain: &Arc<ChainState>,
+        merkle: MerkleProofItem,
+    ) -> ServiceResult<SingleContinuityResponse> {
+        if merkle.tx_index.is_none() {
+            return Err(ServiceError::Internal {
+                message: "cached merkle proof missing tx_index".to_string(),
+            });
+        }
+        let header_number = merkle.header_number;
+        let chain_key = chain.builder.config.chain_key;
+
+        self.validate_blocks(chain, &[header_number]).await?;
+        self.metrics.observe_block_range(header_number);
+
+        let headers = [header_number];
+        let continuity_proof = self.get_continuity_proof_for(chain, &headers).await?;
+
+        Ok(Self::single_response_from_merkle(
+            chain_key,
+            continuity_proof,
+            merkle,
+            true,
+        ))
+    }
+
+    fn single_response_from_merkle(
+        chain_key: u64,
+        continuity_proof: ContinuityProof,
+        merkle: MerkleProofItem,
+        cached: bool,
+    ) -> SingleContinuityResponse {
+        let tx_index = merkle.tx_index.unwrap_or_default();
+        let tx_hash = merkle.tx_hash.map(|h| format!("0x{h:x}"));
+        let tx_bytes = merkle.tx_bytes.map(|b| format!("0x{}", hex::encode(&b)));
+
+        SingleContinuityResponse {
+            chain_key,
+            header_number: merkle.header_number,
+            tx_index,
+            tx_hash,
+            tx_bytes,
+            continuity_proof,
+            merkle_proof: merkle.merkle_proof,
+            cached,
+            generated_at: Utc::now(),
+        }
+    }
+
+    /// Get batch of proofs for a list of blocks, optionally including merkle proof for specific transactions.
+    ///
+    /// `queries` is guaranteed to be non-empty and ordered both per header and per transaction index, so we can safely unwrap when building the response.
+    ///
+    /// Used by:
+    /// - `/api/v1/proof-batch/{chain_key}`
+    pub async fn get_proof_batch(
+        &self,
+        chain: &Arc<ChainState>,
+        queries: &[ProofQuery],
+    ) -> ServiceResult<BatchedContinuityResponse> {
+        let chain_key = chain.builder.config.chain_key;
+
+        // Extract unique header numbers for validation and proof building
+        let header_numbers = queries
+            .iter()
+            .map(|q| q.header_number)
+            .collect::<Vec<u64>>();
+        // Validate that the requested blocks can be processed
+        let _current_block = self.validate_blocks(chain, &header_numbers).await?;
+
+        // We can safely unwrap header_numbers here because the API layer guarantees at least one query is present.
+        let from_header = *header_numbers.iter().min().unwrap();
+        let to_header = *header_numbers.iter().max().unwrap();
+
+        // Enforce maximum batch span to prevent extremely expensive proof
+        // generation when a small batch contains widely separated block heights.
+        let span = to_header - from_header;
+        if span > self.max_batch_span {
+            return Err(ServiceError::BatchSpanTooLarge {
+                from_block: from_header,
+                to_block: to_header,
+                span,
+                max_span: self.max_batch_span,
+            });
+        }
+
+        // Record block range metric
+        for &header_number in header_numbers.iter() {
+            self.metrics.observe_block_range(header_number);
+        }
+
+        let mut merkle_proofs = BTreeMap::new();
+
+        // We flatten the list of queries into a list of (header_number, tx_index) pairs to generate merkle proofs for,
+        // then regroup them into the desired response structure after generating the proofs.
+        let chain_for_merkle = chain.clone();
+        let merkle_futures = queries
+            .iter()
+            .cloned()
+            .flat_map(|query| {
+                query
+                    .tx_indexes
+                    .into_iter()
+                    .map(move |tx_index| (query.header_number, tx_index))
+            })
+            .map(move |(header_number, tx_index)| {
+                let chain = chain_for_merkle.clone();
+                async move {
+                    let merkle = self
+                        .generate_merkle_proof(&chain, header_number, tx_index)
+                        .await?;
+
+                    let entry = BatchedMerkleProofEntry {
+                        tx_hash: merkle.tx_hash.map(|h| format!("0x{h:x}")),
+                        tx_bytes: merkle.tx_bytes.map(|b| format!("0x{}", hex::encode(&b))),
+                        merkle_proof: merkle.merkle_proof,
+                    };
+
+                    Ok::<(u64, u64, BatchedMerkleProofEntry), ServiceError>((
+                        header_number,
+                        tx_index,
+                        entry,
+                    ))
+                }
+            });
+
+        use futures::StreamExt as _;
+        use futures::TryStreamExt as _;
+
+        // Build the continuity proof (range fetch) concurrently with all per-tx merkle proofs.
+        // Disjoint RPC, no data dependency — overlap the continuity range fetch with the merkle
+        // batch instead of running them back to back.
+        let (continuity_proof, merkle_results) = tokio::try_join!(
+            self.get_continuity_proof_for(chain, &header_numbers),
+            futures::stream::iter(merkle_futures)
+                .buffer_unordered(self.max_batch_size)
+                .try_collect::<Vec<_>>(),
+        )?;
+
+        for (header_number, tx_index, entry) in merkle_results {
+            merkle_proofs
+                .entry(header_number)
+                .or_insert_with(BTreeMap::new)
+                .insert(tx_index, entry);
+        }
+
+        Ok(BatchedContinuityResponse {
+            chain_key,
+            from_header,
+            to_header,
+            continuity_proof,
+            merkle_proofs,
+            cached: false, // Always false since we generate fresh proofs
+            generated_at: Utc::now(),
+        })
+    }
+
+    /// Get proof by transaction hash (resolves to block/index, then builds proof).
+    /// Used by: `/api/v1/proof-by-tx/{chain_key}/{tx_hash}`
+    pub async fn get_proof_by_tx_hash(
+        &self,
+        chain: &Arc<ChainState>,
+        tx_hash: String,
+    ) -> ServiceResult<SingleContinuityResponse> {
+        let tx_h256 = parse_tx_hash(&tx_hash)?;
+
+        if let Some(merkle) = chain
+            .merkle_proof_cache
+            .get_by_tx_hash(chain.builder.config.chain_key, tx_h256)
+            .await
+        {
+            tracing::info!(
+                chain_key = chain.builder.config.chain_key,
+                tx_hash = ?tx_h256,
+                header_number = merkle.header_number,
+                tx_index = ?merkle.tx_index,
+                "merkle proof cache hit by tx hash"
+            );
+            let response = self.get_proof_with_cached_merkle(chain, merkle).await?;
+            return match &response.tx_hash {
+                Some(computed_hash) if parse_tx_hash(computed_hash)? == tx_h256 => Ok(response),
+                Some(computed_hash) => Err(ServiceError::TxHashNotFound {
+                    tx_hash: format!(
+                        "Cached transaction hash mismatch: requested 0x{tx_h256:x}, found {computed_hash} at block {} index {}",
+                        response.header_number, response.tx_index
+                    ),
+                }),
+                None => Err(ServiceError::Internal {
+                    message: format!(
+                        "tx_hash missing from cached proof. tx_hash: {tx_h256:x}"
+                    ),
+                }),
+            };
+        }
+
+        let (header_number, tx_index) = self
+            .get_height_and_index_for_tx_hash(chain, tx_h256)
+            .await?;
+
+        let headers = [header_number];
+        self.validate_blocks(chain, &headers).await?;
+        self.metrics.observe_block_range(header_number);
+
+        let (continuity_proof, on_demand_merkle) = tokio::try_join!(
+            self.get_continuity_proof_for(chain, &headers),
+            self.precompute_merkle_cache_block_for_tx(chain, header_number, tx_index),
+        )?;
+
+        let cached_merkle = if on_demand_merkle.is_some() {
+            on_demand_merkle
+        } else if let Some(merkle) = chain
+            .merkle_proof_cache
+            .get_by_tx_hash(chain.builder.config.chain_key, tx_h256)
+            .await
+        {
+            Some(merkle)
+        } else {
+            chain
+                .merkle_proof_cache
+                .get_by_block_index(chain.builder.config.chain_key, header_number, tx_index)
+                .await
+        };
+
+        tracing::info!(
+            chain_key = chain.builder.config.chain_key,
+            header_number,
+            tx_index,
+            tx_hash = ?tx_h256,
+            cache_hit = cached_merkle.is_some(),
+            "resolved proof-by-tx merkle cache after on-demand precompute"
+        );
+
+        let response = if let Some(merkle) = cached_merkle {
+            Self::single_response_from_merkle(
+                chain.builder.config.chain_key,
+                continuity_proof,
+                merkle,
+                true,
+            )
+        } else {
+            let merkle = self
+                .generate_merkle_proof(chain, header_number, tx_index)
+                .await?;
+            Self::single_response_from_merkle(
+                chain.builder.config.chain_key,
+                continuity_proof,
+                merkle,
+                false,
+            )
+        };
+
+        // Verify tx_hash matches
+        match &response.tx_hash {
+            Some(computed_hash) if parse_tx_hash(computed_hash)? == tx_h256 => Ok(response),
+            Some(computed_hash) => Err(ServiceError::TxHashNotFound {
+                tx_hash: format!(
+                    "Transaction hash mismatch: requested 0x{tx_h256:x}, found {computed_hash} at block {} index {}",
+                    response.header_number, response.tx_index
+                ),
+            }),
+            None => Err(ServiceError::Internal {
+                message: format!("tx_hash missing from generated proof. tx_hash: {tx_h256:x}"),
+            }),
+        }
+    }
+
+    /// Get proof by transaction hashes (resolves to block/index, then builds proof).
+    ///
+    /// `tx_hashes` is guaranteed to be non-empty, so we can safely unwrap when building the response.
+    ///
+    /// Used by: `/api/v1/proof-batch-by-tx/{chain_key}/{tx_hash}`
+    pub async fn get_proof_batch_by_tx_hashes(
+        &self,
+        chain: &Arc<ChainState>,
+        tx_hashes: &[String],
+    ) -> ServiceResult<BatchedContinuityResponse> {
+        // First we parsed all string hashes into H256, returning an error if any are invalid.
+        // This avoids doing partial work if there's a bad hash in the list.
+        let parsed_hashes = tx_hashes
+            .iter()
+            .map(|tx_hash| parse_tx_hash(tx_hash))
+            .collect::<Result<Vec<H256>, ServiceError>>()?;
+
+        // After that we calculate the block header and transaction index for each hash, returning an error if any hash is not found.
+        // Again we do this upfront to avoid doing partial work.
+        let header_tx_pairs = {
+            let mut futures = Vec::with_capacity(parsed_hashes.len());
+
+            for tx_h256 in parsed_hashes {
+                futures.push(self.get_height_and_index_for_tx_hash(chain, tx_h256));
+            }
+
+            use futures::StreamExt as _;
+            use futures::TryStreamExt as _;
+
+            futures::stream::iter(futures)
+                .buffer_unordered(self.max_batch_size)
+                .try_collect::<Vec<(u64, u64)>>()
+                .await?
+        };
+
+        // Now we have all the header numbers and tx indexes, we can build the proofs.
+        // We first group by header number to optimize proof building (one proof per block, even if multiple txs), then flatten back out for the response.
+        let proof_queries = {
+            let mut block_queries = BTreeMap::new();
+
+            for (header_number, tx_index) in header_tx_pairs {
+                block_queries
+                    .entry(header_number)
+                    .or_insert_with(Vec::new)
+                    .push(tx_index);
+            }
+
+            block_queries
+                .into_iter()
+                .map(|(header_number, tx_indexes)| ProofQuery {
+                    header_number,
+                    tx_indexes,
+                })
+                .collect::<Vec<_>>()
+        };
+
+        // Build the continuity proof for all requested blocks and transactions
+        self.get_proof_batch(chain, &proof_queries).await
+    }
+}

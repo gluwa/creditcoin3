@@ -1,0 +1,212 @@
+---
+name: Docker
+
+"on":
+  # Image builds are release artifacts, not a per-PR or per-commit check: the node image
+  # alone is a ~27 minute Rust compile on a dedicated Linode runner, and nothing in a PR
+  # consumes the result. So:
+  # - usc-dev builds once a day (09:00 UTC, the default branch) and posts to Slack when the
+  #   build or the image test fails, instead of building every merged commit;
+  # - a push to a release trunk (main, usc-testnet) builds once, so a deployable image
+  #   artifact exists for that commit; release.yml builds and pushes the tagged images;
+  # - a PR builds only when it carries the `ci:docker` label (a `labeled` event re-runs this
+  #   workflow, so the label is an on-demand build button; it stays on the PR, so later
+  #   pushes keep building until it is removed);
+  # - anything else, e.g. an image for a devnet roll of a specific usc-dev commit, is a
+  #   manual `workflow_dispatch`.
+  # Nothing else triggers a build, not even a Dockerfile change: label the PR if you want
+  # that validated before merge.
+  pull_request:
+    branches: [main, usc-testnet, usc-dev, dev]
+    types: [opened, synchronize, reopened, labeled]
+  push:
+    branches: [main, usc-testnet]
+  schedule:
+    - cron: "0 9 * * *"
+  workflow_dispatch:
+
+concurrency:
+  # One build per ref, newest wins — except that a `labeled` event for some *other* label
+  # must not cancel a build already in progress on this ref. Such runs skip immediately, so
+  # they get a throwaway group of their own instead of joining the ref's group.
+  group: ${{ (github.event_name == 'pull_request' && github.event.action == 'labeled' && !contains(github.event.pull_request.labels.*.name, 'ci:docker')) && format('noop-{0}', github.run_id) || format('{0}-{1}', github.ref, github.workflow) }}
+  cancel-in-progress: true
+
+# DO-2336/DO-2338: any explicit narrower permissions declaration here (workflow-level
+# or job-level, 2 scopes or 13) caused a hard startup_failure every time, confirmed
+# live across several attempts, for reasons that weren't identified — reverted to the
+# proven-working shorthand. docker/scout-action's PR comment instead uses a dedicated
+# gluwa-bot PAT (secrets.GLUWA_BOT_PR) as its github-token, sidestepping the need for
+# GITHUB_TOKEN's own permissions to be elevated at all.
+permissions: read-all
+
+jobs:
+  # The nightly, trunk pushes and manual runs always build; a PR builds only with the
+  # `ci:docker` label.
+  # A job rather than an inline expression so the decision is logged once and shared by the
+  # runner deploy, the build, the test and the runner removal below.
+  gate:
+    runs-on: ubuntu-26.04
+    timeout-minutes: 5
+    outputs:
+      build: ${{ steps.decide.outputs.build }}
+    steps:
+      - name: Decide whether this run builds
+        id: decide
+        env:
+          EVENT: ${{ github.event_name }}
+          LABELED: ${{ contains(github.event.pull_request.labels.*.name, 'ci:docker') }}
+        run: |
+          if [ "$EVENT" != "pull_request" ] || [ "$LABELED" = "true" ]; then
+            echo "INFO: building (event=$EVENT, ci:docker label=$LABELED)"
+            echo "build=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "INFO: pull request without the ci:docker label — nothing to build"
+            echo "build=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  docker-build:
+    needs:
+      - gate
+    if: ${{ needs.gate.outputs.build == 'true' }}
+    uses: ./.github/workflows/build-docker.yml
+    # DO-2336/DO-2338: explicit named pass-through, NOT `secrets: inherit` — this job
+    # deliberately has no DOCKER_PUSH_USERNAME/PASSWORD (only release.yml, tag-triggered,
+    # does real pushes); inherit would leak those in and make "Push docker images"
+    # start firing on every ordinary PR/push build here. DOCKERHUB_SCOUT_* is a separate
+    # read-only gluwabot token safe to expose to PR builds (which run untrusted PR
+    # content) — it lets Scout authenticate without granting any push capability.
+    secrets:
+      GLUWA_BOT_PR: ${{ secrets.GLUWA_BOT_PR }}
+      DOCKERHUB_SCOUT_USERNAME: ${{ secrets.DOCKERHUB_SCOUT_USERNAME }}
+      DOCKERHUB_SCOUT_TOKEN: ${{ secrets.DOCKERHUB_SCOUT_TOKEN }}
+    with:
+      build-options: "BUILD_ARGS="
+      version-string: "latest"
+      runs-on: "['ubuntu-26.04']"
+      build-node-image: true
+
+  docker-test:
+    needs:
+      - gate
+      - docker-build
+    if: ${{ needs.gate.outputs.build == 'true' }}
+    runs-on: ubuntu-26.04
+    timeout-minutes: 30
+    steps:
+      - name: Download locally built docker image
+        uses: actions/download-artifact@v8
+        with:
+          name: locally-built-docker-image
+          path: ${{ runner.temp }}/gluwa/
+
+      - name: Load locally built docker image
+        run: |
+          docker load --input ${{ runner.temp }}/${{ github.repository }}.tar
+          docker images
+
+      - uses: actions/checkout@v7
+
+      - name: Start a Devnet container from image
+        run: |
+          # see https://opensource.com/article/18/5/how-find-ip-address-linux
+          IP_ADDRESS=$(curl https://ifconfig.me)
+          echo "INFO: IP_ADDRESS=$IP_ADDRESS"
+
+          docker run --rm --name creditcoin-validator -d -p 9944:9944 -p 30333:30333 ${{ github.repository }} \
+              --dev --validator \
+              --pruning archive \
+              --node-key d182d503b7dd97e7c055f33438c7717145840fd66b2a055284ee8d768241a463 \
+              --unsafe-rpc-external
+
+      - name: Sanity test creditcoin-cli inside the container
+        run: |
+          docker exec creditcoin-validator which creditcoin
+          docker exec creditcoin-validator creditcoin wizard --help
+          docker exec creditcoin-validator creditcoin attestor --help
+
+      - name: Sanity check for chainspecs inside the container
+        run: |
+          for f in chainspecs/*.json; do
+              spec=$(basename "$f")
+              docker exec creditcoin-validator  ls -l "/$spec"
+          done
+
+      - name: Sanity check other binaries inside the container
+        run: |
+          docker exec creditcoin-validator which attestor
+          docker exec creditcoin-validator attestor --help
+
+          docker exec creditcoin-validator which attestor_zombienet
+          docker exec creditcoin-validator attestor_zombienet --help
+
+          docker exec creditcoin-validator which query-cli
+          docker exec creditcoin-validator query-cli --help
+
+          docker exec creditcoin-validator which proof-gen-api-server
+          docker exec creditcoin-validator proof-gen-api-server --help
+
+      - name: Collect docker logs
+        if: always()
+        run: |
+          docker logs creditcoin-validator >docker-creditcoin-validator.log 2>&1
+
+      - name: Kill the container
+        run: |
+          sudo killall -9 creditcoin3-node
+          sleep 10
+          docker rm -f creditcoin-validator
+          sleep 10
+
+      - name: Start validator via compose
+        run: |
+          docker compose up -d
+
+      - name: Sanity check for persistently mounted directory
+        run: |
+          sleep 60
+          docker exec creditcoin-validator ls -ld /creditcoin-node/data
+          docker exec creditcoin-validator ls -la /creditcoin-node/data
+
+      - name: Collect compose logs
+        if: always()
+        run: |
+          docker compose logs --no-color > docker-compose-validator.log
+
+      - name: Kill the validator container
+        run: |
+          # note: killall will report failure if process had crashed
+          sudo killall -9 creditcoin3-node
+
+          # while downing a compose will not even when the underlying containers have crashed
+          docker compose down
+
+      - name: Upload logs
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: docker-logs
+          path: docker-*.log
+
+  # The nightly is the only regular signal that usc-dev still produces a working image, so a
+  # red one has to reach people instead of waiting in the Actions tab. A cancelled run counts:
+  # it usually means the runner never came up, which is just as much "no image".
+  report-nightly-failure:
+    needs:
+      - gate
+      - docker-build
+      - docker-test
+    if: ${{ always() && github.event_name == 'schedule' && (contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')) }}
+    runs-on: ubuntu-26.04
+    timeout-minutes: 5
+    steps:
+      - name: Report result to Slack
+        uses: act10ns/slack@v2
+        with:
+          webhook-url: ${{ secrets.SLACK_WEBHOOK_URL }}
+          status: failure
+          channel: "#protocol-internal"
+          message: |-
+            Nightly Docker image build failed on `${{ github.ref_name }}` (${{ github.sha }}).
+            Build: ${{ needs.docker-build.result }}, image test: ${{ needs.docker-test.result }}.
+            ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}

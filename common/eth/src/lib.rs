@@ -1,0 +1,2887 @@
+use alloy::{
+    consensus::{
+        proofs::{calculate_receipt_root, calculate_transaction_root},
+        Block as ConsensusBlock, ReceiptEnvelope, Transaction as ConsensusTransaction, TxEnvelope,
+    },
+    eips::eip2718::Decodable2718,
+    hex::ToHexExt,
+    network::{Ethereum, EthereumWallet},
+    primitives::{keccak256, BlockHash, Bytes, TxHash},
+    providers::{
+        ext::DebugApi,
+        fillers::{
+            BlobGasFiller, ChainIdFiller, FillProvider, GasFiller, JoinFill, NonceFiller,
+            WalletFiller,
+        },
+        network::TransactionResponse,
+        Identity, Provider, ProviderBuilder, RootProvider,
+    },
+    rlp::{Decodable, Header as RlpHeader},
+    rpc::{
+        client::WsConnect,
+        types::{
+            eth::{Block, BlockId, BlockNumberOrTag, BlockTransactions, Header as RpcHeader},
+            ConversionError, Log as RpcLog, Transaction, TransactionReceipt,
+        },
+    },
+    signers::{k256::ecdsa::SigningKey, local::PrivateKeySigner},
+    transports::{http::reqwest::Url, ws::WebSocketConfig, TransportErrorKind},
+};
+
+use alloy::rpc::client::RpcClient as AlloyRpcClient;
+use alloy::transports::http::{reqwest, Http};
+use alloy::transports::utils::guess_local_url;
+use anyhow::{Context, Result};
+use hex::FromHexError;
+use sp_core::H256;
+use std::num::NonZeroUsize;
+use std::str::FromStr;
+use thiserror::Error;
+use tracing::{error, info, trace};
+use usc_abi_encoding::common::EncodingVersion;
+use user::prelude::*;
+use utils::block_item_traits::BlockItem;
+
+pub use alloy::core::primitives::Address;
+
+pub mod continuity;
+pub mod evm;
+pub mod maturity;
+pub mod mem_block_cache;
+pub mod pacer;
+
+pub use maturity::{BlockTag, Maturity};
+
+#[derive(Debug, Error)]
+pub enum Error {
+    #[error("Failed to get block {0}")]
+    FailedToGetBlock(u64),
+    #[error("Failed to get receipts {0}")]
+    FailedToGetReceipts(u64),
+    #[error(
+        "Computed transactions/receipts roots do not match block header for block {0} (possible reorg between RPC calls)"
+    )]
+    BlockHeaderRootsMismatch(u64),
+    #[error(
+        "Number of fetched transactions doesn't match number of fetched receipts for block {0}"
+    )]
+    TransactionsReceiptsMismatch(u64),
+    #[error("Not full transactions fetched for block {0}")]
+    NotFullTransactionsFetched(u64),
+    #[error(
+        "Receipts for block {number} carry block hash {receipts:?} but the fetched block is {block:?} \
+         (the two RPC calls were answered from different sides of a reorg)"
+    )]
+    ReceiptsBlockMismatch {
+        number: u64,
+        block: BlockHash,
+        receipts: BlockHash,
+    },
+    #[error("Failed to get chain id, Error: {0}")]
+    FailedToGetChainId(String),
+    #[error("Ethereum RPC error {0}")]
+    EthError(#[from] alloy::transports::RpcError<TransportErrorKind>),
+    #[error("Client error {0}")]
+    ClientError(#[from] anyhow::Error),
+    #[error("Transaction conversion {0}")]
+    TransactionConversion(ConversionError),
+    #[error("End of subscription")]
+    EndOfSubscription,
+    #[error("Failed to get sync info")]
+    FailedToGetSyncInfo,
+    #[error("No Wallet configured")]
+    NoWalletConfigured,
+    #[error("Hex decoding error {0}")]
+    HexDecodingError(#[from] FromHexError),
+    #[error("Failed to get block by hash {0}")]
+    FailedToGetBlockByHash(String),
+    #[error("Failed to get the `{0}` block: no provider returned it (does the node serve this block tag?)")]
+    FailedToGetBlockByTag(BlockTag),
+    #[error(
+        "Providers disagree on the `{tag}` block at height {number}: {reported_by} has {expected:?}, \
+         {disagreeing} has {actual:?}"
+    )]
+    BlockTagDisagreement {
+        tag: BlockTag,
+        number: u64,
+        reported_by: String,
+        expected: BlockHash,
+        disagreeing: String,
+        actual: BlockHash,
+    },
+    #[error("Failed to path rpc url {0}")]
+    UrlParseError(#[from] url::ParseError),
+    #[error("Unsupported URL scheme. Please use http(s):// or ws(s)://. Found: {0}")]
+    UnsupportedUrl(String),
+    #[error("RPC endpoint changed chain on reconnect: expected chain_id {expected}, node now reports {got}; keeping the previous connection")]
+    ChainIdChanged { expected: u64, got: u64 },
+    #[error("Failed to decode raw RLP block {0}: {1}")]
+    RawBlockDecode(u64, String),
+    #[error("Failed to decode raw receipt {1} of block {0}: {2}")]
+    RawReceiptDecode(u64, usize, String),
+    #[error("Failed to recover the sender of transaction {1} in block {0}: {2}")]
+    SenderRecovery(u64, usize, String),
+    #[error("Unknown block fetch mode {0:?}; expected one of: json, raw-rlp")]
+    UnknownFetchMode(String),
+    #[error("RPC endpoint {provider} cannot serve blocks in {mode} fetch mode: {cause}")]
+    FetchModeUnsupported {
+        provider: String,
+        mode: BlockFetchMode,
+        cause: Box<Error>,
+    },
+}
+
+/// JSON-RPC error code for a method the node does not implement or does not expose, such as
+/// `debug_getRawBlock` on a node without the `debug` namespace.
+const JSON_RPC_METHOD_NOT_FOUND: i64 = -32601;
+
+/// How [`Client::get_block`] pulls a block and its receipts from the RPC node.
+///
+/// Both modes end in [`OrderedBlock::try_from_fetched_block`], so the header root checks and the
+/// leaf encoding are identical; only the wire format differs.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum BlockFetchMode {
+    /// `eth_getBlockByNumber(n, true)` + `eth_getBlockReceipts(n)`. Works on every node and
+    /// provider; the node builds JSON objects for every transaction and receipt.
+    #[default]
+    Json,
+    /// `debug_getRawBlock(n)` + `debug_getRawReceipts(hash)`: the node hands back the RLP it stores
+    /// and this client decodes it. Roughly 3 to 5× smaller payloads and no JSON marshalling on the
+    /// node, at the cost of recovering transaction senders locally. Needs the `debug` namespace,
+    /// which public providers generally do not expose; meant for a node we operate ourselves.
+    RawRlp,
+}
+
+impl BlockFetchMode {
+    pub const fn as_str(&self) -> &'static str {
+        match self {
+            Self::Json => "json",
+            Self::RawRlp => "raw-rlp",
+        }
+    }
+}
+
+impl std::fmt::Display for BlockFetchMode {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+impl FromStr for BlockFetchMode {
+    type Err = Error;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.trim().to_ascii_lowercase().as_str() {
+            "json" => Ok(Self::Json),
+            "raw-rlp" | "raw_rlp" | "raw" | "rlp" => Ok(Self::RawRlp),
+            other => Err(Error::UnknownFetchMode(other.to_owned())),
+        }
+    }
+}
+
+impl Error {
+    /// True when the payload returned for a block (from a single RPC peer) cannot be reconciled
+    /// with the block header or expected shape. Callers should try another endpoint instead of
+    /// treating this as a transient transport failure.
+    ///
+    /// Deliberately does **not** include [`Error::FailedToGetBlock`] /
+    /// [`Error::FailedToGetReceipts`]: those are produced when a provider answers `Ok(None)`
+    /// ("I don't have that block yet"), which is a not-found / behind-the-head signal rather
+    /// than a structural inconsistency. Surfacing those as inconsistent would (a) suppress the
+    /// reconnect-retry path in [`crate::ReconnectingEthRpcProvider`] and (b) map them to a
+    /// non-retriable 422 in the API, both of which are wrong for a peer that's just lagging.
+    pub fn inconsistent_block_payload_for_fallback(&self) -> bool {
+        matches!(
+            self,
+            Error::BlockHeaderRootsMismatch(_)
+                | Error::TransactionsReceiptsMismatch(_)
+                | Error::NotFullTransactionsFetched(_)
+                | Error::ReceiptsBlockMismatch { .. }
+        )
+    }
+
+    /// True when the provider refused the request because we are over its rate limit or credit
+    /// budget: HTTP 429, or a JSON-RPC error carrying one of the known provider limit codes /
+    /// messages (QuickNode, Infura, Alchemy). Retrying immediately only digs the hole deeper, so
+    /// callers should back off instead.
+    ///
+    /// alloy's own classifier also treats Infura's `header not found` as retryable; that is a
+    /// load-balancer lag, not a rate limit, so it is excluded here.
+    pub fn is_rate_limited(&self) -> bool {
+        use alloy::transports::RpcError;
+        match self {
+            Error::EthError(RpcError::Transport(kind)) => match kind {
+                TransportErrorKind::HttpError(http) => http.is_rate_limit_err(),
+                TransportErrorKind::Custom(err) => {
+                    err.to_string().contains("429 Too Many Requests")
+                }
+                _ => false,
+            },
+            Error::EthError(RpcError::ErrorResp(payload)) => {
+                payload.is_retry_err() && payload.message != "header not found"
+            }
+            _ => false,
+        }
+    }
+
+    /// True when fetching the same block from the same endpoint again cannot succeed: the node
+    /// does not implement the method (JSON-RPC `-32601`, e.g. raw-RLP mode against a node
+    /// without the `debug` namespace), or it served bytes this client cannot decode. A node
+    /// stores a block's bytes once, so a decode or sender-recovery failure repeats on every
+    /// attempt. A block fetch still tries the other endpoints, but stops once every endpoint
+    /// failed this way, and callers should fail rather than reconnect and fetch it again.
+    pub fn is_unrecoverable(&self) -> bool {
+        use alloy::transports::RpcError;
+        match self {
+            Error::RawBlockDecode(..)
+            | Error::RawReceiptDecode(..)
+            | Error::SenderRecovery(..)
+            | Error::FetchModeUnsupported { .. } => true,
+            Error::EthError(RpcError::ErrorResp(payload)) => {
+                payload.code == JSON_RPC_METHOD_NOT_FOUND
+            }
+            _ => false,
+        }
+    }
+
+    /// Block number associated with [`Error::inconsistent_block_payload_for_fallback`] errors, if any.
+    pub fn inconsistent_block_number_hint(&self) -> Option<u64> {
+        match self {
+            Error::BlockHeaderRootsMismatch(n)
+            | Error::TransactionsReceiptsMismatch(n)
+            | Error::NotFullTransactionsFetched(n)
+            | Error::ReceiptsBlockMismatch { number: n, .. } => Some(*n),
+            _ => None,
+        }
+    }
+}
+
+/// Rate-limited block-fetch sweeps allowed before the fetch gives up.
+const RATE_LIMIT_MAX_SWEEPS: u32 = 8;
+
+/// How long to hold off after the `sweep`-th consecutive rate-limited sweep of one block fetch
+/// (counting from 0): 1 s doubling up to 60 s, about three minutes over all
+/// [`RATE_LIMIT_MAX_SWEEPS`]. `None` once that budget is spent, so the fetch fails as it did
+/// before rate limits were told apart, roughly as long after the first refusal as five ordinary
+/// failed attempts take.
+fn rate_limit_hold_off(sweep: u32) -> Option<std::time::Duration> {
+    (sweep < RATE_LIMIT_MAX_SWEEPS)
+        .then(|| std::time::Duration::from_secs((1u64 << sweep.min(6)).min(60)))
+}
+
+/// True when any cause in the [`anyhow::Error`] chain is an [`Error`] that
+/// [`Error::inconsistent_block_payload_for_fallback`] classifies as a payload-inconsistency case.
+///
+/// Use this from layers above the eth client that receive an `anyhow::Error` and need to
+/// distinguish "the peer returned a structurally inconsistent block payload" (try another
+/// endpoint / surface 422) from "transport failure" (reconnect / surface 503). Keeping the
+/// classifier here means a future addition to
+/// [`Error::inconsistent_block_payload_for_fallback`] is automatically picked up by every
+/// caller.
+pub fn anyhow_chain_is_inconsistent_block_payload(err: &anyhow::Error) -> bool {
+    err.chain().any(|cause| {
+        cause
+            .downcast_ref::<Error>()
+            .is_some_and(Error::inconsistent_block_payload_for_fallback)
+    })
+}
+
+/// True when any cause in the [`anyhow::Error`] chain is [`Error::FailedToGetBlockByTag`]: every
+/// provider answered `null` for the requested tag. That is a property of the node (it does not
+/// serve `safe` / `finalized`), not of the connection, so callers must not reconnect-and-retry
+/// on it; the answer will not change.
+pub fn anyhow_chain_is_unsupported_block_tag(err: &anyhow::Error) -> bool {
+    err.chain().any(|cause| {
+        matches!(
+            cause.downcast_ref::<Error>(),
+            Some(Error::FailedToGetBlockByTag(_))
+        )
+    })
+}
+
+/// Walks the [`anyhow::Error`] chain looking for an [`Error`] that carries a block-number
+/// hint via [`Error::inconsistent_block_number_hint`] and returns the first hit.
+pub fn anyhow_chain_inconsistent_block_number_hint(err: &anyhow::Error) -> Option<u64> {
+    err.chain().find_map(|cause| {
+        cause
+            .downcast_ref::<Error>()
+            .and_then(Error::inconsistent_block_number_hint)
+    })
+}
+
+#[derive(Debug, Clone)]
+pub struct TxRx {
+    tx: Transaction,
+    rx: TransactionReceipt,
+    encoding: EncodingVersion,
+}
+
+impl TxRx {
+    pub fn try_create(
+        tx: Transaction,
+        rx: TransactionReceipt,
+        encoding: EncodingVersion,
+    ) -> Result<Self, ConversionError> {
+        Ok(Self { tx, rx, encoding })
+    }
+
+    pub fn tx(&self) -> &Transaction {
+        &self.tx
+    }
+
+    pub fn rx(&self) -> &TransactionReceipt {
+        &self.rx
+    }
+
+    pub fn tx_hash(&self) -> BlockHash {
+        self.tx.tx_hash()
+    }
+}
+
+impl BlockItem for TxRx {
+    fn payload_bytes(&self) -> Vec<u8> {
+        usc_abi_encoding::abi::abi_encode(self.tx().clone(), self.rx().clone(), self.encoding)
+            .expect("Transaction and receipt should be encodable.")
+            .abi()
+            .to_vec()
+    }
+
+    fn tx_type(&self) -> Option<u8> {
+        match self.tx.inner.clone() {
+            TxEnvelope::Legacy(_) => None,
+            TxEnvelope::Eip2930(_) => Some(1),
+            TxEnvelope::Eip1559(_) => Some(2),
+            TxEnvelope::Eip4844(_) => Some(3),
+            TxEnvelope::Eip7702(_) => Some(4),
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct OrderedBlock {
+    chain_id: u64,
+    number: u64,
+    hash: BlockHash,
+    items: Vec<TxRx>,
+}
+
+/// Ethereum mainnet chain id.
+const ETHEREUM_MAINNET_CHAIN_ID: u64 = 1;
+
+/// First block of the Byzantium hard fork on Ethereum mainnet. Before this height receipts carried
+/// a post-state root instead of a status byte; several RPC providers re-serialize these historical
+/// receipts in the modern (status) form, so a recomputed receipt root cannot match the canonical
+/// header root even when the data is otherwise sound.
+const ETHEREUM_BYZANTIUM_BLOCK: u64 = 4_370_000;
+
+impl OrderedBlock {
+    /// Builds an [`OrderedBlock`] from RPC-fetched [`Block`] and receipts. Verifies that
+    /// recomputed transaction and receipt Merkle roots match the header (so a reorg between
+    /// `eth_getBlockByNumber` and `eth_getBlockReceipts` cannot produce a mismatched attestation).
+    /// Sorts transactions and receipts by `transaction_index` once.
+    pub fn try_from_fetched_block(
+        chain_id: u64,
+        block: Block,
+        mut receipts: Vec<TransactionReceipt>,
+        expected_number: u64,
+        encoding: EncodingVersion,
+    ) -> Result<Self, Error> {
+        if block.header.number != expected_number {
+            return Err(Error::FailedToGetBlock(expected_number));
+        }
+
+        let hash = block.header.hash;
+
+        // The receipts must belong to the block we actually fetched.
+        //
+        // `get_block` and `get_block_receipts` are two separate calls keyed by height, and a
+        // provider URL is commonly a load balancer over many nodes, so the pair can be answered
+        // by peers on opposite sides of a reorg. The header-root comparison further down catches
+        // most of that, but only for blocks that have transactions, and only indirectly: it
+        // infers a mismatch from roots that fail to reproduce. Comparing the block hash the
+        // receipts already carry is exact, costs no extra round trip, and names the real fault
+        // in the error instead of reporting a root that did not reproduce.
+        //
+        // Receipts whose `block_hash` is `None` are skipped rather than rejected: the field is
+        // optional in the RPC schema and some providers omit it, and those payloads still face
+        // the root check below exactly as before.
+        if let Some(receipts_hash) = receipts
+            .iter()
+            .filter_map(|receipt| receipt.block_hash)
+            .find(|receipt_hash| *receipt_hash != hash)
+        {
+            return Err(Error::ReceiptsBlockMismatch {
+                number: expected_number,
+                block: hash,
+                receipts: receipts_hash,
+            });
+        }
+
+        // Empty blocks: many execution clients (incl. Substrate/Frontier dev chains) expose header
+        // tx/receipt roots that do not match standard trie recomputation for an empty body, while the
+        // fetched body and receipts are still consistent (both empty). There is no cross-fetch payload
+        // to mis-associate, so we skip the header root check in this case.
+        if block.transactions.is_empty() && receipts.is_empty() {
+            trace!(
+                block_number = expected_number,
+                "Skipping header root check for empty block"
+            );
+            return Ok(Self {
+                chain_id,
+                number: expected_number,
+                hash,
+                items: vec![],
+            });
+        }
+
+        if block.transactions.len() != receipts.len() {
+            return Err(Error::TransactionsReceiptsMismatch(expected_number));
+        }
+
+        let mut txs: Vec<Transaction> = block.transactions.into_transactions().collect();
+
+        if txs.iter().any(|t| t.transaction_index.is_none()) {
+            return Err(Error::NotFullTransactionsFetched(expected_number));
+        }
+        if receipts.iter().any(|r| r.transaction_index.is_none()) {
+            return Err(Error::FailedToGetReceipts(expected_number));
+        }
+
+        txs.sort_by_key(|tx| tx.transaction_index);
+        receipts.sort_by_key(|rx| rx.transaction_index);
+
+        let tx_inners: Vec<_> = txs.iter().map(|t| t.inner.clone()).collect();
+        let computed_tx_root = calculate_transaction_root(&tx_inners);
+        if computed_tx_root != block.header.transactions_root {
+            return Err(Error::BlockHeaderRootsMismatch(expected_number));
+        }
+
+        // Pre-Byzantium Ethereum mainnet receipts encode a post-state root rather than a status byte.
+        // Some RPC providers return these historical receipts re-serialized in the modern status form,
+        // so a recomputed receipt root will not match the canonical header root even though the body
+        // is consistent. Skip only the receipt-root check for that range; the transaction-root check
+        // above still guards against reorg-induced cross-fetch mismatches.
+        let skip_receipt_root =
+            chain_id == ETHEREUM_MAINNET_CHAIN_ID && expected_number < ETHEREUM_BYZANTIUM_BLOCK;
+
+        if skip_receipt_root {
+            trace!(
+                block_number = expected_number,
+                "Skipping receipt root check for pre-Byzantium Ethereum mainnet block"
+            );
+        } else {
+            let inner_receipts: Vec<_> = receipts
+                .iter()
+                .map(|r| r.clone().into_primitives_receipt().inner)
+                .collect();
+            let computed_receipt_root = calculate_receipt_root(&inner_receipts);
+
+            if computed_receipt_root != block.header.receipts_root {
+                return Err(Error::BlockHeaderRootsMismatch(expected_number));
+            }
+        }
+
+        let items = txs
+            .into_iter()
+            .zip(receipts.into_iter())
+            .map(|tx_rx| TxRx::try_create(tx_rx.0, tx_rx.1, encoding))
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(Error::TransactionConversion)?;
+
+        Ok(Self {
+            chain_id,
+            number: expected_number,
+            hash,
+            items,
+        })
+    }
+    pub fn chain_id(&self) -> u64 {
+        self.chain_id
+    }
+    pub fn number(&self) -> u64 {
+        self.number
+    }
+    pub fn hash(&self) -> BlockHash {
+        self.hash
+    }
+    pub fn items(&self) -> &[TxRx] {
+        &self.items[..]
+    }
+}
+
+pub struct OrderedRawBlock {
+    pub chain_id: Option<u64>,
+    pub number: u64,
+    pub hash: BlockHash,
+    pub transactions: Vec<Transaction>,
+    pub receipts: Vec<TransactionReceipt>,
+}
+
+impl OrderedRawBlock {
+    pub fn new(
+        chain_id: Option<u64>,
+        number: u64,
+        hash: BlockHash,
+        mut transactions: Vec<Transaction>,
+        mut receipts: Vec<TransactionReceipt>,
+    ) -> Self {
+        transactions.sort_by_key(|tx| tx.transaction_index);
+        receipts.sort_by_key(|rx| rx.transaction_index);
+
+        Self {
+            chain_id,
+            number,
+            hash,
+            transactions,
+            receipts,
+        }
+    }
+}
+
+/// Hash of the block header as the node computed it: keccak of the header's own RLP bytes,
+/// sliced out of the raw block RLP without re-encoding. Re-encoding a decoded header would only
+/// reproduce the hash if this client knows every header field the chain uses; slicing does not
+/// depend on that.
+fn header_hash_from_raw_block(raw: &[u8]) -> Result<BlockHash, alloy::rlp::Error> {
+    let mut buf = raw;
+    let outer = RlpHeader::decode(&mut buf)?;
+    if !outer.list {
+        return Err(alloy::rlp::Error::UnexpectedString);
+    }
+    let header_bytes = buf;
+    let mut probe = buf;
+    let header_item = RlpHeader::decode(&mut probe)?;
+    if !header_item.list {
+        return Err(alloy::rlp::Error::UnexpectedString);
+    }
+    let prefix_len = header_bytes.len() - probe.len();
+    let total = prefix_len + header_item.payload_length;
+    let bytes = header_bytes
+        .get(..total)
+        .ok_or(alloy::rlp::Error::InputTooShort)?;
+    Ok(keccak256(bytes))
+}
+
+/// Rebuild the rpc-shaped [`Block`] and [`TransactionReceipt`]s from the RLP a node returns for
+/// `debug_getRawBlock` and `debug_getRawReceipts`.
+///
+/// Everything the V1 leaf encoding reads is reconstructed exactly as the JSON path would report
+/// it: the consensus transaction envelope, the recovered sender, receipt status, per-transaction
+/// gas used (delta of the cumulative counters), logs and the logs bloom. Positional metadata
+/// (block hash/number, transaction and log indices) is filled in from the block itself.
+///
+/// `raw_receipts` must be in transaction order, one entry per transaction; each entry is an
+/// EIP-2718 typed receipt (legacy receipts are the bare RLP list).
+pub fn rpc_block_from_raw(
+    number: u64,
+    raw_block: &[u8],
+    raw_receipts: &[Bytes],
+) -> Result<(Block, Vec<TransactionReceipt>), Error> {
+    let hash = header_hash_from_raw_block(raw_block)
+        .map_err(|e| Error::RawBlockDecode(number, e.to_string()))?;
+    let block: ConsensusBlock<TxEnvelope> = ConsensusBlock::decode(&mut &raw_block[..])
+        .map_err(|e| Error::RawBlockDecode(number, e.to_string()))?;
+    if block.header.number != number {
+        return Err(Error::FailedToGetBlock(number));
+    }
+    if block.body.transactions.len() != raw_receipts.len() {
+        return Err(Error::TransactionsReceiptsMismatch(number));
+    }
+
+    let base_fee = block.header.base_fee_per_gas;
+    let timestamp = block.header.timestamp;
+    let mut txs = Vec::with_capacity(block.body.transactions.len());
+    let mut receipts = Vec::with_capacity(raw_receipts.len());
+    let mut previous_cumulative_gas: u64 = 0;
+    let mut log_index: u64 = 0;
+
+    for (index, (envelope, raw_receipt)) in block
+        .body
+        .transactions
+        .into_iter()
+        .zip(raw_receipts.iter())
+        .enumerate()
+    {
+        let tx_index = index as u64;
+        let from = envelope
+            .recover_signer()
+            .map_err(|e| Error::SenderRecovery(number, index, e.to_string()))?;
+        let tx_hash = *envelope.tx_hash();
+        let effective_gas_price = envelope.effective_gas_price(base_fee);
+        let to = envelope.to();
+        let contract_address = to.is_none().then(|| from.create(envelope.nonce()));
+
+        let receipt: ReceiptEnvelope = ReceiptEnvelope::decode_2718(&mut &raw_receipt[..])
+            .map_err(|e| Error::RawReceiptDecode(number, index, e.to_string()))?;
+        let cumulative_gas_used = receipt.cumulative_gas_used();
+        let gas_used = cumulative_gas_used.saturating_sub(previous_cumulative_gas);
+        previous_cumulative_gas = cumulative_gas_used;
+
+        let inner = receipt.map_logs(|log| {
+            let rpc_log = RpcLog {
+                inner: log,
+                block_hash: Some(hash),
+                block_number: Some(number),
+                block_timestamp: Some(timestamp),
+                transaction_hash: Some(tx_hash),
+                transaction_index: Some(tx_index),
+                log_index: Some(log_index),
+                removed: false,
+            };
+            log_index += 1;
+            rpc_log
+        });
+
+        receipts.push(TransactionReceipt {
+            inner,
+            transaction_hash: tx_hash,
+            transaction_index: Some(tx_index),
+            block_hash: Some(hash),
+            block_number: Some(number),
+            gas_used,
+            effective_gas_price,
+            blob_gas_used: None,
+            blob_gas_price: None,
+            from,
+            to,
+            contract_address,
+        });
+        txs.push(Transaction {
+            inner: envelope,
+            block_hash: Some(hash),
+            block_number: Some(number),
+            transaction_index: Some(tx_index),
+            effective_gas_price: Some(effective_gas_price),
+            from,
+        });
+    }
+
+    let uncles = block.body.ommers.iter().map(|h| h.hash_slow()).collect();
+    let rpc_block = Block {
+        header: RpcHeader {
+            hash,
+            inner: block.header,
+            total_difficulty: None,
+            size: None,
+        },
+        uncles,
+        transactions: BlockTransactions::Full(txs),
+        withdrawals: block.body.withdrawals,
+    };
+    Ok((rpc_block, receipts))
+}
+
+type AlloyProvider = FillProvider<ExeFiller, RootProvider<Ethereum>, Ethereum>;
+pub type AlloyB256 = BlockHash;
+
+/// What one provider said about the candidate block in [`Client::get_block_by_tag`].
+enum Confirmation {
+    /// It has the candidate height; this is the hash it has there.
+    Hash(BlockHash),
+    /// Its own tag answer is below the candidate and it has no block at the candidate height
+    /// yet; it cannot judge the candidate.
+    Behind(u64),
+    /// It reports the tag above the candidate yet has no block at the candidate height.
+    Missing,
+    /// The confirmation read failed or timed out.
+    Failed(Error),
+}
+
+/// Bound a provider call by `timeout`, turning a hang into an [`Error`] like any other transport
+/// failure so the caller's error handling covers it.
+async fn timed<T>(
+    timeout: std::time::Duration,
+    call: impl std::future::Future<
+        Output = std::result::Result<T, alloy::transports::RpcError<TransportErrorKind>>,
+    >,
+) -> Result<T, Error> {
+    match tokio::time::timeout(timeout, call).await {
+        Ok(Ok(v)) => Ok(v),
+        Ok(Err(e)) => Err(Error::from(e)),
+        Err(_) => Err(Error::ClientError(anyhow::anyhow!(
+            "provider call timed out after {timeout:?}"
+        ))),
+    }
+}
+
+/// Whether a configured endpoint string and a dialled [`Url`] name the same endpoint.
+///
+/// A dialled provider carries the *parsed* URL, and `Url` normalises on parse: scheme and host are
+/// lowercased, a default port is dropped, an empty path becomes `/`. Comparing that back to the
+/// raw configured string therefore misses a working backup whenever the operator wrote
+/// `HTTPS://Host:443` and the parser stored `https://host/`. Parse the configured string the same
+/// way and compare the normalised forms; only if it does not parse fall back to a trailing-slash
+/// insensitive string compare.
+fn same_endpoint(configured: &str, dialed: &Url) -> bool {
+    match Url::parse(configured) {
+        Ok(url) => url == *dialed,
+        Err(_) => configured.trim_end_matches('/') == dialed.as_str().trim_end_matches('/'),
+    }
+}
+
+/// The block a source node reports for a settlement tag, identified by hash as well as height.
+/// See [`Client::get_block_by_tag`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct TaggedBlock {
+    pub number: u64,
+    pub hash: BlockHash,
+}
+
+pub(crate) type ExeFiller = JoinFill<
+    Identity,
+    JoinFill<GasFiller, JoinFill<BlobGasFiller, JoinFill<NonceFiller, ChainIdFiller>>>,
+>;
+
+type AlloyWalletProvider = FillProvider<WalletExeFiller, RootProvider<Ethereum>, Ethereum>;
+
+pub(crate) type WalletExeFiller = JoinFill<
+    JoinFill<
+        alloy::providers::Identity,
+        JoinFill<GasFiller, JoinFill<BlobGasFiller, JoinFill<NonceFiller, ChainIdFiller>>>,
+    >,
+    WalletFiller<EthereumWallet>,
+>;
+
+pub enum ConnectionTransport {
+    Http(alloy::transports::http::reqwest::Url),
+    Ws(WsConnect),
+}
+
+/// One ordered fallback RPC provider attached to a [`Client`].
+///
+/// The [`Client`] always tries its primary URL first; on `Ok(None)` or
+/// transport errors it walks `fallback_providers` in declared order and
+/// uses the first non-empty answer. For full blocks, `eth_getBlockByNumber(full)`
+/// and `eth_getBlockReceipts` are always queried on the **same** provider so a
+/// block header cannot be paired with receipts from another backend.
+/// All fallback URLs must point to a node that reports the same `chain_id` as
+/// the primary URL — this is verified when the [`Client`] is constructed.
+#[derive(Debug, Clone)]
+pub(crate) struct FallbackProvider {
+    pub(crate) url: Url,
+    pub(crate) provider: AlloyProvider,
+}
+
+#[derive(Debug, Clone)]
+pub struct Client {
+    url: Url,
+    private_key: Option<String>,
+    rpc_provider: AlloyProvider,
+    /// Ordered fallback RPC providers. Empty = no fallbacks (single-URL
+    /// behavior). Each provider is tried in declared order whenever the
+    /// primary returns `Ok(None)` or errors. See [`FallbackProvider`].
+    fallback_providers: Vec<FallbackProvider>,
+    // what chain id is implied here? Maybe need to define internal chain ids for different attestation chains
+    // and not rely on ethereum chain ids?
+    chain_id: u64,
+    /// Optional in-process cache of finalized blocks (opt-in via [`Client::with_block_cache`]).
+    /// `None` = no caching (default). Survives [`Client::reconnect`] since cached finalized
+    /// blocks are immutable.
+    mem_cache: Option<std::sync::Arc<mem_block_cache::MemBlockCache>>,
+    /// Upper bound on any single provider call made by the tag lookup. The transports have no
+    /// timeout of their own, so without this one black-holed provider (accepts TCP, never
+    /// answers) would hang the lookup, and with it the tip stream that awaits it inline, forever.
+    /// Generous: it only has to beat a hang, not a slow answer.
+    call_timeout: std::time::Duration,
+    /// Every fallback URL as configured, including ones that were unreachable when dialled.
+    /// [`Client::reconnect`] re-dials from this list, so a backup that was down at startup is
+    /// picked up on the next repair instead of being forgotten for the life of the process.
+    fallback_urls: Vec<String>,
+    /// Spaces out the provider calls made by block fetches, tag lookups and head polls. Shared by
+    /// every clone, so the streams that clone one client draw from a single budget. Unlimited
+    /// unless set with [`Client::with_rate_limit`]; a rate-limited answer from a provider holds
+    /// it off either way. See [`pacer::Pacer`].
+    pacer: std::sync::Arc<pacer::Pacer>,
+    /// Wire format used for block + receipts fetches. Survives [`Client::reconnect`].
+    fetch_mode: BlockFetchMode,
+}
+
+/// Default for the tag lookup's per-call timeout: a healthy provider answers a header read in
+/// well under a second; fifteen seconds is one Ethereum slot of grace before a provider is
+/// treated as absent for this round.
+pub const DEFAULT_CALL_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(15);
+
+/// Per-request deadline on the HTTP transport. alloy's default reqwest client has no timeout
+/// at all, so a server that accepts the connection and never answers keeps the request (and
+/// every caller waiting on it) pending forever.
+const HTTP_REQUEST_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(60);
+/// TCP/TLS connect deadline on the HTTP transport.
+const HTTP_CONNECT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
+/// Default bound on re-dialling the primary in [`Client::reconnect`].
+pub const DEFAULT_PRIMARY_DIAL_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
+/// Bound on re-dialling one fallback during [`Client::reconnect_with_deadline`]. Fallbacks are
+/// best-effort there; a slow one must not hold a repaired primary hostage.
+pub const FALLBACK_DIAL_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
+
+/// Largest single websocket frame accepted. tungstenite's 16 MiB default drops raw-RLP block
+/// replies of ~19 MiB.
+const WS_MAX_FRAME_SIZE: usize = 32 * 1024 * 1024;
+/// Largest reassembled websocket message accepted. Doubles tungstenite's 64 MiB default so
+/// growing blocks keep headroom over the frame cap.
+const WS_MAX_MESSAGE_SIZE: usize = 128 * 1024 * 1024;
+
+fn ws_connect(url: impl Into<String>) -> WsConnect {
+    WsConnect::new(url).with_config(
+        WebSocketConfig::default()
+            .max_frame_size(Some(WS_MAX_FRAME_SIZE))
+            .max_message_size(Some(WS_MAX_MESSAGE_SIZE)),
+    )
+}
+
+impl Client {
+    async fn init_rpc(url: &str) -> Result<(Url, AlloyProvider, u64), Error> {
+        let url = Url::parse(url)?;
+        let url_scheme = url.scheme();
+
+        let rpc_provider = match url_scheme {
+            "http" | "https" => {
+                let http_client = reqwest::Client::builder()
+                    .connect_timeout(HTTP_CONNECT_TIMEOUT)
+                    .timeout(HTTP_REQUEST_TIMEOUT)
+                    .build()
+                    .map_err(|e| {
+                        Error::ClientError(anyhow::anyhow!("building HTTP client: {e}"))
+                    })?;
+                let transport = Http::with_client(http_client, url.clone());
+                let is_local = guess_local_url(url.as_str());
+                ProviderBuilder::new()
+                    .network::<Ethereum>()
+                    .on_client(AlloyRpcClient::new(transport, is_local))
+            }
+
+            "ws" | "wss" => {
+                let ws = ws_connect(url.clone());
+                ProviderBuilder::new()
+                    .network::<Ethereum>()
+                    .on_ws(ws)
+                    .await?
+            }
+
+            _ => {
+                return Err(Error::UnsupportedUrl(url.to_string()));
+            }
+        };
+
+        info!(
+            "🚀 🌐 Connecting to Ethereum node at {}",
+            redact_url_query(url.as_str())
+        );
+
+        let chain_id = rpc_provider
+            .get_chain_id()
+            .await
+            .context("Failed to get chain_id")?;
+
+        Ok((url, rpc_provider, chain_id))
+    }
+
+    pub async fn new(url: &str, private_key: Option<&str>) -> anyhow::Result<Self> {
+        let (url, rpc_provider, chain_id) = Self::init_rpc(url).await?;
+
+        anyhow::Ok(Self {
+            url,
+            private_key: private_key.map(|s| s.to_owned()),
+            rpc_provider,
+            fallback_providers: Vec::new(),
+            chain_id,
+            mem_cache: None,
+            call_timeout: DEFAULT_CALL_TIMEOUT,
+            fallback_urls: Vec::new(),
+            pacer: std::sync::Arc::new(pacer::Pacer::unlimited()),
+            fetch_mode: BlockFetchMode::default(),
+        })
+    }
+
+    /// Enable an in-process [`MemBlockCache`](mem_block_cache::MemBlockCache) holding up to
+    /// `capacity` finalized blocks. Opt-in; the cache only serves blocks fetched through
+    /// [`Client::get_block`]. Safe only for callers that fetch finalized/immutable blocks.
+    #[must_use]
+    pub fn with_block_cache(mut self, capacity: NonZeroUsize) -> Self {
+        self.mem_cache = Some(std::sync::Arc::new(mem_block_cache::MemBlockCache::new(
+            capacity,
+        )));
+        self
+    }
+
+    /// Handle to the in-process block cache, if one was enabled.
+    ///
+    /// Lets a caller observe cache occupancy without routing through the RPC provider traits.
+    #[must_use]
+    pub fn block_cache(&self) -> Option<std::sync::Arc<mem_block_cache::MemBlockCache>> {
+        self.mem_cache.clone()
+    }
+
+    /// Select how blocks and receipts are fetched (see [`BlockFetchMode`]). Applies to the
+    /// primary and every fallback provider; all of them must support the chosen mode.
+    #[must_use]
+    pub fn with_fetch_mode(mut self, mode: BlockFetchMode) -> Self {
+        self.fetch_mode = mode;
+        self
+    }
+
+    pub fn fetch_mode(&self) -> BlockFetchMode {
+        self.fetch_mode
+    }
+
+    /// Fetch the head block from every endpoint in the configured [`BlockFetchMode`], so a node
+    /// that lacks the methods (raw-RLP needs the `debug` namespace) or serves blocks this client
+    /// cannot decode is reported at startup instead of on the first block fetch. Only an
+    /// [`Error::is_unrecoverable`] failure fails the check, as [`Error::FetchModeUnsupported`];
+    /// anything else (a timeout, a fallback that does not have the head yet) is logged and left
+    /// to the block fetch's own retries. Each endpoint gets `deadline`.
+    pub async fn check_fetch_mode(&self, deadline: std::time::Duration) -> Result<(), Error> {
+        for (label, provider) in self.providers_with_labels() {
+            let probe = async {
+                self.pacer.acquire().await;
+                let head = provider.get_block_number().await?;
+                self.fetch_pair_from_provider(provider, head).await?;
+                Ok::<_, Error>(head)
+            };
+            match tokio::time::timeout(deadline, probe).await {
+                Ok(Ok(head)) => tracing::debug!(
+                    provider = %label,
+                    block_number = head,
+                    mode = %self.fetch_mode,
+                    "endpoint serves blocks in this fetch mode"
+                ),
+                Ok(Err(e)) if e.is_unrecoverable() => {
+                    return Err(Error::FetchModeUnsupported {
+                        provider: label,
+                        mode: self.fetch_mode,
+                        cause: Box::new(e),
+                    })
+                }
+                Ok(Err(e)) => tracing::warn!(
+                    provider = %label,
+                    mode = %self.fetch_mode,
+                    error = %e,
+                    "could not confirm the endpoint serves this fetch mode; continuing"
+                ),
+                Err(_) => tracing::warn!(
+                    provider = %label,
+                    mode = %self.fetch_mode,
+                    ?deadline,
+                    "fetch mode check timed out; continuing"
+                ),
+            }
+        }
+        Ok(())
+    }
+
+    /// Build a [`Client`] with ordered fallback RPC URLs.
+    ///
+    /// `url` is the primary URL: tried first for every operation, and the
+    /// only URL used for tip-related calls (subscriptions, `eth_blockNumber`,
+    /// `eth_chainId`).
+    ///
+    /// `fallback_urls` are tried in declaration order whenever the primary
+    /// returns `Ok(None)` or a transport error for a block fetch / tx-hash
+    /// lookup. Each fallback URL is connected to at startup and must report
+    /// the same `chain_id` as `url`.
+    ///
+    /// When `fallback_urls` is empty this is equivalent to [`Client::new`].
+    pub async fn new_with_fallbacks(
+        url: &str,
+        fallback_urls: &[String],
+        private_key: Option<&str>,
+    ) -> anyhow::Result<Self> {
+        let (url, rpc_provider, chain_id) = Self::init_rpc(url).await?;
+        let fallback_providers = Self::init_fallback_providers(chain_id, fallback_urls).await?;
+
+        anyhow::Ok(Self {
+            url,
+            private_key: private_key.map(|s| s.to_owned()),
+            rpc_provider,
+            fallback_providers,
+            chain_id,
+            mem_cache: None,
+            call_timeout: DEFAULT_CALL_TIMEOUT,
+            fallback_urls: fallback_urls.to_vec(),
+            pacer: std::sync::Arc::new(pacer::Pacer::unlimited()),
+            fetch_mode: BlockFetchMode::default(),
+        })
+    }
+
+    /// Re-dial the primary under [`DEFAULT_PRIMARY_DIAL_TIMEOUT`]; see
+    /// [`Self::reconnect_with_deadline`].
+    pub async fn reconnect(&mut self) -> Result<(), Error> {
+        self.reconnect_with_deadline(DEFAULT_PRIMARY_DIAL_TIMEOUT)
+            .await
+    }
+
+    /// Re-dial the primary under `primary_deadline`, then each fallback under its own
+    /// [`FALLBACK_DIAL_TIMEOUT`].
+    ///
+    /// Success means the client can serve again: the primary came back, or at least one
+    /// fallback is connected. A fallback that hangs or fails keeps its previous provider (if
+    /// any) and is logged; it never discards a primary connection that already came up. And a
+    /// primary that stays down does not stop the fallbacks from being refreshed: a backup that
+    /// was unreachable at startup (and so never became a provider) is dialled here too, so the
+    /// tip, tag and block walks have something to fail over to while the primary is out. Only
+    /// when nothing at all is reachable does this return the primary's error.
+    pub async fn reconnect_with_deadline(
+        &mut self,
+        primary_deadline: std::time::Duration,
+    ) -> Result<(), Error> {
+        let primary = tokio::time::timeout(primary_deadline, Self::init_rpc(self.url.as_ref()))
+            .await
+            .map_err(|_| {
+                Error::ClientError(anyhow::anyhow!(
+                    "primary RPC dial timed out after {primary_deadline:?}"
+                ))
+            })
+            .and_then(|r| r);
+        // Fail closed if the primary endpoint now serves a different chain (DNS / load-balancer /
+        // provider flip): it is refused exactly like a primary that did not come up, so the old
+        // (dead) handle is kept rather than silently continuing against foreign data, while
+        // fallbacks on the pinned chain can still serve. With no such fallback the caller gets
+        // `ChainIdChanged`; every caller treats a reconnect error as "retry later".
+        let primary = match primary {
+            Ok((url, _, got)) if got != self.chain_id => {
+                tracing::error!(
+                    url = %redact_url_query(url.as_str()),
+                    expected = self.chain_id,
+                    got,
+                    "⛔ RPC endpoint changed chain_id on reconnect; refusing to switch"
+                );
+                Err(Error::ChainIdChanged {
+                    expected: self.chain_id,
+                    got,
+                })
+            }
+            other => other,
+        };
+        // Fallbacks are verified against the chain the client is pinned to.
+        let chain_id = self.chain_id;
+
+        // Reconnect each fallback against its own URL too, otherwise a
+        // recovered primary would silently keep using a stale fallback
+        // socket until that fallback hit a fault on its own.
+        //
+        // Fallback reconnects are best-effort: a healthy primary should not be
+        // taken down because a backup endpoint is misbehaving. If a fallback
+        // fails to reconnect (transport error or chain_id mismatch), keep the
+        // existing provider in place, log a loud error, and let the next
+        // primary-failure path retry it on its own.
+        //
+        // Re-dial from the *configured* list, not from the providers currently held: a
+        // fallback that was unreachable at startup (and therefore never became a provider) is
+        // retried here instead of being lost for the life of the process.
+        let mut new_fallbacks = Vec::with_capacity(self.fallback_urls.len());
+        for (idx, raw_url) in self.fallback_urls.iter().enumerate() {
+            let previous = self
+                .fallback_providers
+                .iter()
+                .find(|fp| same_endpoint(raw_url, &fp.url));
+            let dialed = tokio::time::timeout(FALLBACK_DIAL_TIMEOUT, Self::init_rpc(raw_url))
+                .await
+                .map_err(|_| {
+                    Error::ClientError(anyhow::anyhow!(
+                        "fallback dial timed out after {FALLBACK_DIAL_TIMEOUT:?}"
+                    ))
+                })
+                .and_then(|r| r);
+            match dialed {
+                Ok((fp_url, fp_provider, fp_chain_id)) => {
+                    if fp_chain_id != chain_id {
+                        tracing::error!(
+                            fallback_index = idx,
+                            fallback_url = %redact_url_query(raw_url),
+                            fallback_chain_id = fp_chain_id,
+                            primary_chain_id = chain_id,
+                            "⛔ Fallback RPC chain_id mismatch on reconnect; keeping previous fallback provider if any"
+                        );
+                        if let Some(fp) = previous {
+                            new_fallbacks.push(fp.clone());
+                        }
+                    } else {
+                        new_fallbacks.push(FallbackProvider {
+                            url: fp_url,
+                            provider: fp_provider,
+                        });
+                    }
+                }
+                Err(err) => {
+                    tracing::error!(
+                        fallback_index = idx,
+                        fallback_url = %redact_url_query(raw_url),
+                        error = %err,
+                        "⛔ Failed to reconnect fallback RPC; keeping previous fallback provider if any"
+                    );
+                    if let Some(fp) = previous {
+                        new_fallbacks.push(fp.clone());
+                    }
+                }
+            }
+        }
+
+        match primary {
+            Ok((url, rpc_provider, chain_id)) => {
+                self.url = url;
+                self.rpc_provider = rpc_provider;
+                self.fallback_providers = new_fallbacks;
+                self.chain_id = chain_id;
+                Ok(())
+            }
+            Err(err) if new_fallbacks.is_empty() => Err(err),
+            Err(err) => {
+                // The primary is out but a backup is up: keep the (dead) primary handle so the
+                // walks still try it first and pick the primary back up the moment it answers,
+                // and serve from the fallbacks meanwhile. The old primary connection is not
+                // replaced; a later repair re-dials it again.
+                tracing::error!(
+                    primary_url = %redact_url_query(self.url.as_str()),
+                    error = %err,
+                    fallbacks = new_fallbacks.len(),
+                    "⛔ primary RPC re-dial failed; serving from the fallback provider(s) until it returns"
+                );
+                self.fallback_providers = new_fallbacks;
+                Ok(())
+            }
+        }
+    }
+
+    /// Connect to each fallback URL in declaration order and verify each
+    /// reports the same `chain_id` as the primary.
+    pub(crate) async fn init_fallback_providers(
+        primary_chain_id: u64,
+        fallback_urls: &[String],
+    ) -> anyhow::Result<Vec<FallbackProvider>> {
+        let mut providers: Vec<FallbackProvider> = Vec::with_capacity(fallback_urls.len());
+        for (idx, raw_url) in fallback_urls.iter().enumerate() {
+            // An unreachable backup must not stop a healthy primary from serving: log it and
+            // carry on without it; `reconnect` re-dials every configured URL and picks it up
+            // once it is back. A backup on the *wrong chain* is a misconfiguration and stays
+            // fatal — silently serving from it would corrupt proofs.
+            let (url, provider, chain_id) = match Self::init_rpc(raw_url.as_ref()).await {
+                Ok(connected) => connected,
+                Err(err) => {
+                    tracing::error!(
+                        fallback_index = idx,
+                        fallback_url = %redact_url_query(raw_url),
+                        error = %err,
+                        "⛔ Fallback RPC unreachable at startup; continuing without it until the next reconnect"
+                    );
+                    continue;
+                }
+            };
+
+            if chain_id != primary_chain_id {
+                anyhow::bail!(
+                    "Fallback RPC URL #{idx} ({}) reports chain_id {chain_id}, \
+                     which does not match the primary URL's chain_id {primary_chain_id}; \
+                     all fallback URLs must point to the same chain",
+                    redact_url_query(raw_url),
+                );
+            }
+
+            providers.push(FallbackProvider { url, provider });
+        }
+
+        Ok(providers)
+    }
+
+    /// Build the ordered `[(label, provider)]` list used by the sequential
+    /// fallback walk. The primary is first; each fallback gets a label like
+    /// `fallback[0]@<redacted-url>` for log output.
+    /// Override the per-call timeout used by the tag lookup. See [`DEFAULT_CALL_TIMEOUT`].
+    pub fn with_call_timeout(mut self, timeout: std::time::Duration) -> Self {
+        self.call_timeout = timeout;
+        self
+    }
+
+    /// Admit at most `rps` provider calls per second across this client and all its clones.
+    /// Applies to block fetches, tag lookups and `eth_blockNumber` polls; subscriptions are not
+    /// paced. Call before cloning the client, or the clones keep the previous budget.
+    #[must_use]
+    pub fn with_rate_limit(mut self, rps: std::num::NonZeroU32) -> Self {
+        self.pacer = std::sync::Arc::new(pacer::Pacer::with_rate(rps));
+        self
+    }
+
+    fn providers_with_labels(&self) -> Vec<(String, &AlloyProvider)> {
+        let mut out: Vec<(String, &AlloyProvider)> =
+            Vec::with_capacity(1 + self.fallback_providers.len());
+        out.push(("primary".to_string(), &self.rpc_provider));
+        for (i, fp) in self.fallback_providers.iter().enumerate() {
+            out.push((
+                format!("fallback[{i}]@{}", redact_url_query(fp.url.as_str())),
+                &fp.provider,
+            ));
+        }
+        out
+    }
+
+    pub fn chain_id(&self) -> u64 {
+        self.chain_id
+    }
+
+    /// Whether the primary endpoint can carry `eth_subscribe`. Only WebSocket transports can;
+    /// over HTTP(S) (a plain node URL or a proxy such as eRPC) the streams follow the head by
+    /// polling `eth_blockNumber` instead of subscribing to `newHeads`.
+    pub fn supports_subscriptions(&self) -> bool {
+        scheme_supports_subscriptions(self.url.scheme())
+    }
+
+    pub fn get_url(&self) -> Result<ConnectionTransport> {
+        let scheme = self.url.scheme();
+
+        match scheme {
+            "wss" | "ws" => {
+                let ws = ws_connect(self.url.clone());
+                Ok(ConnectionTransport::Ws(ws))
+            }
+            "https" | "http" => Ok(ConnectionTransport::Http(self.url.clone())),
+            _ => Err(anyhow::anyhow!("Unsupported scheme: {scheme}")),
+        }
+    }
+
+    /// Creates a provider that can be used to send transactions and query the Ethereum network.
+    /// This provider contains the wallet configured with the private key.
+    pub async fn get_wallet_ws_provider(&self) -> Result<AlloyWalletProvider, Error> {
+        let builder = ProviderBuilder::new().wallet(EthereumWallet::from(self.get_signer()?));
+
+        let provider = match self.get_url()? {
+            ConnectionTransport::Http(url) => builder.on_http(url),
+            ConnectionTransport::Ws(ws_client) => builder.on_ws(ws_client).await?,
+        };
+
+        Ok(provider)
+    }
+
+    pub fn get_signer(&self) -> Result<PrivateKeySigner, Error> {
+        if self.private_key.is_none() {
+            return Err(Error::NoWalletConfigured);
+        }
+
+        let decoded = hex::decode(self.private_key.clone().unwrap().replace("0x", ""))?;
+        let signing_key = SigningKey::from_slice(&decoded).map_err(|e| {
+            error!("Failed to create signing key: {:?}", e);
+            Error::ClientError(anyhow::anyhow!("Failed to create signing key"))
+        })?;
+
+        Ok(PrivateKeySigner::from_signing_key(signing_key))
+    }
+
+    async fn try_fetch_block(
+        &self,
+        number: u64,
+        encoding: EncodingVersion,
+    ) -> Result<OrderedBlock, Interrupt<Error>> {
+        trace!(
+            "Getting block {:?}",
+            BlockId::Number(BlockNumberOrTag::Number(number))
+        );
+
+        // One "attempt" = one full sweep through `[primary, fallbacks...]`. With N providers
+        // this is up to MAX_ATTEMPTS * N RPC round-trips for a single block fetch. This is a
+        // deliberate change from the previous per-call retry counter: with provider pairing,
+        // a transient mismatch (e.g. reorg between `eth_getBlockByNumber` and
+        // `eth_getBlockReceipts` on the same peer) is only resolvable by re-fetching, so we
+        // back off and retry the whole sweep instead of bailing on the first pass.
+        //
+        // A sweep that failed only because every provider said we are over its rate limit does
+        // not use up an attempt: giving up after a short burst of 429s would make the stream
+        // reset and fetch the whole range again, which is the opposite of backing off. Such
+        // sweeps hold off the shared pacer, so every fetch on this client pauses with this one,
+        // and wait longer each time, but only within [`rate_limit_hold_off`]'s budget. A limit
+        // that outlasts it (an exhausted quota, say) fails the fetch like any other error, so
+        // the stream resets and health reporting sees it instead of the fetch waiting forever.
+        //
+        // A sweep in which every provider failed in a way no retry can fix
+        // ([`Error::is_unrecoverable`]: missing RPC method, undecodable payload) fails at once
+        // instead of backing off for the full retry budget.
+        const MAX_ATTEMPTS: usize = 5;
+        const DELAY_BASE: u64 = 10;
+        const DELAY_MAX: u64 = 60;
+
+        let mut attempt: usize = 0;
+        let mut delay = DELAY_BASE;
+        let mut rate_limited_sweeps: u32 = 0;
+
+        loop {
+            attempt += 1;
+            // Accumulate *every* provider failure in this sweep — not just the last one of each
+            // kind. With N ≥ 3 providers, two flaky peers followed by a healthy fallback would
+            // otherwise leave the operator blind to the first failure (the second would
+            // overwrite it). Mirrors the old `get_receipts` walker's `Vec`-of-errors behavior.
+            let mut transport_errs: Vec<(String, Error)> = Vec::new();
+            let mut payload_inconsistent_errs: Vec<(String, Error)> = Vec::new();
+            let mut unrecoverable_errs: Vec<(String, Error)> = Vec::new();
+
+            for (label, provider) in self.providers_with_labels() {
+                match self.fetch_pair_from_provider(provider, number).await {
+                    Ok((block, receipts)) => {
+                        match OrderedBlock::try_from_fetched_block(
+                            self.chain_id,
+                            block,
+                            receipts,
+                            number,
+                            encoding,
+                        ) {
+                            Ok(ob) => {
+                                // Don't silently drop earlier-provider failures: if the primary
+                                // (or an earlier fallback) errored and a later peer served the
+                                // request, surface *every* prior failure at warn so operators
+                                // can root-cause flaky peers even when 3+ providers are configured.
+                                if label != "primary" {
+                                    for (err_label, err) in transport_errs.drain(..) {
+                                        tracing::warn!(
+                                            provider = %err_label,
+                                            served_by = %label,
+                                            block_number = number,
+                                            error = %err,
+                                            "block+receipts fetch: provider errored but another succeeded"
+                                        );
+                                    }
+                                    for (err_label, err) in payload_inconsistent_errs.drain(..) {
+                                        tracing::warn!(
+                                            provider = %err_label,
+                                            served_by = %label,
+                                            block_number = number,
+                                            error = %err,
+                                            "block+receipts fetch: provider returned inconsistent payload but another succeeded"
+                                        );
+                                    }
+                                    for (err_label, err) in unrecoverable_errs.drain(..) {
+                                        tracing::warn!(
+                                            provider = %err_label,
+                                            served_by = %label,
+                                            block_number = number,
+                                            error = %err,
+                                            "block+receipts fetch: provider cannot serve this block but another succeeded"
+                                        );
+                                    }
+                                }
+                                return Ok(ob);
+                            }
+                            Err(e) if e.inconsistent_block_payload_for_fallback() => {
+                                tracing::warn!(
+                                    provider = %label,
+                                    block_number = number,
+                                    error = %e,
+                                    "block body or receipts inconsistent with header from this RPC peer; trying next endpoint"
+                                );
+                                payload_inconsistent_errs.push((label, e));
+                            }
+                            Err(e) => {
+                                // Structural error unrelated to per-peer inconsistency
+                                // (e.g. chain-id mismatch) — fail fast, no retry.
+                                tracing::error!(error = %e, "⛔ Failed to verify block data");
+                                return Err(Interrupt::Cont(e));
+                            }
+                        }
+                    }
+                    Err(e) if e.is_unrecoverable() => {
+                        tracing::warn!(
+                            provider = %label,
+                            block_number = number,
+                            error = %e,
+                            "provider cannot serve this block (unsupported method or undecodable payload); trying next endpoint"
+                        );
+                        unrecoverable_errs.push((label, e));
+                    }
+                    Err(e) => {
+                        tracing::debug!(
+                            provider = %label,
+                            block_number = number,
+                            error = %e,
+                            "failed to retrieve block/receipts pair from provider"
+                        );
+                        transport_errs.push((label, e));
+                    }
+                }
+            }
+
+            if transport_errs.is_empty() && payload_inconsistent_errs.is_empty() {
+                if let Some((_, err)) = unrecoverable_errs.pop() {
+                    tracing::error!(
+                        block_number = number,
+                        error = %err,
+                        "⛔ no RPC endpoint can serve this block, and retrying will not change that"
+                    );
+                    return Err(Interrupt::Cont(err));
+                }
+            }
+
+            let rate_limited = payload_inconsistent_errs.is_empty()
+                && !transport_errs.is_empty()
+                && transport_errs.iter().all(|(_, e)| e.is_rate_limited());
+            if rate_limited {
+                let Some(hold_off) = rate_limit_hold_off(rate_limited_sweeps) else {
+                    let err = transport_errs
+                        .pop()
+                        .map(|(_, e)| e)
+                        .unwrap_or(Error::FailedToGetBlock(number));
+                    tracing::error!(
+                        block_number = number,
+                        sweeps = rate_limited_sweeps,
+                        error = %err,
+                        "⛔ RPC provider still rate limiting after backing off; giving up on this block"
+                    );
+                    return Err(Interrupt::Cont(err));
+                };
+                rate_limited_sweeps += 1;
+                attempt -= 1;
+                self.pacer.hold_off(hold_off);
+                tracing::warn!(
+                    block_number = number,
+                    ?hold_off,
+                    error = %transport_errs.last().map(|(_, e)| e.to_string()).unwrap_or_default(),
+                    "RPC provider rate limit hit; holding off all requests before retrying"
+                );
+                tokio::select! {
+                    _ = tokio::time::sleep(hold_off) => {},
+                    _ = tokio::signal::ctrl_c() => return Err(Interrupt::Stop)
+                }
+                continue;
+            }
+
+            // Sweep failed end-to-end. Prefer the payload-inconsistency cause for the
+            // propagated error — it carries the block-number hint and a non-retriable
+            // classification at the API layer — falling back to the last transport error and
+            // then a generic "not found". Earlier per-provider failures were already emitted
+            // at warn/debug inside the loop, so we don't re-log them here to avoid spam.
+            let err = payload_inconsistent_errs
+                .pop()
+                .map(|(_, e)| e)
+                .or_else(|| transport_errs.pop().map(|(_, e)| e))
+                .unwrap_or(Error::FailedToGetBlock(number));
+
+            if attempt >= MAX_ATTEMPTS {
+                tracing::error!(
+                    attempt,
+                    MAX_ATTEMPTS,
+                    error = %err,
+                    "⛔ all RPC endpoints failed to return a consistent block+receipts pair after retries"
+                );
+                return Err(Interrupt::Cont(err));
+            }
+
+            tracing::debug!(
+                attempt,
+                MAX_ATTEMPTS,
+                error = %err,
+                "all RPC endpoints failed to return block+receipts; backing off before retry"
+            );
+
+            tokio::select! {
+                _ = tokio::time::sleep(std::time::Duration::from_secs(delay)) => {},
+                _ = tokio::signal::ctrl_c() => return Err(Interrupt::Stop)
+            }
+
+            delay = (delay * 2).min(DELAY_MAX);
+        }
+    }
+
+    /// Fetch full block and [`eth_getBlockReceipts`](https://ethereum.github.io/execution-apis/api-documentation/) from the **same**
+    /// [`AlloyProvider`] so the header cannot be paired with receipts from another backend.
+    ///
+    /// The two RPC calls are independent reads against the same provider, so we issue them
+    /// concurrently with [`tokio::try_join!`] to cut the per-block latency roughly in half on
+    /// the happy path. Pairing on the **same** provider is what keeps reorg-safety: if the
+    /// peer reorgs between the two calls, the recomputed header roots will fail to match in
+    /// [`OrderedBlock::try_from_fetched_block`] and the caller will fall through to the next
+    /// endpoint (or retry the whole sweep).
+    async fn fetch_block_and_receipts_from_provider(
+        &self,
+        provider: &AlloyProvider,
+        number: u64,
+    ) -> Result<(Block, Vec<TransactionReceipt>), Error> {
+        let block_id = BlockId::Number(BlockNumberOrTag::Number(number));
+        let block_fut = async {
+            self.pacer.acquire().await;
+            provider
+                .get_block(block_id, true.into())
+                .await?
+                .ok_or(Error::FailedToGetBlock(number))
+        };
+        let receipts_fut = async {
+            self.pacer.acquire().await;
+            provider
+                .get_block_receipts(block_id)
+                .await?
+                .ok_or(Error::FailedToGetReceipts(number))
+        };
+        let (block, receipts) = tokio::try_join!(block_fut, receipts_fut)?;
+        Ok((block, receipts))
+    }
+
+    /// Fetch the block + receipts pair from one provider in the configured [`BlockFetchMode`].
+    async fn fetch_pair_from_provider(
+        &self,
+        provider: &AlloyProvider,
+        number: u64,
+    ) -> Result<(Block, Vec<TransactionReceipt>), Error> {
+        match self.fetch_mode {
+            BlockFetchMode::Json => {
+                self.fetch_block_and_receipts_from_provider(provider, number)
+                    .await
+            }
+            BlockFetchMode::RawRlp => {
+                self.fetch_raw_block_and_receipts_from_provider(provider, number)
+                    .await
+            }
+        }
+    }
+
+    /// Raw-RLP counterpart of [`Self::fetch_block_and_receipts_from_provider`]: pulls
+    /// `debug_getRawBlock` and `debug_getRawReceipts` from the **same** provider, then decodes
+    /// and re-shapes them into the rpc types the JSON path yields, so the downstream header
+    /// root checks and leaf encoding are shared. Decoding and sender recovery are CPU-bound
+    /// (one ECDSA recovery per transaction) and run on the blocking pool.
+    ///
+    /// The receipts are requested by the hash of the block that came back, not by height, so the
+    /// pair cannot straddle a reorg even when the provider URL is a load balancer. Raw receipts
+    /// carry no block hash, so [`Error::ReceiptsBlockMismatch`] cannot catch a cross-fork pair
+    /// here, and the receipt-root check is skipped for pre-Byzantium mainnet. A node that does
+    /// not know the hash answers with an empty list, which fails the transaction/receipt count
+    /// check for any non-empty block. The cost is one serial round trip per block instead of two
+    /// concurrent requests.
+    async fn fetch_raw_block_and_receipts_from_provider(
+        &self,
+        provider: &AlloyProvider,
+        number: u64,
+    ) -> Result<(Block, Vec<TransactionReceipt>), Error> {
+        self.pacer.acquire().await;
+        let raw_block = provider
+            .debug_get_raw_block(BlockId::Number(BlockNumberOrTag::Number(number)))
+            .await?;
+        if raw_block.is_empty() {
+            return Err(Error::FailedToGetBlock(number));
+        }
+        let hash = header_hash_from_raw_block(&raw_block)
+            .map_err(|e| Error::RawBlockDecode(number, e.to_string()))?;
+        self.pacer.acquire().await;
+        let raw_receipts = provider.debug_get_raw_receipts(BlockId::hash(hash)).await?;
+        tokio::task::spawn_blocking(move || rpc_block_from_raw(number, &raw_block, &raw_receipts))
+            .await
+            .map_err(|e| Error::ClientError(anyhow::anyhow!("raw block decode task failed: {e}")))?
+    }
+
+    pub async fn get_block(
+        &self,
+        number: u64,
+        encoding: EncodingVersion,
+    ) -> Result<OrderedBlock, Interrupt<Error>> {
+        // Serve finalized blocks from the in-process cache when enabled — skips the RPC round
+        // trips entirely for blocks already fetched by an overlapping continuity range or a
+        // prior request.
+        if let Some(cache) = &self.mem_cache {
+            if let Some(block) = cache.get(number) {
+                return Ok(block);
+            }
+        }
+        let block = Self::try_fetch_block(self, number, encoding).await?;
+        if let Some(cache) = &self.mem_cache {
+            cache.insert(number, block.clone());
+        }
+        Ok(block)
+    }
+
+    pub async fn subscribe(
+        &self,
+    ) -> std::result::Result<alloy::pubsub::SubscriptionStream<alloy::rpc::types::Header>, Error>
+    {
+        Ok(self.rpc_provider.subscribe_blocks().await?.into_stream())
+    }
+
+    pub async fn get_eth_block(&self, number: u64) -> Result<Block, Error> {
+        let providers = self.providers_with_labels();
+        let mut got_definitive_none = false;
+        let mut errors: Vec<(String, Error)> = Vec::new();
+
+        for (label, provider) in providers {
+            self.pacer.acquire().await;
+            match provider
+                .get_block(
+                    BlockId::Number(BlockNumberOrTag::Number(number)),
+                    true.into(),
+                )
+                .await
+            {
+                Ok(Some(block)) => {
+                    if label != "primary" {
+                        info!(
+                            provider = %label,
+                            block_number = number,
+                            "block fetched via fallback provider"
+                        );
+                    }
+                    // Don't silently drop errors from earlier providers:
+                    // if the primary (or an earlier fallback) errored and a
+                    // later fallback served the request, surface those errors
+                    // at WARN so operators can still root-cause flaky peers.
+                    for (err_label, err) in errors.drain(..) {
+                        tracing::warn!(
+                            provider = %err_label,
+                            served_by = %label,
+                            block_number = number,
+                            error = %err,
+                            "block fetch: provider errored but another succeeded"
+                        );
+                    }
+                    return Ok(block);
+                }
+                Ok(None) => got_definitive_none = true,
+                Err(e) => errors.push((label, Error::from(e))),
+            }
+        }
+
+        match merge_provider_lookup(got_definitive_none, errors) {
+            LookupOutcome::NotFound { errors_to_warn } => {
+                for (label, err) in errors_to_warn {
+                    tracing::warn!(
+                        provider = %label,
+                        block_number = number,
+                        error = %err,
+                        "block fetch: provider errored but another said `not found`; treating as not found"
+                    );
+                }
+                Err(Error::FailedToGetBlock(number))
+            }
+            LookupOutcome::AllErrored {
+                first,
+                additional_to_warn,
+            } => {
+                for (label, err) in additional_to_warn {
+                    tracing::warn!(
+                        provider = %label,
+                        block_number = number,
+                        error = %err,
+                        "block fetch: additional provider error"
+                    );
+                }
+                let (first_label, first_err) = first;
+                error!(
+                    provider = %first_label,
+                    block_number = number,
+                    error = %first_err,
+                    "Failed to get block: all providers errored",
+                );
+                Err(Error::FailedToGetBlock(number))
+            }
+        }
+    }
+
+    /// Current chain head, tried on the primary first and then on each fallback in order.
+    ///
+    /// The head seeds and paces every stream (the archiver's head poll, the streams' silence
+    /// watchdog, the tip stream's catch-up), so a tip read that only ever asked the primary made
+    /// a healthy backup useless the moment the primary failed. A fallback that lags reports a
+    /// lower tip, which can only make the consumer *more* conservative, never release an
+    /// unconfirmed block.
+    ///
+    /// Each provider is bounded by [`Client::call_timeout`], like the tag lookup: a primary that
+    /// accepts the connection and never answers must fail over within that bound rather than
+    /// pin the walk on the transport's own (much longer, or absent) deadline.
+    pub async fn get_last_block(&self) -> Result<u64, Error> {
+        let mut failures: Vec<(String, Error)> = Vec::new();
+        for (label, provider) in self.providers_with_labels() {
+            self.pacer.acquire().await;
+            match timed(self.call_timeout, provider.get_block_number()).await {
+                Ok(number) => {
+                    for (failed, err) in &failures {
+                        tracing::warn!(
+                            provider = %failed,
+                            served_by = %label,
+                            error = %err,
+                            "eth_blockNumber: provider errored but another succeeded"
+                        );
+                    }
+                    return Ok(number);
+                }
+                Err(err) => failures.push((label, err)),
+            }
+        }
+        // Surface the primary's error so callers' transient/permanent classifiers see the
+        // same shape they always did.
+        let (_, primary_err) = failures.remove(0);
+        Err(primary_err)
+    }
+
+    /// Number of the block the providers agree on for a settlement `tag`. See
+    /// [`get_block_by_tag`](Self::get_block_by_tag).
+    pub async fn get_block_number_by_tag(&self, tag: BlockTag) -> Result<u64, Error> {
+        self.get_block_by_tag(tag).await.map(|block| block.number)
+    }
+
+    /// The block the configured providers agree on for a settlement `tag` (`safe` or
+    /// `finalized`), identified by hash as well as height.
+    ///
+    /// This is the maturity decision, so it is not answered by whichever provider replies first,
+    /// but it is also not a vote where any provider can hold the others back. The **primary**
+    /// provider's answer is the candidate; when the primary has no answer, the highest answer
+    /// among the fallbacks is. Every other provider that has *reached* the candidate height must
+    /// then agree on the candidate block's hash: same-height responders already told us, further-
+    /// along responders are asked for the block at that height. A different hash is a fork or a
+    /// different chain and fails the lookup with [`Error::BlockTagDisagreement`] rather than
+    /// picking a side; callers retry on the next head.
+    ///
+    /// A provider that has not reached the candidate height cannot confirm it and cannot veto it
+    /// either. It is logged at warn and skipped. This is what keeps a stale or lagging fallback
+    /// harmless: taking the lowest height instead would let one backup that stopped syncing pin
+    /// maturity for the whole pipeline at the height it froze on, since its block there hashes
+    /// identically to the canonical one. Providers that error, time out (see
+    /// [`Client::with_call_timeout`]) or answer `null` do not take part either; every provider
+    /// answering `null` counts as "not found", as before. With a single provider the whole thing
+    /// degenerates to that provider's answer, which is why per-replica provider diversity is the
+    /// deployment change that gives this check its teeth.
+    pub async fn get_block_by_tag(&self, tag: BlockTag) -> Result<TaggedBlock, Error> {
+        use futures::future::join_all;
+
+        let providers = self.providers_with_labels();
+        let timeout = self.call_timeout;
+        let pacer = &self.pacer;
+        let answers = join_all(providers.iter().map(|(label, provider)| async move {
+            pacer.acquire().await;
+            let answer = timed(
+                timeout,
+                provider.get_block(BlockId::Number(tag.into()), false.into()),
+            )
+            .await;
+            (label.clone(), answer)
+        }))
+        .await;
+
+        let mut reported: Vec<(String, TaggedBlock)> = Vec::new();
+        let mut got_definitive_none = false;
+        let mut errors: Vec<(String, Error)> = Vec::new();
+        for (label, answer) in answers {
+            match answer {
+                Ok(Some(block)) => reported.push((
+                    label,
+                    TaggedBlock {
+                        number: block.header.number,
+                        hash: block.header.hash,
+                    },
+                )),
+                Ok(None) => got_definitive_none = true,
+                Err(e) => errors.push((label, e)),
+            }
+        }
+
+        // The primary's answer leads; without one, the freshest fallback does. Never the lowest:
+        // a provider that stopped syncing would otherwise set the boundary forever.
+        let candidate = reported
+            .iter()
+            .find(|(label, _)| label == "primary")
+            .or_else(|| reported.iter().max_by_key(|(_, block)| block.number))
+            .cloned();
+
+        if let Some((candidate_label, candidate)) = candidate {
+            for (err_label, err) in errors {
+                tracing::warn!(
+                    provider = %err_label,
+                    served_by = %candidate_label,
+                    %tag,
+                    error = %err,
+                    "block tag lookup: provider errored but another succeeded"
+                );
+            }
+
+            let mut agreed = 1usize;
+            let checks = reported
+                .iter()
+                .filter(|(label, _)| *label != candidate_label)
+                .map(|(label, block)| {
+                    let provider = providers
+                        .iter()
+                        .find(|(l, _)| l == label)
+                        .map(|(_, p)| *p)
+                        .expect("label came from this provider list");
+                    async move {
+                        if block.number == candidate.number {
+                            return (label.clone(), Confirmation::Hash(block.hash));
+                        }
+                        // A different tag height says nothing about whether this provider holds
+                        // the candidate block: `safe` and `finalized` trail the head by dozens of
+                        // blocks, so a peer whose tag is a step behind almost always has the
+                        // candidate height already, and a forked primary that sits slightly ahead
+                        // of honest fallbacks must not escape the hash check on that account.
+                        // Ask for the block and let the hash decide; only a provider with no block
+                        // at that height gets to abstain.
+                        pacer.acquire().await;
+                        let read = timed(
+                            timeout,
+                            provider.get_block(
+                                BlockId::Number(BlockNumberOrTag::Number(candidate.number)),
+                                false.into(),
+                            ),
+                        )
+                        .await;
+                        let confirmation = match read {
+                            Ok(Some(b)) => Confirmation::Hash(b.header.hash),
+                            Ok(None) if block.number < candidate.number => {
+                                Confirmation::Behind(block.number)
+                            }
+                            Ok(None) => Confirmation::Missing,
+                            Err(e) => Confirmation::Failed(e),
+                        };
+                        (label.clone(), confirmation)
+                    }
+                });
+            for (label, confirmation) in join_all(checks).await {
+                match confirmation {
+                    Confirmation::Hash(hash) if hash == candidate.hash => agreed += 1,
+                    Confirmation::Hash(actual) => {
+                        return Err(Error::BlockTagDisagreement {
+                            tag,
+                            number: candidate.number,
+                            reported_by: candidate_label,
+                            expected: candidate.hash,
+                            disagreeing: label,
+                            actual,
+                        });
+                    }
+                    Confirmation::Behind(at) => {
+                        // Has not reached the candidate height at all: cannot confirm, must not
+                        // veto. Loud, because a fallback that is persistently behind is a stale
+                        // fallback.
+                        tracing::warn!(
+                            provider = %label,
+                            %tag,
+                            reports = at,
+                            candidate = candidate.number,
+                            behind_by = candidate.number - at,
+                            "block tag lookup: provider has no block at the candidate height yet and cannot confirm it"
+                        );
+                    }
+                    Confirmation::Missing => {
+                        // Reports the tag past a height it cannot serve: a broken provider, not a
+                        // fork. It does not get to hold the lookup up either.
+                        tracing::warn!(
+                            provider = %label,
+                            %tag,
+                            number = candidate.number,
+                            "block tag lookup: provider reports the tag past a height it cannot serve; ignored"
+                        );
+                    }
+                    Confirmation::Failed(err) => {
+                        tracing::warn!(
+                            provider = %label,
+                            %tag,
+                            number = candidate.number,
+                            error = %err,
+                            "block tag lookup: could not confirm the candidate with this provider"
+                        );
+                    }
+                }
+            }
+
+            if agreed < reported.len() {
+                tracing::warn!(
+                    %tag,
+                    number = candidate.number,
+                    agreed,
+                    answered = reported.len(),
+                    configured = providers.len(),
+                    "block tag resolved without full agreement"
+                );
+            } else {
+                tracing::debug!(
+                    %tag,
+                    number = candidate.number,
+                    hash = ?candidate.hash,
+                    agreed,
+                    configured = providers.len(),
+                    "block tag resolved"
+                );
+            }
+            return Ok(candidate);
+        }
+
+        match merge_provider_lookup(got_definitive_none, errors) {
+            LookupOutcome::NotFound { errors_to_warn } => {
+                for (label, err) in errors_to_warn {
+                    tracing::warn!(
+                        provider = %label,
+                        %tag,
+                        error = %err,
+                        "block tag lookup: provider errored but another said `not found`"
+                    );
+                }
+                Err(Error::FailedToGetBlockByTag(tag))
+            }
+            LookupOutcome::AllErrored {
+                first,
+                additional_to_warn,
+            } => {
+                for (label, err) in additional_to_warn {
+                    tracing::warn!(provider = %label, %tag, error = %err, "block tag lookup: additional provider error");
+                }
+                let (first_label, first_err) = first;
+                tracing::warn!(provider = %first_label, %tag, error = %first_err, "block tag lookup: all providers errored");
+                Err(first_err)
+            }
+        }
+    }
+
+    pub async fn get_chain_id(&self) -> Result<u64, Error> {
+        self.rpc_provider.get_chain_id().await.map_err(|e| {
+            error!("Failed to get chain id: {:?}", e);
+            Error::FailedToGetChainId(e.to_string())
+        })
+    }
+
+    pub async fn get_block_number_by_hash(&self, hash: BlockHash) -> Result<u64, Error> {
+        let block_opt = self
+            .rpc_provider
+            .get_block_by_hash(hash, true.into())
+            .await
+            .map_err(|e| {
+                error!("Failed to get block by hash: {:?}", e);
+                Error::FailedToGetBlockByHash(hash.to_string())
+            })?;
+
+        let block = block_opt.ok_or(Error::FailedToGetBlockByHash(hash.to_string()))?;
+
+        Ok(block.header.number)
+    }
+
+    /// Resolve a transaction hash to its block number and index within the block.
+    ///
+    /// Returns `Ok(None)` if the transaction is not found on chain (not mined or doesn't exist).
+    /// Returns `Err` only for actual RPC/transport failures.
+    ///
+    /// # Routing
+    ///
+    /// A transaction hash carries no block-number information until it is
+    /// resolved, so the lookup walks the configured providers in
+    /// `[primary, fallback_0, fallback_1, ...]` order: the first provider
+    /// to return `Ok(Some(_))` wins, and the rest are not queried. This
+    /// minimizes calls to the (typically expensive / quota-limited) archive
+    /// fallbacks: a recent tx that the primary can answer never reaches an
+    /// archive endpoint at all.
+    ///
+    /// Result-merging policy:
+    /// * The first provider to return `Ok(Some(_))` wins. Any errors from
+    ///   earlier providers in the walk are logged at warn level before
+    ///   returning so a flaky primary masked by a healthy fallback still
+    ///   shows up in operator logs.
+    /// * If every provider returns `Ok(None)`, the result is `Ok(None)`
+    ///   (the tx truly does not exist on this chain).
+    /// * If some providers return `Ok(None)` and others error, the errors
+    ///   are logged as warnings and `Ok(None)` is returned — at least one
+    ///   provider that did respond said the tx is not present.
+    /// * If every provider errors, the first error is returned and the
+    ///   rest are logged at warn level.
+    pub async fn get_tx_position_by_hash(
+        &self,
+        tx_hash: H256,
+    ) -> Result<Option<(u64, u64)>, Error> {
+        let tx_hash_alloy = TxHash::from_str(&tx_hash.encode_hex())
+            .map_err(|e| Error::ClientError(anyhow::anyhow!("Invalid tx hash: {e}")))?;
+
+        let providers = self.providers_with_labels();
+        let mut got_definitive_none = false;
+        let mut errors: Vec<(String, Error)> = Vec::new();
+
+        for (label, provider) in providers {
+            match Self::resolve_tx_on_provider(provider, tx_hash_alloy, &tx_hash).await {
+                Ok(Some(pos)) => {
+                    // Only log when a fallback served the request; the
+                    // primary case is the boring path and would otherwise
+                    // dominate logs for projects without fallbacks.
+                    //
+                    // INFO level here (vs DEBUG for per-block logs)
+                    // because tx-hash resolution is at most once per
+                    // `/proof-by-tx` request, so log volume is bounded
+                    // and the signal is high — operators want to confirm
+                    // at a glance which provider answered.
+                    if label != "primary" {
+                        info!(
+                            provider = %label,
+                            tx_hash = %tx_hash,
+                            block_number = pos.0,
+                            tx_index = pos.1,
+                            "tx-hash resolved by fallback provider"
+                        );
+                    }
+                    // Don't silently drop errors from earlier providers:
+                    // if the primary (or an earlier fallback) errored and a
+                    // later fallback resolved the tx, surface those errors
+                    // at WARN so operators can still root-cause flaky peers.
+                    for (err_label, err) in errors.drain(..) {
+                        tracing::warn!(
+                            provider = %err_label,
+                            served_by = %label,
+                            tx_hash = %tx_hash,
+                            error = %err,
+                            "tx-hash lookup: provider errored but another succeeded"
+                        );
+                    }
+                    return Ok(Some(pos));
+                }
+                Ok(None) => got_definitive_none = true,
+                Err(e) => errors.push((label, e)),
+            }
+        }
+
+        match merge_provider_lookup(got_definitive_none, errors) {
+            LookupOutcome::NotFound { errors_to_warn } => {
+                for (label, err) in errors_to_warn {
+                    tracing::warn!(
+                        provider = %label,
+                        tx_hash = %tx_hash,
+                        error = %err,
+                        "tx-hash lookup: provider errored but another said `not found`; treating as not found"
+                    );
+                }
+                Ok(None)
+            }
+            LookupOutcome::AllErrored {
+                first,
+                additional_to_warn,
+            } => {
+                for (label, err) in additional_to_warn {
+                    tracing::warn!(
+                        provider = %label,
+                        tx_hash = %tx_hash,
+                        error = %err,
+                        "tx-hash lookup: additional provider error"
+                    );
+                }
+                let (first_label, first_err) = first;
+                tracing::error!(
+                    provider = %first_label,
+                    tx_hash = %tx_hash,
+                    error = %first_err,
+                    "tx-hash lookup: all providers errored"
+                );
+                Err(first_err)
+            }
+        }
+    }
+
+    /// One provider's slice of [`Self::get_tx_position_by_hash`]: looks the tx
+    /// up by hash and converts it to `(block_number, tx_index)`. Pure
+    /// extraction so the sequential walk stays readable.
+    async fn resolve_tx_on_provider(
+        provider: &AlloyProvider,
+        tx_hash_alloy: TxHash,
+        tx_hash_for_err: &H256,
+    ) -> Result<Option<(u64, u64)>, Error> {
+        let Some(tx) = provider
+            .get_transaction_by_hash(tx_hash_alloy)
+            .await
+            .map_err(Error::from)?
+        else {
+            return Ok(None);
+        };
+
+        let block_number = tx.block_number.ok_or_else(|| {
+            Error::ClientError(anyhow::anyhow!(
+                "Transaction not in a block (pending): {tx_hash_for_err}"
+            ))
+        })?;
+        let tx_index = tx.transaction_index.ok_or_else(|| {
+            Error::ClientError(anyhow::anyhow!(
+                "Missing transactionIndex for tx: {tx_hash_for_err}"
+            ))
+        })?;
+
+        Ok(Some((block_number, tx_index)))
+    }
+}
+
+/// Decision returned by [`merge_provider_lookup`] once the sequential
+/// fallback walk finishes without any provider returning `Ok(Some(_))`.
+///
+/// The outer call site short-circuits on the first `Ok(Some(_))`, so this
+/// only models the negative paths.
+enum LookupOutcome {
+    /// At least one provider answered "not found" (`Ok(None)`). Any errors
+    /// from peers are demoted to warnings — the providers that did respond
+    /// agreed the value is not there.
+    NotFound {
+        errors_to_warn: Vec<(String, Error)>,
+    },
+    /// Every provider errored. Caller gets `first` as the representative
+    /// failure; remaining errors should be logged at warn level.
+    AllErrored {
+        first: (String, Error),
+        additional_to_warn: Vec<(String, Error)>,
+    },
+}
+
+/// Pure decision step shared by sequential-fallback lookups such as
+/// [`Client::get_tx_position_by_hash`] and [`Client::get_eth_block`].
+///
+/// `got_definitive_none` is `true` iff at least one provider returned
+/// `Ok(None)`. `errors` carries every provider that failed to respond.
+///
+/// The caller is expected to have already returned early on the first
+/// `Ok(Some(_))`, so this function only sees the negative arms.
+///
+/// # Panics
+///
+/// Panics if both `!got_definitive_none` and `errors.is_empty()`. That state
+/// means "no provider returned anything", which is only possible if the
+/// caller iterated an empty provider list — and the [`Client`] is constructed
+/// such that there is always at least the primary.
+fn merge_provider_lookup(
+    got_definitive_none: bool,
+    mut errors: Vec<(String, Error)>,
+) -> LookupOutcome {
+    if got_definitive_none {
+        return LookupOutcome::NotFound {
+            errors_to_warn: errors,
+        };
+    }
+
+    assert!(
+        !errors.is_empty(),
+        "merge_provider_lookup invoked without any provider results"
+    );
+
+    let first = errors.remove(0);
+    LookupOutcome::AllErrored {
+        first,
+        additional_to_warn: errors,
+    }
+}
+
+/// `true` for the URL schemes alloy can open a pubsub (`eth_subscribe`) transport on.
+pub fn scheme_supports_subscriptions(scheme: &str) -> bool {
+    matches!(scheme, "ws" | "wss")
+}
+
+/// Redact the query-string **and** any secret-looking path segments of a URL
+/// for logs.
+///
+/// Many RPC providers carry their API key in the URL — either in the
+/// `?key=...` query parameter (Google Cloud, Infura legacy) or as a trailing
+/// path segment (Chainstack, Alchemy, QuickNode, …). This helper handles
+/// both:
+///
+/// * Anything after the first `?` is replaced with `?…`.
+/// * Any path segment that looks like an opaque secret token — i.e. at
+///   least 16 characters of `[A-Za-z0-9_-]` containing at least one digit
+///   *and* one letter — is replaced with `…` (the segment length is not
+///   leaked).
+///
+/// Human-readable path tokens (`v1`, `projects`, `cc3-testnet-rpckey-2`,
+/// `ethereum-sepolia`, etc.) stay intact because they either contain a
+/// hyphen-separated word or are too short / not mixed-case to trip the
+/// secret heuristic.
+pub fn redact_url_query(url: &str) -> String {
+    // Split off the query string first so we never accidentally redact
+    // inside it (and to keep behavior identical to the previous helper for
+    // `?key=...`-style URLs).
+    let (base, query_marker) = match url.split_once('?') {
+        Some((b, _)) => (b, "?…"),
+        None => (url, ""),
+    };
+
+    // Redact the path. We split on '/' so we can scan each segment
+    // independently; this keeps `scheme://host` untouched (the leading
+    // `scheme:` and the empty pre-`//` segments don't match the secret
+    // heuristic).
+    let redacted_path = base
+        .split('/')
+        .map(|seg| {
+            if looks_like_secret_segment(seg) {
+                "…"
+            } else {
+                seg
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("/");
+
+    format!("{redacted_path}{query_marker}")
+}
+
+/// Heuristic: does this path segment look like an opaque secret token
+/// (API key, project hash, …) that we should not log?
+///
+/// Conservative — designed to avoid false positives on routine path
+/// components like `v1`, `rpc`, `ethereum-sepolia`, `cc3-testnet-rpckey-2`.
+fn looks_like_secret_segment(seg: &str) -> bool {
+    if seg.len() < 16 {
+        return false;
+    }
+
+    // Hyphenated multi-word identifiers (e.g. `cc3-testnet-rpckey-2`,
+    // `ethereum-sepolia`) are never secrets in practice — providers don't
+    // shape API keys that way. This single rule covers all the
+    // human-readable path tokens we've seen in proof-gen configs.
+    if seg.contains('-') {
+        return false;
+    }
+
+    let mut has_digit = false;
+    let mut has_letter = false;
+    for ch in seg.chars() {
+        match ch {
+            '0'..='9' => has_digit = true,
+            'A'..='Z' | 'a'..='z' => has_letter = true,
+            '_' => {}
+            _ => return false, // any other char ⇒ not a secret-shaped token
+        }
+    }
+
+    has_digit && has_letter
+}
+
+/// Build a simple Ethereum-compatible Merkle tree from a block
+///
+/// Uses `KeccakMerkleTree` which matches the POC implementation exactly.
+pub fn simple_merkle_tree(block: &OrderedBlock) -> merkle::KeccakMerkleTree {
+    let tx_bytes: Vec<Vec<u8>> = block.items().iter().map(|item| item.to_bytes()).collect();
+    merkle::KeccakMerkleTree::new(&tx_bytes)
+}
+
+#[cfg(test)]
+mod provider_lookup_tests {
+    use super::{merge_provider_lookup, redact_url_query, Error, LookupOutcome};
+
+    fn err(msg: &str) -> Error {
+        Error::ClientError(anyhow::anyhow!(msg.to_string()))
+    }
+
+    #[test]
+    fn at_least_one_none_yields_not_found_and_keeps_errors_for_warnings() {
+        let errors = vec![
+            ("primary".to_string(), err("connection reset")),
+            ("fallback[0]@http://x".to_string(), err("rate limited")),
+        ];
+        let outcome = merge_provider_lookup(true, errors);
+        match outcome {
+            LookupOutcome::NotFound { errors_to_warn } => {
+                assert_eq!(errors_to_warn.len(), 2);
+                assert_eq!(errors_to_warn[0].0, "primary");
+                assert_eq!(errors_to_warn[1].0, "fallback[0]@http://x");
+            }
+            LookupOutcome::AllErrored { .. } => panic!("expected NotFound"),
+        }
+    }
+
+    #[test]
+    fn definitive_none_with_no_errors_is_simple_not_found() {
+        let outcome = merge_provider_lookup(true, Vec::new());
+        match outcome {
+            LookupOutcome::NotFound { errors_to_warn } => {
+                assert!(errors_to_warn.is_empty());
+            }
+            LookupOutcome::AllErrored { .. } => panic!("expected NotFound"),
+        }
+    }
+
+    #[test]
+    fn no_none_and_some_errors_promotes_first_error() {
+        let errors = vec![
+            ("primary".to_string(), err("first failure")),
+            ("fallback[0]@http://a".to_string(), err("second failure")),
+            ("fallback[1]@http://b".to_string(), err("third failure")),
+        ];
+        let outcome = merge_provider_lookup(false, errors);
+        match outcome {
+            LookupOutcome::AllErrored {
+                first,
+                additional_to_warn,
+            } => {
+                assert_eq!(first.0, "primary");
+                assert_eq!(first.1.to_string(), "Client error first failure");
+                assert_eq!(additional_to_warn.len(), 2);
+                assert_eq!(additional_to_warn[0].0, "fallback[0]@http://a");
+                assert_eq!(additional_to_warn[1].0, "fallback[1]@http://b");
+            }
+            LookupOutcome::NotFound { .. } => panic!("expected AllErrored"),
+        }
+    }
+
+    #[test]
+    #[should_panic(expected = "merge_provider_lookup invoked without any provider results")]
+    fn empty_input_panics() {
+        // The caller iterates `[primary, fallbacks..]` so the input is never
+        // empty in practice; assert the defensive check fires loudly if the
+        // invariant is ever broken.
+        let _ = merge_provider_lookup(false, Vec::new());
+    }
+
+    #[test]
+    fn redact_url_query_strips_after_question_mark() {
+        let redacted = redact_url_query("https://rpc.example.io/v2/foo?key=secret123");
+        assert_eq!(redacted, "https://rpc.example.io/v2/foo?…");
+    }
+
+    #[test]
+    fn redact_url_query_passes_through_short_path_when_no_query() {
+        // No query, short path token — nothing to redact.
+        let redacted = redact_url_query("wss://node.example.io/abcdef");
+        assert_eq!(redacted, "wss://node.example.io/abcdef");
+    }
+
+    #[test]
+    fn redact_url_query_redacts_chainstack_style_path_key() {
+        // Chainstack embeds the API key as a 32-char hex path segment.
+        let redacted = redact_url_query(
+            "https://ethereum-sepolia.core.chainstack.com/efdb96b1ade73fac0eb3f90559b9acee",
+        );
+        assert_eq!(redacted, "https://ethereum-sepolia.core.chainstack.com/…");
+    }
+
+    #[test]
+    fn redact_url_query_redacts_alchemy_style_trailing_token() {
+        let redacted =
+            redact_url_query("https://eth-mainnet.g.alchemy.com/v2/AbCdEf012345MoreSecret67890");
+        // `v2` is short and stays; trailing token is redacted.
+        assert_eq!(redacted, "https://eth-mainnet.g.alchemy.com/v2/…");
+    }
+
+    #[test]
+    fn redact_url_query_keeps_human_readable_path_segments() {
+        // Real-world googleapis URL — the path tokens are identifiers we
+        // *want* to keep for log readability; the actual key sits in `?key=`.
+        let redacted = redact_url_query(
+            "https://blockchain.googleapis.com/v1/projects/cc3-testnet-rpckey-2/locations/us-central1/endpoints/ethereum-sepolia/rpc?key=AIzaSyVxWM",
+        );
+        assert_eq!(
+            redacted,
+            "https://blockchain.googleapis.com/v1/projects/cc3-testnet-rpckey-2/locations/us-central1/endpoints/ethereum-sepolia/rpc?…"
+        );
+    }
+
+    #[test]
+    fn redact_url_query_keeps_pure_letter_paths() {
+        // No digits in the segment ⇒ not a key-shaped token; keep as-is.
+        let redacted = redact_url_query("https://rpc.example.io/abcdefghijklmnopqrst");
+        assert_eq!(redacted, "https://rpc.example.io/abcdefghijklmnopqrst");
+    }
+
+    #[test]
+    fn redact_url_query_keeps_pure_digit_paths() {
+        // No letters ⇒ likely a port/id/ts, not an API key.
+        let redacted = redact_url_query("https://rpc.example.io/1234567890123456");
+        assert_eq!(redacted, "https://rpc.example.io/1234567890123456");
+    }
+
+    #[test]
+    fn redact_url_query_redacts_inner_secret_segment() {
+        // Trailing `/rpc` is a fixed suffix; the secret is the segment in the
+        // middle. Verify each segment is evaluated independently.
+        let redacted = redact_url_query("https://eth.example.io/v1/aB3xQ9MnP2rT7vW4kY8jL6/rpc");
+        assert_eq!(redacted, "https://eth.example.io/v1/…/rpc");
+    }
+}
+
+#[cfg(test)]
+mod error_classifier_tests {
+    use super::Error;
+
+    #[test]
+    fn inconsistent_payload_matches_only_genuine_mismatch_variants() {
+        // Structural mismatches between the fetched body/receipts and the header:
+        // these are the only variants that should cause a fallback skip and map to
+        // `UnsupportedBlockFormat` 422 at the API edge.
+        assert!(Error::BlockHeaderRootsMismatch(42).inconsistent_block_payload_for_fallback());
+        assert!(Error::TransactionsReceiptsMismatch(42).inconsistent_block_payload_for_fallback());
+        assert!(Error::NotFullTransactionsFetched(42).inconsistent_block_payload_for_fallback());
+    }
+
+    #[test]
+    fn not_found_and_transport_errors_are_not_inconsistent() {
+        // `FailedToGetBlock` / `FailedToGetReceipts` are produced when a provider
+        // answers `Ok(None)` ("I don't have this block yet"). Treating those as
+        // structurally inconsistent would (a) disable the reconnect-retry path in
+        // `ReconnectingEthRpcProvider` and (b) make the API surface a non-retriable
+        // 422 for a peer that's just lagging. They must NOT be in this set.
+        assert!(!Error::FailedToGetBlock(42).inconsistent_block_payload_for_fallback());
+        assert!(!Error::FailedToGetReceipts(42).inconsistent_block_payload_for_fallback());
+        assert!(
+            !Error::ClientError(anyhow::anyhow!("boom")).inconsistent_block_payload_for_fallback()
+        );
+        assert!(!Error::UnsupportedUrl("weird://".into()).inconsistent_block_payload_for_fallback());
+    }
+
+    #[test]
+    fn block_number_hint_only_present_for_inconsistent_variants() {
+        assert_eq!(
+            Error::BlockHeaderRootsMismatch(7).inconsistent_block_number_hint(),
+            Some(7)
+        );
+        assert_eq!(
+            Error::TransactionsReceiptsMismatch(7).inconsistent_block_number_hint(),
+            Some(7)
+        );
+        assert_eq!(
+            Error::NotFullTransactionsFetched(7).inconsistent_block_number_hint(),
+            Some(7)
+        );
+        // Symmetry with `inconsistent_block_payload_for_fallback`: "not found"
+        // variants are not classified as inconsistent, and therefore must not
+        // surface a block-number hint via this accessor.
+        assert_eq!(
+            Error::FailedToGetBlock(7).inconsistent_block_number_hint(),
+            None
+        );
+        assert_eq!(
+            Error::FailedToGetReceipts(7).inconsistent_block_number_hint(),
+            None
+        );
+        assert_eq!(
+            Error::ClientError(anyhow::anyhow!("boom")).inconsistent_block_number_hint(),
+            None
+        );
+    }
+
+    #[test]
+    fn anyhow_chain_helpers_walk_context_to_find_eth_error() {
+        // Wrapping a payload-inconsistency `eth::Error` in extra `.context(...)` layers must
+        // not hide it from callers above the eth client. Both shared helpers walk the
+        // `anyhow::Error::chain()` and must surface the inner classification and the
+        // block-number hint.
+        let inner = anyhow::Error::new(Error::BlockHeaderRootsMismatch(42))
+            .context("while building continuity blocks")
+            .context("in fetch sweep #3");
+        assert!(super::anyhow_chain_is_inconsistent_block_payload(&inner));
+        assert_eq!(
+            super::anyhow_chain_inconsistent_block_number_hint(&inner),
+            Some(42)
+        );
+    }
+
+    #[test]
+    fn anyhow_chain_helpers_reject_non_inconsistent_chains() {
+        // "Not found" / transport-style chains must not be flagged as inconsistent and
+        // must not produce a block-number hint. Misclassifying these would disable the
+        // reconnect-retry path and surface a non-retriable 422 to API clients.
+        let not_found = anyhow::Error::new(Error::FailedToGetBlock(42));
+        assert!(!super::anyhow_chain_is_inconsistent_block_payload(
+            &not_found
+        ));
+        assert_eq!(
+            super::anyhow_chain_inconsistent_block_number_hint(&not_found),
+            None
+        );
+
+        let transport = anyhow::anyhow!("connection refused");
+        assert!(!super::anyhow_chain_is_inconsistent_block_payload(
+            &transport
+        ));
+        assert_eq!(
+            super::anyhow_chain_inconsistent_block_number_hint(&transport),
+            None
+        );
+    }
+}
+
+#[cfg(test)]
+mod error_classification_tests {
+    use super::*;
+
+    #[test]
+    fn unsupported_block_tag_is_recognised_through_anyhow_context() {
+        let err = anyhow::Error::from(Error::FailedToGetBlockByTag(BlockTag::Safe))
+            .context("Failed to get the `safe` block")
+            .context("get_block_number_by_tag failed");
+        assert!(anyhow_chain_is_unsupported_block_tag(&err));
+        // Not an inconsistent-payload case: those are a different retry class.
+        assert!(!anyhow_chain_is_inconsistent_block_payload(&err));
+    }
+
+    #[test]
+    fn other_errors_are_not_unsupported_block_tag() {
+        let transport = anyhow::Error::from(Error::FailedToGetBlock(7)).context("x");
+        assert!(!anyhow_chain_is_unsupported_block_tag(&transport));
+        // A stringified error loses the type and must not be classified as permanent.
+        let stringified = anyhow::anyhow!("Failed to get the `safe` block: FailedToGetBlockByTag");
+        assert!(!anyhow_chain_is_unsupported_block_tag(&stringified));
+    }
+
+    /// A JSON-RPC error response. Built by deserializing, because the payload type is only
+    /// re-exported by `alloy` behind a feature this crate does not enable.
+    fn rpc_error(code: i64, message: &'static str) -> Error {
+        let payload =
+            serde_json::from_value(serde_json::json!({ "code": code, "message": message }))
+                .expect("error payload");
+        Error::EthError(alloy::transports::RpcError::ErrorResp(payload))
+    }
+
+    #[test]
+    fn rate_limit_responses_are_recognised() {
+        assert!(
+            Error::EthError(TransportErrorKind::http_error(429, String::new())).is_rate_limited()
+        );
+        assert!(rpc_error(
+            -32007,
+            "15/second request limit reached - reduce calls per second or upgrade your account at quicknode.com"
+        )
+        .is_rate_limited());
+        assert!(rpc_error(-32005, "project ID request rate exceeded").is_rate_limited());
+        assert!(rpc_error(429, "Too Many Requests").is_rate_limited());
+    }
+
+    #[test]
+    fn rate_limit_hold_off_doubles_then_gives_up() {
+        let schedule: Vec<u64> = (0..)
+            .map_while(rate_limit_hold_off)
+            .map(|d| d.as_secs())
+            .collect();
+        assert_eq!(schedule, [1, 2, 4, 8, 16, 32, 60, 60]);
+        assert_eq!(rate_limit_hold_off(RATE_LIMIT_MAX_SWEEPS), None);
+        assert_eq!(rate_limit_hold_off(u32::MAX), None);
+    }
+
+    #[test]
+    fn other_failures_are_not_rate_limits() {
+        assert!(
+            !Error::EthError(TransportErrorKind::http_error(500, String::new())).is_rate_limited()
+        );
+        assert!(
+            !Error::EthError(TransportErrorKind::http_error(503, String::new())).is_rate_limited()
+        );
+        assert!(!rpc_error(-32000, "header not found").is_rate_limited());
+        assert!(!rpc_error(-32602, "invalid argument").is_rate_limited());
+        assert!(!Error::FailedToGetBlock(7).is_rate_limited());
+    }
+
+    #[test]
+    fn missing_methods_and_undecodable_blocks_are_unrecoverable() {
+        assert!(
+            rpc_error(-32601, "the method debug_getRawBlock does not exist").is_unrecoverable()
+        );
+        assert!(Error::RawBlockDecode(7, "unexpected end".into()).is_unrecoverable());
+        assert!(Error::RawReceiptDecode(7, 0, "unexpected end".into()).is_unrecoverable());
+        assert!(Error::SenderRecovery(7, 0, "bad signature".into()).is_unrecoverable());
+    }
+
+    #[test]
+    fn transient_failures_are_not_unrecoverable() {
+        assert!(
+            !Error::EthError(TransportErrorKind::http_error(503, String::new())).is_unrecoverable()
+        );
+        assert!(!Error::EthError(TransportErrorKind::backend_gone()).is_unrecoverable());
+        assert!(!rpc_error(-32000, "header not found").is_unrecoverable());
+        assert!(!rpc_error(429, "Too Many Requests").is_unrecoverable());
+        assert!(!Error::FailedToGetBlock(7).is_unrecoverable());
+        assert!(!Error::BlockHeaderRootsMismatch(7).is_unrecoverable());
+    }
+}
+
+#[cfg(test)]
+mod same_endpoint_tests {
+    use super::*;
+
+    #[test]
+    fn a_configured_url_matches_its_own_normalised_dialled_form() {
+        let dialed = Url::parse("https://host.example/v1/KEY").unwrap();
+        assert!(same_endpoint("https://host.example/v1/KEY", &dialed));
+        assert!(
+            same_endpoint("HTTPS://Host.Example:443/v1/KEY", &dialed),
+            "scheme and host case and the default port are normalised on parse"
+        );
+        let root = Url::parse("http://127.0.0.1:8545").unwrap();
+        assert!(same_endpoint("http://127.0.0.1:8545/", &root));
+        assert!(same_endpoint("http://127.0.0.1:8545", &root));
+    }
+
+    #[test]
+    fn different_endpoints_do_not_match() {
+        let dialed = Url::parse("https://host.example/v1/KEY").unwrap();
+        assert!(!same_endpoint("https://host.example/v1/OTHER", &dialed));
+        assert!(!same_endpoint("https://other.example/v1/KEY", &dialed));
+        assert!(!same_endpoint("wss://host.example/v1/KEY", &dialed));
+        assert!(!same_endpoint("not a url", &dialed));
+    }
+}
+
+#[cfg(test)]
+mod raw_rlp_tests {
+    use super::*;
+    use alloy::{
+        consensus::{
+            BlockBody, Header as ConsensusHeader, Receipt, SignableTransaction, TxEip1559, TxLegacy,
+        },
+        eips::eip2718::Encodable2718,
+        primitives::{address, Log as PrimitiveLog, LogData, TxKind, B256, U256},
+        signers::{local::PrivateKeySigner, SignerSync},
+    };
+
+    const CHAIN_ID: u64 = 56;
+
+    fn signed_legacy(signer: &PrivateKeySigner, nonce: u64) -> TxEnvelope {
+        let tx = TxLegacy {
+            chain_id: Some(CHAIN_ID),
+            nonce,
+            gas_price: 5_000_000_000,
+            gas_limit: 21_000,
+            to: TxKind::Call(address!("000000000000000000000000000000000000dEaD")),
+            value: U256::from(1_000_000_000_000_000u64),
+            input: Bytes::new(),
+        };
+        let sig = signer.sign_hash_sync(&tx.signature_hash()).unwrap();
+        TxEnvelope::Legacy(tx.into_signed(sig))
+    }
+
+    fn signed_eip1559_create(signer: &PrivateKeySigner, nonce: u64) -> TxEnvelope {
+        let tx = TxEip1559 {
+            chain_id: CHAIN_ID,
+            nonce,
+            gas_limit: 100_000,
+            max_fee_per_gas: 10_000_000_000,
+            max_priority_fee_per_gas: 1_000_000_000,
+            to: TxKind::Create,
+            value: U256::ZERO,
+            access_list: Default::default(),
+            input: Bytes::from(vec![0x60, 0x00, 0x60, 0x00, 0xa0, 0x00]),
+        };
+        let sig = signer.sign_hash_sync(&tx.signature_hash()).unwrap();
+        TxEnvelope::Eip1559(tx.into_signed(sig))
+    }
+
+    fn log(topic: u8, data: &[u8]) -> PrimitiveLog {
+        PrimitiveLog {
+            address: address!("5FbDB2315678afecb367f032d93F642f64180aa3"),
+            data: LogData::new_unchecked(
+                vec![B256::with_last_byte(topic)],
+                Bytes::copy_from_slice(data),
+            ),
+        }
+    }
+
+    /// A two-transaction block (legacy transfer, then a 1559 contract creation that emits two
+    /// logs) with a header whose tx/receipt roots match, exactly as a node would store it.
+    fn fixture() -> (
+        PrivateKeySigner,
+        ConsensusBlock<TxEnvelope>,
+        Vec<ReceiptEnvelope>,
+    ) {
+        let signer = PrivateKeySigner::random();
+        let txs = vec![signed_legacy(&signer, 7), signed_eip1559_create(&signer, 8)];
+        let receipts = vec![
+            ReceiptEnvelope::Legacy(
+                Receipt {
+                    status: true.into(),
+                    cumulative_gas_used: 21_000,
+                    logs: vec![],
+                }
+                .with_bloom(),
+            ),
+            ReceiptEnvelope::Eip1559(
+                Receipt {
+                    status: true.into(),
+                    cumulative_gas_used: 21_000 + 64_321,
+                    logs: vec![log(1, b"first"), log(2, b"second")],
+                }
+                .with_bloom(),
+            ),
+        ];
+        let header = ConsensusHeader {
+            number: 120_000_000,
+            timestamp: 1_788_000_000,
+            base_fee_per_gas: Some(1_000_000_000),
+            gas_used: 21_000 + 64_321,
+            gas_limit: 140_000_000,
+            transactions_root: calculate_transaction_root(&txs),
+            receipts_root: calculate_receipt_root(&receipts),
+            ..Default::default()
+        };
+        let block = ConsensusBlock {
+            header,
+            body: BlockBody {
+                transactions: txs,
+                ommers: vec![],
+                withdrawals: None,
+            },
+        };
+        (signer, block, receipts)
+    }
+
+    fn raw(
+        block: &ConsensusBlock<TxEnvelope>,
+        receipts: &[ReceiptEnvelope],
+    ) -> (Vec<u8>, Vec<Bytes>) {
+        (
+            alloy::rlp::encode(block),
+            receipts
+                .iter()
+                .map(|r| Bytes::from(r.encoded_2718()))
+                .collect(),
+        )
+    }
+
+    #[test]
+    fn header_hash_is_sliced_from_raw_block() {
+        let (_, block, receipts) = fixture();
+        let (raw_block, _) = raw(&block, &receipts);
+        assert_eq!(
+            header_hash_from_raw_block(&raw_block).unwrap(),
+            block.header.hash_slow()
+        );
+    }
+
+    #[test]
+    fn raw_path_reproduces_the_json_shaped_block() {
+        let (signer, block, receipts) = fixture();
+        let number = block.header.number;
+        let (raw_block, raw_receipts) = raw(&block, &receipts);
+
+        let (rpc_block, rpc_receipts) =
+            rpc_block_from_raw(number, &raw_block, &raw_receipts).unwrap();
+
+        assert_eq!(rpc_block.header.hash, block.header.hash_slow());
+        assert_eq!(rpc_block.header.number, number);
+        let txs: Vec<Transaction> = rpc_block.transactions.clone().into_transactions().collect();
+        assert_eq!(txs.len(), 2);
+        // Sender recovered from the signature, not trusted from anywhere.
+        assert!(txs.iter().all(|t| t.from == signer.address()));
+        assert_eq!(
+            txs.iter().map(|t| t.transaction_index).collect::<Vec<_>>(),
+            vec![Some(0), Some(1)]
+        );
+        // Per-transaction gas is the delta of the cumulative counters.
+        assert_eq!(rpc_receipts[0].gas_used, 21_000);
+        assert_eq!(rpc_receipts[1].gas_used, 64_321);
+        assert!(rpc_receipts[0].contract_address.is_none());
+        assert_eq!(
+            rpc_receipts[1].contract_address,
+            Some(signer.address().create(8))
+        );
+        assert_eq!(rpc_receipts[1].inner.logs().len(), 2);
+        assert_eq!(
+            rpc_receipts[1]
+                .inner
+                .logs()
+                .iter()
+                .map(|l| l.log_index)
+                .collect::<Vec<_>>(),
+            vec![Some(0), Some(1)]
+        );
+        assert_eq!(rpc_receipts[1].inner.logs_bloom(), receipts[1].logs_bloom());
+    }
+
+    #[test]
+    fn raw_path_yields_the_same_root_as_hand_built_rpc_types() {
+        let (signer, block, receipts) = fixture();
+        let number = block.header.number;
+        let hash = block.header.hash_slow();
+        let (raw_block, raw_receipts) = raw(&block, &receipts);
+
+        // What the JSON path would hand us: rpc types built independently of the converter.
+        let json_txs: Vec<Transaction> = block
+            .body
+            .transactions
+            .iter()
+            .enumerate()
+            .map(|(i, env)| Transaction {
+                inner: env.clone(),
+                block_hash: Some(hash),
+                block_number: Some(number),
+                transaction_index: Some(i as u64),
+                effective_gas_price: None,
+                from: signer.address(),
+            })
+            .collect();
+        let gas_used = [21_000u64, 64_321];
+        let json_receipts: Vec<TransactionReceipt> = receipts
+            .iter()
+            .enumerate()
+            .map(|(i, env)| TransactionReceipt {
+                inner: env.clone().map_logs(|log| RpcLog {
+                    inner: log,
+                    block_hash: None,
+                    block_number: None,
+                    block_timestamp: None,
+                    transaction_hash: None,
+                    transaction_index: None,
+                    log_index: None,
+                    removed: false,
+                }),
+                transaction_hash: *block.body.transactions[i].tx_hash(),
+                transaction_index: Some(i as u64),
+                block_hash: Some(hash),
+                block_number: Some(number),
+                gas_used: gas_used[i],
+                effective_gas_price: 0,
+                blob_gas_used: None,
+                blob_gas_price: None,
+                from: signer.address(),
+                to: None,
+                contract_address: None,
+            })
+            .collect();
+        let json_block = Block {
+            header: RpcHeader {
+                hash,
+                inner: block.header.clone(),
+                total_difficulty: None,
+                size: None,
+            },
+            uncles: vec![],
+            transactions: BlockTransactions::Full(json_txs),
+            withdrawals: None,
+        };
+
+        let via_json = OrderedBlock::try_from_fetched_block(
+            CHAIN_ID,
+            json_block,
+            json_receipts,
+            number,
+            EncodingVersion::V1,
+        )
+        .unwrap();
+        let (rpc_block, rpc_receipts) =
+            rpc_block_from_raw(number, &raw_block, &raw_receipts).unwrap();
+        let via_raw = OrderedBlock::try_from_fetched_block(
+            CHAIN_ID,
+            rpc_block,
+            rpc_receipts,
+            number,
+            EncodingVersion::V1,
+        )
+        .unwrap();
+
+        assert_eq!(via_raw.hash(), via_json.hash());
+        assert_eq!(via_raw.items().len(), via_json.items().len());
+        assert_eq!(
+            simple_merkle_tree(&via_raw).root(),
+            simple_merkle_tree(&via_json).root()
+        );
+    }
+
+    #[test]
+    fn raw_path_rejects_inconsistent_input() {
+        let (_, block, receipts) = fixture();
+        let number = block.header.number;
+        let (raw_block, raw_receipts) = raw(&block, &receipts);
+
+        assert!(matches!(
+            rpc_block_from_raw(number, &raw_block, &raw_receipts[..1]),
+            Err(Error::TransactionsReceiptsMismatch(n)) if n == number
+        ));
+        assert!(matches!(
+            rpc_block_from_raw(number + 1, &raw_block, &raw_receipts),
+            Err(Error::FailedToGetBlock(n)) if n == number + 1
+        ));
+        assert!(matches!(
+            rpc_block_from_raw(number, &[0xc0, 0x01], &raw_receipts),
+            Err(Error::RawBlockDecode(..))
+        ));
+        let mut bad = raw_receipts.clone();
+        bad[1] = Bytes::from_static(&[0x02, 0xff]);
+        assert!(matches!(
+            rpc_block_from_raw(number, &raw_block, &bad),
+            Err(Error::RawReceiptDecode(_, 1, _))
+        ));
+    }
+
+    #[test]
+    fn fetch_mode_parses_and_defaults_to_json() {
+        assert_eq!(BlockFetchMode::default(), BlockFetchMode::Json);
+        assert_eq!(
+            "json".parse::<BlockFetchMode>().unwrap(),
+            BlockFetchMode::Json
+        );
+        for s in ["raw-rlp", "raw_rlp", "RAW", "rlp"] {
+            assert_eq!(s.parse::<BlockFetchMode>().unwrap(), BlockFetchMode::RawRlp);
+        }
+        assert!(matches!(
+            "yaml".parse::<BlockFetchMode>(),
+            Err(Error::UnknownFetchMode(_))
+        ));
+        assert_eq!(BlockFetchMode::RawRlp.to_string(), "raw-rlp");
+    }
+}

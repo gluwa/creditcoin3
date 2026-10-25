@@ -1,0 +1,490 @@
+use frame_support::pallet_prelude::*;
+
+use attestor_primitives::{AttestationCheckpoint, AttestorStatus, ChainKey, Digest};
+use sp_std::vec::Vec;
+use supported_chains_primitives::chain_removal_listener::{
+    ChainRemovalListener, ChainRemovalListenerWeight,
+};
+
+use super::pallet::*;
+
+// This should be a reasonable value used both for clearing checkpoints
+// themselves, and for clearing entries from `CheckpointBuckets`.
+// Max storage writes per block = MAX_CHECKPOINTS_CLEARED_PER_BLOCK * 2;
+// This happens when removing from both `Checkpoints` and `CheckpointBuckets`
+pub const MAX_CHECKPOINTS_CLEARED_PER_BLOCK: u8 = 40;
+
+/// Per-call/per-block bound for clearing `Attestations` rows in `do_revert_to` and
+/// `on_supported_chain_removed`. Both are charged fixed weight, so the clear must stay fixed
+/// too; any remainder is drained later via [`AttestationClearingCursors`].
+pub const MAX_ATTESTATIONS_CLEARED_PER_BLOCK: u32 = 40;
+
+/// Per-call/per-block bound on the attestors, retired keys, BLS key owners and invulnerables
+/// cleared for a removed chain, shared across the phases of [`RemovedChainCleanupPhase`].
+pub const MAX_REMOVAL_CLEANUP_ITEMS_PER_BLOCK: u32 = 40;
+
+/// The next piece of attestor-side state to clear for a removed chain.
+#[derive(Encode, Decode, Clone, PartialEq, Eq, RuntimeDebug, TypeInfo)]
+pub enum RemovedChainCleanupPhase {
+    /// Set attestors to `Idle`, resuming after the raw key of the last one handled.
+    ChillAttestors(Option<Vec<u8>>),
+    /// Drop `RetiredAttestorBlsKeys` rows and their `RetiredAttestorKeysByStash` index pairs.
+    /// Pairs and rows are written together, so walking the rows reaches every pair.
+    RetiredKeys,
+    BlsKeyOwners,
+    Invulnerables,
+}
+
+#[derive(Encode, Decode, Clone, PartialEq, Eq, RuntimeDebug, TypeInfo, MaxEncodedLen)]
+pub struct CheckpointPruningState {
+    pub stop_height: u64, // This is the height of the last checkpoint before reversion was initiated
+    pub next_pivot: u64,  // inclusive lower bound for scanning pivots
+}
+
+impl<T: Config> Pallet<T> {
+    pub(crate) fn do_revert_to(
+        chain_key: ChainKey,
+        checkpoint_height: u64,
+    ) -> Result<Digest, sp_runtime::DispatchError> {
+        // Validate before mutating: this is no longer `#[transactional]`, so a failure here
+        // must not follow any storage writes.
+        let digest = Checkpoints::<T>::get(chain_key, checkpoint_height)
+            .ok_or(Error::<T>::NoSuchCheckpoint)?;
+        let last_checkpoint =
+            LastCheckpoint::<T>::get(chain_key).ok_or(Error::<T>::LastCheckpointNotSet)?;
+
+        // Bound the clear to a small fixed batch and defer any remainder to a persisted cursor,
+        // like the `CheckpointBuckets` pruning below. This used to bound the clear to a
+        // peak-state estimate and abort the whole revert on a leftover cursor, permanently
+        // blocking emergency reorg recovery whenever the estimate was wrong.
+        let maybe_cursor =
+            Attestations::<T>::clear_prefix(chain_key, MAX_ATTESTATIONS_CLEARED_PER_BLOCK, None)
+                .maybe_cursor;
+        match maybe_cursor {
+            Some(cursor) => AttestationClearingCursors::<T>::insert(chain_key, cursor),
+            None => AttestationClearingCursors::<T>::remove(chain_key),
+        }
+
+        CheckpointingQueues::<T>::remove(chain_key);
+        AttestationRemovalQueues::<T>::remove(chain_key);
+
+        let checkpoint_data = AttestationCheckpoint {
+            block_number: checkpoint_height,
+            digest,
+        };
+
+        // Remove all entries with height > checkpoint_height from bucket containing `checkpoint_height`
+        let checkpoint_pivot = Self::compute_block_index_for(checkpoint_height);
+        // Expected upper bound here is `CHECKPOINT_BUCKET_SIZE / (attestation_interval * checkpoint_interval`
+        // So in practice this should be fewer than 20 keys
+        let block_heights: Vec<u64> =
+            CheckpointBuckets::<T>::iter_key_prefix((chain_key, checkpoint_pivot)).collect();
+        for block_number in block_heights {
+            if block_number > checkpoint_height {
+                Checkpoints::<T>::remove(chain_key, block_number);
+                CheckpointBuckets::<T>::remove((chain_key, checkpoint_pivot, block_number));
+            }
+        }
+
+        let pruning_state = CheckpointPruningState {
+            stop_height: last_checkpoint.block_number,
+            next_pivot: checkpoint_pivot.saturating_add(CHECKPOINT_BUCKET_SIZE),
+        };
+        // Set an initial pivot at which to begin clearing checkpoint buckets.
+        // MAX_CHECKPOINTS_CLEARED_PER_BLOCK entries will be cleared per block
+        // in on_initialize until all buckets above our revert height are cleared.
+        CheckpointPruningStates::<T>::insert(chain_key, pruning_state);
+
+        // Set last digest and last checkpoint equal to `checkpoint_digest`
+        LastCheckpoint::<T>::set(chain_key, Some(checkpoint_data));
+        LastDigest::<T>::set(chain_key, Some((checkpoint_height, digest)));
+
+        Ok(digest)
+    }
+
+    /// Helpers to keep on_initialize readable ///
+    pub fn on_init_clear_checkpoints() -> Weight {
+        // Cost of the "is there work?" check
+        let mut w = T::DbWeight::get().reads(1);
+
+        if let Some((chain_key, cursor)) = CheckpointClearingCursors::<T>::iter().next() {
+            // Clear prefix
+            let maybe_cursor = Checkpoints::<T>::clear_prefix(
+                chain_key,
+                u32::from(MAX_CHECKPOINTS_CLEARED_PER_BLOCK),
+                Some(&cursor[..]),
+            )
+            .maybe_cursor;
+            // Record pessimistic cost that assumes max clear
+            w = w
+                .saturating_add(
+                    T::DbWeight::get().reads(u64::from(MAX_CHECKPOINTS_CLEARED_PER_BLOCK)),
+                )
+                .saturating_add(
+                    T::DbWeight::get().writes(u64::from(MAX_CHECKPOINTS_CLEARED_PER_BLOCK)),
+                );
+
+            // Cursor persistence
+            CheckpointClearingCursors::<T>::set(chain_key, maybe_cursor);
+            w = w.saturating_add(T::DbWeight::get().writes(1));
+
+            Self::deposit_event(Event::<T>::CheckpointsCleared(chain_key));
+            // Sets EventCount + Events
+            w = w.saturating_add(T::DbWeight::get().writes(2));
+        }
+        w
+    }
+
+    pub fn on_init_clear_buckets() -> Weight {
+        // Cost of the "is there work?" check
+        let mut w = T::DbWeight::get().reads(1);
+
+        if let Some((chain_key, cursor)) = BucketClearingCursors::<T>::iter().next() {
+            let maybe_cursor = CheckpointBuckets::<T>::clear_prefix(
+                (chain_key,),
+                u32::from(MAX_CHECKPOINTS_CLEARED_PER_BLOCK),
+                Some(&cursor[..]),
+            )
+            .maybe_cursor;
+            // Record pessimistic cost that assumes max clear
+            w = w
+                .saturating_add(
+                    T::DbWeight::get().reads(u64::from(MAX_CHECKPOINTS_CLEARED_PER_BLOCK)),
+                )
+                .saturating_add(
+                    T::DbWeight::get().writes(u64::from(MAX_CHECKPOINTS_CLEARED_PER_BLOCK)),
+                );
+
+            // Cursor persistance
+            BucketClearingCursors::<T>::set(chain_key, maybe_cursor);
+            w = w.saturating_add(T::DbWeight::get().writes(1));
+        }
+        w
+    }
+
+    /// Drains [`AttestationClearingCursors`], continuing an `Attestations` clear left unfinished
+    /// by `do_revert_to` or `on_supported_chain_removed`.
+    pub fn on_init_clear_attestations() -> Weight {
+        // Cost of the "is there work?" check
+        let mut w = T::DbWeight::get().reads(1);
+
+        if let Some((chain_key, cursor)) = AttestationClearingCursors::<T>::iter().next() {
+            let maybe_cursor = Attestations::<T>::clear_prefix(
+                chain_key,
+                MAX_ATTESTATIONS_CLEARED_PER_BLOCK,
+                Some(&cursor[..]),
+            )
+            .maybe_cursor;
+            // Record pessimistic cost that assumes max clear
+            w = w
+                .saturating_add(
+                    T::DbWeight::get().reads(u64::from(MAX_ATTESTATIONS_CLEARED_PER_BLOCK)),
+                )
+                .saturating_add(
+                    T::DbWeight::get().writes(u64::from(MAX_ATTESTATIONS_CLEARED_PER_BLOCK)),
+                );
+
+            match maybe_cursor {
+                Some(cursor) => AttestationClearingCursors::<T>::set(chain_key, Some(cursor)),
+                None => AttestationClearingCursors::<T>::remove(chain_key),
+            }
+            w = w.saturating_add(T::DbWeight::get().writes(1));
+        }
+        w
+    }
+
+    /// Worst case of one [`Self::run_removed_chain_cleanup`] batch: every item costs at most a
+    /// read for the iterator, one for the stash index, the row and index writes, and a chill
+    /// event; plus one lookahead read per phase and the phase read/write.
+    pub(crate) fn removal_cleanup_step_weight() -> Weight {
+        let items = u64::from(MAX_REMOVAL_CLEANUP_ITEMS_PER_BLOCK);
+        T::DbWeight::get().reads_writes(
+            items.saturating_mul(3).saturating_add(6),
+            items.saturating_mul(3).saturating_add(1),
+        )
+    }
+
+    /// Drains [`RemovedChainCleanup`], continuing the cleanup that `on_supported_chain_removed`
+    /// could not finish within its bounded batch.
+    pub fn on_init_cleanup_removed_chains() -> Weight {
+        // Cost of the "is there work?" check
+        let mut w = T::DbWeight::get().reads(1);
+
+        if let Some((chain_key, phase)) = RemovedChainCleanup::<T>::iter().next() {
+            w = w.saturating_add(Self::removal_cleanup_step_weight());
+            Self::continue_removed_chain_cleanup(chain_key, phase);
+        }
+        w
+    }
+
+    /// Runs one bounded batch of `phase` and persists where the next one picks up.
+    pub(crate) fn continue_removed_chain_cleanup(
+        chain_key: ChainKey,
+        phase: RemovedChainCleanupPhase,
+    ) {
+        match Self::run_removed_chain_cleanup(chain_key, phase) {
+            Some(next) => RemovedChainCleanup::<T>::insert(chain_key, next),
+            None => RemovedChainCleanup::<T>::remove(chain_key),
+        }
+    }
+
+    /// Works through the phases from `phase` until the item budget runs out. Returns the phase
+    /// to resume at, or `None` once everything is cleared.
+    fn run_removed_chain_cleanup(
+        chain_key: ChainKey,
+        mut phase: RemovedChainCleanupPhase,
+    ) -> Option<RemovedChainCleanupPhase> {
+        let mut budget = MAX_REMOVAL_CLEANUP_ITEMS_PER_BLOCK;
+        loop {
+            phase = match phase {
+                RemovedChainCleanupPhase::ChillAttestors(mut cursor) => {
+                    if !Self::chill_attestors_batch(chain_key, &mut cursor, &mut budget) {
+                        return Some(RemovedChainCleanupPhase::ChillAttestors(cursor));
+                    }
+                    RemovedChainCleanupPhase::RetiredKeys
+                }
+                RemovedChainCleanupPhase::RetiredKeys => {
+                    if !Self::clear_retired_keys_batch(chain_key, &mut budget) {
+                        return Some(RemovedChainCleanupPhase::RetiredKeys);
+                    }
+                    RemovedChainCleanupPhase::BlsKeyOwners
+                }
+                RemovedChainCleanupPhase::BlsKeyOwners => {
+                    // Deleted keys are gone by the next block, so no cursor is needed.
+                    let cleared = BlsKeyOwner::<T>::clear_prefix(chain_key, budget, None);
+                    budget = budget.saturating_sub(cleared.unique);
+                    if cleared.maybe_cursor.is_some() {
+                        return Some(RemovedChainCleanupPhase::BlsKeyOwners);
+                    }
+                    RemovedChainCleanupPhase::Invulnerables
+                }
+                RemovedChainCleanupPhase::Invulnerables => {
+                    let cleared = Invulnerables::<T>::clear_prefix(chain_key, budget, None);
+                    return cleared
+                        .maybe_cursor
+                        .map(|_| RemovedChainCleanupPhase::Invulnerables);
+                }
+            };
+        }
+    }
+
+    /// Sets up to `budget` attestors after `cursor` to `Idle`, advancing `cursor` past them.
+    /// Returns whether none are left.
+    fn chill_attestors_batch(
+        chain_key: ChainKey,
+        cursor: &mut Option<Vec<u8>>,
+        budget: &mut u32,
+    ) -> bool {
+        // Collect first: changing storage while iterating it gives undefined results.
+        let limit = (*budget as usize).saturating_add(1);
+        let ids: Vec<T::AccountId> = match cursor.clone() {
+            Some(cursor) => Attestors::<T>::iter_key_prefix_from(chain_key, cursor)
+                .take(limit)
+                .collect(),
+            None => Attestors::<T>::iter_key_prefix(chain_key)
+                .take(limit)
+                .collect(),
+        };
+        let finished = ids.len() <= *budget as usize;
+
+        for attestor_id in ids.into_iter().take(*budget as usize) {
+            Attestors::<T>::mutate(chain_key, &attestor_id, |maybe_attestor| {
+                if let Some(attestor) = maybe_attestor {
+                    attestor.status = AttestorStatus::Idle;
+                }
+            });
+            *cursor = Some(Attestors::<T>::hashed_key_for(chain_key, &attestor_id));
+            Self::deposit_event(Event::<T>::AttestorChilled(chain_key, attestor_id));
+            *budget = budget.saturating_sub(1);
+        }
+        finished
+    }
+
+    /// Removes up to `budget` retired BLS key rows of the chain along with their index pairs.
+    /// Returns whether none are left.
+    fn clear_retired_keys_batch(chain_key: ChainKey, budget: &mut u32) -> bool {
+        let rows: Vec<_> = RetiredAttestorBlsKeys::<T>::iter_prefix(chain_key)
+            .take((*budget as usize).saturating_add(1))
+            .collect();
+        let finished = rows.len() <= *budget as usize;
+
+        for (attestor_id, entry) in rows.into_iter().take(*budget as usize) {
+            RetiredAttestorBlsKeys::<T>::remove(chain_key, &attestor_id);
+            Self::remove_stash_retired_index_pair(&entry.stash, chain_key, &attestor_id);
+            *budget = budget.saturating_sub(1);
+        }
+        finished
+    }
+
+    pub fn on_init_prune_checkpoints() -> Weight {
+        // Cost of the "is there work?" check
+        let w = T::DbWeight::get().reads(1);
+        match CheckpointPruningStates::<T>::iter().next() {
+            Some((chain_key, state)) => {
+                w.saturating_add(Self::prune_checkpoints_impl(chain_key, state))
+            }
+            None => w,
+        }
+    }
+
+    fn prune_checkpoints_impl(chain_key: ChainKey, mut state: CheckpointPruningState) -> Weight {
+        let mut w = Weight::zero();
+        let mut remaining_entries = u32::from(MAX_CHECKPOINTS_CLEARED_PER_BLOCK);
+        // In the extremely unlikely case that there are 1000's of pivots containing no entries, this
+        // prevents us from looping and reading state until we max out the block's compute.
+        let mut remaining_pivots = u32::from(MAX_CHECKPOINTS_CLEARED_PER_BLOCK * 2);
+
+        while remaining_entries > 0 && remaining_pivots > 0 {
+            let current_pivot = state.next_pivot;
+
+            // 1) If state.next_pivot > state.stop_height, then we are done clearing checkpoints.
+            if current_pivot > state.stop_height {
+                CheckpointPruningStates::<T>::remove(chain_key);
+                w = w.saturating_add(T::DbWeight::get().writes(1));
+                return w;
+            }
+
+            // 2) Clear as much of the pivot as we can this block
+
+            // Get removal heights first, as it's unsafe to remove entries directly within the iterator
+            let max_to_collect: usize = (MAX_CHECKPOINTS_CLEARED_PER_BLOCK as usize) + 1;
+            let removal_heights: sp_std::vec::Vec<u64> =
+                CheckpointBuckets::<T>::iter_key_prefix((chain_key, current_pivot))
+                    .take(max_to_collect)
+                    .collect();
+            // We cap collection and pessimistically charge reads for the most possible keys.
+            w = w.saturating_add(T::DbWeight::get().reads(max_to_collect as u64));
+
+            let removal_limit = usize::min(removal_heights.len(), remaining_entries as usize);
+            // Each removal does 2 deletes => 2 writes.
+            w = w.saturating_add(
+                T::DbWeight::get().writes((removal_limit as u64).saturating_mul(2)),
+            );
+
+            for idx in 0..removal_limit {
+                if let Some(height) = removal_heights.get(idx) {
+                    Checkpoints::<T>::remove(chain_key, height);
+                    CheckpointBuckets::<T>::remove((chain_key, current_pivot, height));
+                } else {
+                    log::error!("Could not access removal_height. This shouldn't happen! Skipping remaining checkpoint clearing this block.");
+                    return w;
+                }
+            }
+
+            remaining_entries = remaining_entries.saturating_sub(removal_limit as u32);
+
+            // We were able to remove all entries in this pivot. Proceed to next
+            if removal_heights.len() == removal_limit {
+                state.next_pivot = current_pivot.saturating_add(CHECKPOINT_BUCKET_SIZE);
+                remaining_pivots -= 1;
+            }
+        }
+
+        // If we didn't finish, ensure state persisted
+        CheckpointPruningStates::<T>::insert(chain_key, state);
+        w = w.saturating_add(T::DbWeight::get().writes(1));
+
+        w
+    }
+}
+
+impl<T: Config> ChainRemovalListener for Pallet<T> {
+    fn on_supported_chain_removed(chain_key: ChainKey, remove_checkpoints: bool) {
+        ActiveAttestors::<T>::remove(chain_key);
+
+        // Chilling, retired keys, BLS key owners (keyed by `(chain_key, bls_pubkey)`) and
+        // invulnerables scale with retained state, so they run in bounded batches: the first
+        // here, the rest from `on_initialize`.
+        Self::continue_removed_chain_cleanup(
+            chain_key,
+            RemovedChainCleanupPhase::ChillAttestors(None),
+        );
+
+        MaxAttestors::<T>::remove(chain_key);
+
+        MaxInvulnerables::<T>::remove(chain_key);
+
+        // Bound the clear to a small fixed batch and persist any remainder as a cursor, like
+        // `Checkpoints`/`CheckpointBuckets` below. This used to bound the clear to a peak-state
+        // estimate and discard the leftover cursor outright, stranding rows under this
+        // now-removed chain key.
+        let maybe_cursor =
+            Attestations::<T>::clear_prefix(chain_key, MAX_ATTESTATIONS_CLEARED_PER_BLOCK, None)
+                .maybe_cursor;
+        match maybe_cursor {
+            Some(cursor) => AttestationClearingCursors::<T>::insert(chain_key, cursor),
+            None => AttestationClearingCursors::<T>::remove(chain_key),
+        }
+
+        CheckpointingQueues::<T>::remove(chain_key);
+        AttestationRemovalQueues::<T>::remove(chain_key);
+        AttestationsInBlock::<T>::remove(chain_key);
+        LastCheckpoint::<T>::remove(chain_key);
+        LastDigest::<T>::remove(chain_key);
+        PendingTargetSampleSize::<T>::remove(chain_key);
+        TargetSampleSize::<T>::remove(chain_key);
+        ChainAttestationInterval::<T>::remove(chain_key);
+        PendingAttestationInterval::<T>::remove(chain_key);
+        AttestationCheckpointInterval::<T>::remove(chain_key);
+        MaxCatchup::<T>::remove(chain_key);
+        PendingMaxCatchup::<T>::remove(chain_key);
+        AttestationRetentionDuration::<T>::remove(chain_key);
+
+        if remove_checkpoints {
+            // Starting the process of clearing checkpoints. There may be a very large number of checkpoints
+            // in storage, and we aren't in a huge hurry to clear them out. So we clear a moderate number per
+            // block.
+            let maybe_cursor = Checkpoints::<T>::clear_prefix(
+                chain_key,
+                u32::from(MAX_CHECKPOINTS_CLEARED_PER_BLOCK),
+                None,
+            )
+            .maybe_cursor;
+
+            if maybe_cursor.is_some() {
+                // more checkpoints left to be removed
+                // Attestation pallet will check this storage to trigger further checkpoint removals in future blocks
+                // and CheckpointsCleared event will be dispatched inside on_initialize()
+                CheckpointClearingCursors::<T>::set(chain_key, maybe_cursor);
+            } else {
+                // all checkpoints were removed in the call above, trigger the event here
+                // b/c on_initialize() won't do that
+                Self::deposit_event(Event::<T>::CheckpointsCleared(chain_key));
+            }
+
+            // Starting process of clearing checkpoint buckets. We use a similar procedure to that used with checkpoints.
+            let maybe_buckets_cursor = CheckpointBuckets::<T>::clear_prefix(
+                (chain_key,),
+                u32::from(MAX_CHECKPOINTS_CLEARED_PER_BLOCK),
+                None,
+            )
+            .maybe_cursor;
+
+            if maybe_buckets_cursor.is_some() {
+                // more buckets left to be removed
+                BucketClearingCursors::<T>::set(chain_key, maybe_buckets_cursor);
+            }
+        }
+
+        // If there is an ongoing chain reversion for the chain being removed, we can
+        // drop the reversion in favor of the removal.
+        CheckpointPruningStates::<T>::remove(chain_key);
+
+        Self::deposit_event(Event::<T>::ClearedStorageForRemovedChain(chain_key));
+    }
+}
+
+impl<T: Config> ChainRemovalListenerWeight for Pallet<T> {
+    /// Every clear in `on_supported_chain_removed` is capped per call, so this is a fixed sum of
+    /// the caps plus the single-key removals, cursors and events.
+    fn on_supported_chain_removed_weight() -> Weight {
+        let attestations = u64::from(MAX_ATTESTATIONS_CLEARED_PER_BLOCK);
+        // Checkpoints and their buckets are cleared in separate batches.
+        let checkpoints = u64::from(MAX_CHECKPOINTS_CLEARED_PER_BLOCK).saturating_mul(2);
+        let clears = attestations.saturating_add(checkpoints);
+
+        Pallet::<T>::removal_cleanup_step_weight()
+            .saturating_add(T::DbWeight::get().reads_writes(clears, clears))
+            .saturating_add(T::DbWeight::get().reads_writes(8, 30))
+    }
+}

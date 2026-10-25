@@ -1,0 +1,90 @@
+#![cfg_attr(not(feature = "std"), no_std)]
+
+use core::marker::PhantomData;
+use ed25519_dalek::{Signature, VerifyingKey};
+use fp_evm::PrecompileHandle;
+use precompile_utils::prelude::*;
+use sp_core::{ConstU32, H256};
+use sp_std::vec::Vec;
+
+#[cfg(test)]
+mod mock;
+#[cfg(test)]
+mod tests;
+
+/// Precompile for verifying ed25519 signatures.
+pub struct Ed25519VerifierPrecompile<Runtime>(PhantomData<Runtime>);
+
+// Maximum message size, 1.7MB.
+//
+// This bound has to stay reachable under EIP-7623's calldata floor, which prices a
+// transaction at `21000 + 10*zero + 40*non_zero` calldata bytes and hard-rejects one whose
+// gas limit falls below that. An all-non-zero message therefore costs ~40 gas per byte, so
+// BLOCK_GAS_LIMIT (75_000_000) admits at most (75_000_000 - 21000) / 40 = 1_874_475 bytes.
+// The previous 3MB bound sat above that ceiling and was unreachable: a 3MB message needed
+// 125_850_120 gas, so the transaction died on the floor check before this precompile ran,
+// and callers saw an out-of-gas with no revert data instead of a size error.
+type MaxMessageSize = ConstU32<1_700_000>;
+
+// 64 bytes for ed25519 signature
+type ED25519SignatureBytes = ConstU32<64>;
+
+// Gas costs for signature verification
+// Base cost comparable to ECRECOVER (3000 gas) which does ECDSA verification + recovery
+// ED25519 verification is similar in computational cost to ECDSA verification, so 3500 gas
+const GAS_BASE_VERIFY: u64 = 3_500; // Base cost for cryptographic signature verification
+const GAS_PER_MESSAGE_BYTE: u64 = 3; // Per-byte cost for message processing
+
+#[precompile_utils::precompile]
+impl<Runtime> Ed25519VerifierPrecompile<Runtime>
+where
+    Runtime: pallet_evm::Config,
+{
+    /// Verifies an ed25519 signature using strict verification.
+    ///
+    /// Uses ed25519-dalek's `verify_strict` which rejects small-order public keys
+    /// and signature R components, preventing signature forgery attacks with weak keys.
+    ///
+    /// # Arguments
+    /// * `message` - The message that was signed
+    /// * `signature` - The 64-byte ed25519 signature
+    /// * `public_key` - The 32-byte ed25519 public key
+    ///
+    /// # Returns
+    /// * `bool` - true if the signature is valid, false otherwise
+    #[precompile::public("verify(bytes,bytes,bytes32)")]
+    #[precompile::view]
+    fn verify(
+        handle: &mut impl PrecompileHandle,
+        message: BoundedBytes<MaxMessageSize>,
+        signature: BoundedBytes<ED25519SignatureBytes>,
+        public_key: H256,
+    ) -> EvmResult<bool> {
+        // Charge base cost for the signature verification operation
+        handle.record_cost(GAS_BASE_VERIFY)?;
+
+        let message_bytes: Vec<u8> = message.into();
+        let signature_bytes: Vec<u8> = signature.into();
+
+        // Charge per-byte cost for processing the message
+        handle.record_cost(GAS_PER_MESSAGE_BYTE.saturating_mul(message_bytes.len() as u64))?;
+
+        if signature_bytes.len() != 64 {
+            return Err(revert("Invalid signature length: must be exactly 64 bytes"));
+        }
+
+        let verifying_key = match VerifyingKey::from_bytes(&public_key.0) {
+            Ok(vk) => vk,
+            Err(_) => return Ok(false),
+        };
+
+        let sig = Signature::from_slice(&signature_bytes)
+            .map_err(|_| revert("Invalid signature format"))?;
+
+        // Use verify_strict which rejects small-order public keys and R components,
+        // preventing signature forgery with weak/small-order keys (ZIP-215 vulnerability)
+        let is_valid = verifying_key.verify_strict(&message_bytes, &sig).is_ok();
+
+        Ok(is_valid)
+    }
+}

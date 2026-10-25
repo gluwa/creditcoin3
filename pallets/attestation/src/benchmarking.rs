@@ -1,0 +1,889 @@
+//! Pallet Attestation POC Benchmarks
+use super::Pallet as Attestation;
+use super::*;
+use bls_signatures::{aggregate, key::Serialize, PrivateKey};
+use continuity_dev::construct_fragment;
+use frame_benchmarking::v2::*;
+use frame_support::assert_ok;
+use frame_support::traits::{Get, OriginTrait};
+use parity_scale_codec::Encode as _;
+use sp_core::H256;
+use sp_runtime::traits::Bounded;
+use sp_std::{collections::vec_deque::VecDeque, ops::RangeInclusive, vec::Vec};
+
+use attestor_primitives::{
+    AttestationCheckpoint, AttestationData as AttestationPrimitive, BlsPublicKey, BlsSignature,
+    ChainAttestationIntervalType, ChainKey, SignedAttestation,
+};
+
+const DEV_CHAIN_KEY: ChainKey = 1;
+const SEED: u32 = 0;
+
+#[derive(Debug, Clone)]
+pub struct Attestor<T: frame_system::Config> {
+    pub stash_origin: T::RuntimeOrigin,
+    pub attestor_id: T::AccountId,
+    pub attestor_origin: T::RuntimeOrigin,
+    pub private_key: PrivateKey,
+    pub public_key: BlsPublicKey,
+    pub signature: BlsSignature,
+}
+
+/// Grab a funded user with max Balance.
+pub fn create_funded_user_with_balance<T: Config>(string: &'static str, n: u32) -> T::AccountId {
+    let balance = BalanceOf::<T>::from(1_000_000_000_000_000_000_000u128); // 1_000 units
+
+    let user = account(string, n, SEED);
+    asset::set_free_balance::<T>(&user, balance);
+    user
+}
+
+impl<T: frame_system::Config> Attestor<T> {
+    pub fn new(stash: T::AccountId, attestor: T::AccountId, index: u32) -> Self {
+        let mut rng = H256::repeat_byte(123).0;
+        rng[0..4].copy_from_slice(&index.to_le_bytes());
+        let private_key = PrivateKey::new(rng);
+        let public_key: BlsPublicKey = private_key.public_key().as_bytes()[..].try_into().unwrap();
+        // Bound to `(DEV_CHAIN_KEY, attestor)` to match what the runtime verifies; every
+        // `attest` call in this file registers on `DEV_CHAIN_KEY`.
+        let pop_message = attestor_primitives::proof_of_possession_message(
+            DEV_CHAIN_KEY,
+            attestor.encode().as_slice(),
+            &public_key,
+        );
+        let signature = private_key.sign(pop_message).as_bytes()[..]
+            .try_into()
+            .unwrap();
+
+        let stash_origin = T::RuntimeOrigin::signed(stash);
+
+        let attestor_id = attestor.clone();
+        let attestor_origin = T::RuntimeOrigin::signed(attestor);
+
+        Self {
+            stash_origin,
+            attestor_id,
+            attestor_origin,
+            private_key,
+            public_key,
+            signature,
+        }
+    }
+
+    fn sign(&self, message: &[u8]) -> BlsSignature {
+        self.private_key.sign(message).as_bytes()[..]
+            .try_into()
+            .unwrap()
+    }
+}
+
+fn create_signed_attestation<T: frame_system::Config>(
+    attestors: Vec<Attestor<T>>,
+    chain_key: ChainKey,
+    start_block: u64,
+    header_number: u64,
+    prev_digest: Option<H256>,
+) -> SignedAttestation<<T as frame_system::Config>::Hash, <T as frame_system::Config>::AccountId> {
+    let continuity_proof = construct_fragment(
+        prev_digest,
+        RangeInclusive::new(start_block, header_number.saturating_sub(1)),
+    );
+
+    let attestation_prev_digest = (!continuity_proof.is_empty()).then(|| {
+        let start = header_number.saturating_sub(continuity_proof.len() as u64);
+        continuity_proof.compute_continuity_digest(start)
+    });
+
+    let attestation = AttestationPrimitive::<<T as frame_system::Config>::Hash> {
+        chain_key,
+        header_number,
+        header_hash: <T as frame_system::Config>::Hash::default(),
+        root: H256::from([0; 32]),
+        prev_digest: attestation_prev_digest,
+    };
+
+    let mut signatures = Vec::new();
+    for attestor in attestors.iter() {
+        let signature = attestor.sign(&attestation.serialize());
+        let bls_sig = bls_signatures::Signature::from_bytes(&signature[..])
+            .expect("Failed to create signature");
+
+        signatures.push(bls_sig);
+    }
+    let aggregated_signature = aggregate(&signatures).expect("Failed to aggregate signatures");
+
+    let attestation = SignedAttestation {
+        attestation,
+        signature: aggregated_signature.as_bytes()[..]
+            .try_into()
+            .expect("Failed to convert to array"),
+        attestors: attestors
+            .iter()
+            .map(|a| a.attestor_id.clone())
+            .collect::<Vec<_>>(),
+        continuity_proof,
+    };
+
+    attestation
+}
+
+type BenchAttestation<T> =
+    SignedAttestation<<T as frame_system::Config>::Hash, <T as frame_system::Config>::AccountId>;
+
+/// Registers `m + 1` attestors on [`DEV_CHAIN_KEY`] with a checkpoint width of 100, commits the
+/// chain's genesis attestation and moves to the next block. Returns the attestors and the
+/// genesis attestation.
+fn setup_commit<T: Config>(m: u32) -> (Vec<Attestor<T>>, BenchAttestation<T>) {
+    let root_origin = <T as frame_system::Config>::RuntimeOrigin::root();
+
+    // Ensure pallet limits allow `m` attestors. `set_max_attestors` rejects values above
+    // the runtime ceiling `MaxAttestationNodes`, and the benchmark `m` parameter already
+    // ranges in `1..=MAX_ATTESTORS` which matches the ceiling, so the per-chain cap is set
+    // to exactly the runtime maximum here. (Pre-existing mock attestors are no longer a
+    // concern because the prior `MAX_ATTESTORS + 5` slop now exceeds the runtime ceiling
+    // and would trip the new `InvalidMaxAttestors` guard.)
+    assert_ok!(Attestation::<T>::set_max_attestors(
+        root_origin.clone(),
+        DEV_CHAIN_KEY,
+        T::MaxAttestationNodes::get()
+    ));
+
+    // Set checkpoint interval to 10 (production-realistic: checkpoint every 100 blocks
+    // with attestation_interval=10). With s=500, this creates ~5 checkpoints.
+    // This ensures the benchmark reflects realistic checkpoint creation weight.
+    assert_ok!(Attestation::<T>::set_attestations_per_checkpoint(
+        root_origin.clone(),
+        DEV_CHAIN_KEY,
+        10,
+    ));
+
+    // Set target sample to one
+    TargetSampleSize::<T>::set(DEV_CHAIN_KEY, 1);
+
+    // Creating attestor to attest. The loop is inclusive (`0..=m`) so it registers
+    // `m + 1` attestors. `m` ranges `1..=MAX_ATTESTORS - 1` (see the benchmark signature),
+    // so the worst case registers exactly `MAX_ATTESTORS` attestors — matching the
+    // `set_max_attestors(MaxAttestationNodes)` cap set above. (Before the cap was enforced
+    // the loop went up to `MAX_ATTESTORS + 1` and relied on a `+5` slack in the old
+    // `set_max_attestors` call; that slack now exceeds the runtime ceiling and is
+    // rejected, so the upper bound moved onto `m` instead.)
+    let mut attestors: Vec<Attestor<T>> = Vec::new();
+    for j in 0..=m {
+        let stash_id = create_funded_user_with_balance::<T>("stash", j);
+        let attestor_id: T::AccountId = create_funded_user_with_balance::<T>("attestor", j + j);
+        let attestor = Attestor::<T>::new(stash_id, attestor_id.clone(), j);
+
+        assert_ok!(Attestation::<T>::register_attestor(
+            attestor.stash_origin.clone(),
+            DEV_CHAIN_KEY,
+            attestor_id,
+        ));
+
+        assert_ok!(Attestation::<T>::attest(
+            attestor.attestor_origin.clone(),
+            DEV_CHAIN_KEY,
+            attestor.public_key,
+            attestor.signature,
+        ));
+
+        attestors.push(attestor);
+    }
+
+    // Creating previous attestation
+    let attestation_prev: BenchAttestation<T> =
+        create_signed_attestation::<T>(attestors.clone(), DEV_CHAIN_KEY, 1, 0, None);
+
+    Attestation::<T>::do_start_election(2, [0; 32]).unwrap();
+    assert_ok!(Attestation::<T>::commit_attestation(
+        attestors[0].attestor_origin.clone(),
+        attestation_prev.clone(),
+    ));
+
+    // Move to the next block so the measured commit is not held back by
+    // `MaxAttestationsPerBlock`.
+    frame_system::Pallet::<T>::set_block_number(
+        frame_system::Pallet::<T>::block_number() + 1u32.into(),
+    );
+
+    (attestors, attestation_prev)
+}
+
+#[benchmarks]
+mod benchmarks {
+    use super::*;
+
+    pub const MAX_SPAN: u32 = COMMIT_BENCHMARK_MAX_SPAN; // continuity blocks, up to the default MaxCatchup
+    /// Smallest `commit_attestation` span that takes the catch-up path at the benchmark's
+    /// checkpoint width of 100 (`2 * width`). Sampling `s` only on that path keeps the step from
+    /// the queue-based path out of the per-root slope; the queue-based path does strictly less
+    /// work per root, so extrapolating the line below this span over-charges it.
+    const CATCH_UP_SPAN: u32 = 200;
+    const MAX_ATTESTORS: u32 = 100;
+    // Upper bound for the `commit_attestation` `m` parameter. The registration loop is
+    // inclusive (`0..=m`), so it registers `m + 1` attestors; bounding `m` at
+    // `MAX_ATTESTORS - 1` keeps the worst case at exactly `MAX_ATTESTORS`, which is the
+    // `set_max_attestors` / `MaxAttestationNodes` ceiling.
+    const MAX_ATTESTORS_PARAM: u32 = MAX_ATTESTORS - 1;
+
+    #[benchmark]
+    fn set_chain_attestation_interval() {
+        // Setup
+        let root_origin = <T as frame_system::Config>::RuntimeOrigin::root();
+        let chain_attestation_interval: ChainAttestationIntervalType = 100;
+
+        #[extrinsic_call]
+        _(
+            root_origin as <T as frame_system::Config>::RuntimeOrigin,
+            DEV_CHAIN_KEY,
+            chain_attestation_interval,
+        )
+    }
+
+    #[benchmark]
+    fn set_attestations_per_checkpoint() {
+        // Setup
+        let root_origin = <T as frame_system::Config>::RuntimeOrigin::root();
+        let attestations_per_checkpoint: u32 = 100;
+
+        #[extrinsic_call]
+        _(
+            root_origin as <T as frame_system::Config>::RuntimeOrigin,
+            DEV_CHAIN_KEY,
+            attestations_per_checkpoint,
+        )
+    }
+
+    #[benchmark]
+    fn set_max_catchup() {
+        // Setup
+        let root_origin = <T as frame_system::Config>::RuntimeOrigin::root();
+        let max_catchup: u32 = 10;
+
+        #[extrinsic_call]
+        _(
+            root_origin as <T as frame_system::Config>::RuntimeOrigin,
+            DEV_CHAIN_KEY,
+            max_catchup,
+        )
+    }
+
+    #[benchmark]
+    fn set_target_sample_size() {
+        // Setup
+        let root_origin = <T as frame_system::Config>::RuntimeOrigin::root();
+        let set_size: u32 = 6;
+
+        #[extrinsic_call]
+        _(
+            root_origin as <T as frame_system::Config>::RuntimeOrigin,
+            DEV_CHAIN_KEY,
+            set_size,
+        )
+    }
+
+    #[benchmark]
+    fn register_attestor() {
+        // Worst case: re-registration clears a retired BLS row + stash index from a prior unregister.
+        let stash_id = create_funded_user_with_balance::<T>("stash", 0);
+        let attestor_id: T::AccountId = create_funded_user_with_balance::<T>("attestor", 4);
+        let att = Attestor::<T>::new(stash_id, attestor_id.clone(), 0);
+
+        Attestation::<T>::register_attestor(
+            att.stash_origin.clone(),
+            DEV_CHAIN_KEY,
+            attestor_id.clone(),
+        )
+        .expect("register before attest/unregister setup");
+        Attestation::<T>::attest(
+            att.attestor_origin.clone(),
+            DEV_CHAIN_KEY,
+            att.public_key,
+            att.signature,
+        )
+        .expect("attest so unregister retains a retired BLS key");
+        Attestation::<T>::chill(att.stash_origin.clone(), DEV_CHAIN_KEY, attestor_id.clone())
+            .expect("chill before unregister");
+        Attestation::<T>::unregister_attestor(
+            att.stash_origin.clone(),
+            DEV_CHAIN_KEY,
+            attestor_id.clone(),
+        )
+        .expect("unregister to populate retired-key storage");
+
+        let signed_origin = att.stash_origin;
+
+        #[extrinsic_call]
+        _(
+            signed_origin as <T as frame_system::Config>::RuntimeOrigin,
+            DEV_CHAIN_KEY,
+            attestor_id,
+        )
+    }
+
+    #[benchmark]
+    fn unregister_attestor() {
+        // Setup: worst case retains BLS key in `RetiredAttestorBlsKeys` + updates `ActiveAttestors`
+        let stash_id = create_funded_user_with_balance::<T>("stash", 0);
+        let attestor_id: T::AccountId = create_funded_user_with_balance::<T>("attestor", 4);
+        let att = Attestor::<T>::new(stash_id, attestor_id.clone(), 0);
+
+        Attestation::<T>::register_attestor(
+            att.stash_origin.clone(),
+            DEV_CHAIN_KEY,
+            attestor_id.clone(),
+        )
+        .expect("If adding the attestor doesn't work, then we aren't benchmarking the right path anyways.");
+        Attestation::<T>::attest(
+            att.attestor_origin.clone(),
+            DEV_CHAIN_KEY,
+            att.public_key,
+            att.signature,
+        )
+        .expect("attest() required so unregister stores a retired BLS key");
+        Attestation::<T>::chill(att.stash_origin.clone(), DEV_CHAIN_KEY, attestor_id.clone())
+            .expect("chill() required before unregister");
+        let signed_origin = att.stash_origin;
+
+        #[extrinsic_call]
+        _(
+            signed_origin as <T as frame_system::Config>::RuntimeOrigin,
+            DEV_CHAIN_KEY,
+            attestor_id,
+        )
+    }
+
+    #[benchmark]
+    fn set_max_attestors() {
+        // Setup
+        let root_origin = <T as frame_system::Config>::RuntimeOrigin::root();
+        let new_max: u32 = 20;
+        // A roster at the new limit, so the roster floor reads real entries.
+        let roster: Vec<T::AccountId> = (0..new_max).map(|i| account("roster", i, SEED)).collect();
+        AttestorsCount::<T>::insert(DEV_CHAIN_KEY, new_max);
+        ActiveAttestors::<T>::insert(DEV_CHAIN_KEY, roster);
+
+        #[extrinsic_call]
+        _(
+            root_origin as <T as frame_system::Config>::RuntimeOrigin,
+            DEV_CHAIN_KEY,
+            new_max,
+        )
+    }
+
+    #[benchmark]
+    fn register_invulnerable() {
+        // Setup
+        let root_origin = <T as frame_system::Config>::RuntimeOrigin::root();
+        let attestor_id: <T as frame_system::Config>::AccountId = account("who", 4, 1);
+
+        #[extrinsic_call]
+        _(
+            root_origin as <T as frame_system::Config>::RuntimeOrigin,
+            DEV_CHAIN_KEY,
+            attestor_id,
+        )
+    }
+
+    #[benchmark]
+    fn unregister_invulnerable() {
+        // Setup
+        let root_origin = <T as frame_system::Config>::RuntimeOrigin::root();
+        let attestor_id: <T as frame_system::Config>::AccountId = account("who", 4, 1);
+
+        assert_ok!(Attestation::<T>::register_invulnerable(
+            root_origin.clone(),
+            DEV_CHAIN_KEY,
+            attestor_id.clone(),
+        ));
+
+        #[extrinsic_call]
+        _(
+            root_origin as <T as frame_system::Config>::RuntimeOrigin,
+            DEV_CHAIN_KEY,
+            attestor_id,
+        )
+    }
+
+    #[benchmark]
+    fn set_max_invulnerables() {
+        // Setup
+        let root_origin = <T as frame_system::Config>::RuntimeOrigin::root();
+        let new_max: u32 = 8;
+
+        #[extrinsic_call]
+        _(
+            root_origin as <T as frame_system::Config>::RuntimeOrigin,
+            DEV_CHAIN_KEY,
+            new_max,
+        )
+    }
+
+    /// `commit_attestation` on the catch-up path against an empty checkpointing queue; the
+    /// queue's cost is measured by [`commit_attestation_queued`].
+    #[benchmark]
+    fn commit_attestation(
+        s: Linear<CATCH_UP_SPAN, MAX_SPAN>, // continuity length (#headers), 200–500 blocks
+        m: Linear<1, MAX_ATTESTORS_PARAM>,  // number of attestors (registers m+1; see const)
+    ) {
+        log::info!("Benchmark parameters: s = {s}, m = {m}");
+        let (attestors, attestation_prev) = setup_commit::<T>(m);
+
+        // Round s down to nearest 10 to reduce benchmark iterations (200, 210, ... 500).
+        // Continuity proof has att_header - 1 blocks. The head sits on a multiple of the
+        // attestation interval, at least one interval past `CATCH_UP_SPAN` so the proof stays
+        // on the catch-up path, and at most `MAX_SPAN` so it stays within `MaxCatchup`.
+        let s_rounded = (s / 10 * 10).max(CATCH_UP_SPAN) as u64;
+        let att_header =
+            s_rounded.max(CATCH_UP_SPAN as u64 + ChainAttestationInterval::<T>::get(DEV_CHAIN_KEY));
+        let attestation = create_signed_attestation::<T>(
+            attestors.clone(),
+            DEV_CHAIN_KEY,
+            1,
+            att_header,
+            Some(attestation_prev.digest()),
+        );
+
+        #[extrinsic_call]
+        _(
+            attestors[0].attestor_origin.clone() as <T as frame_system::Config>::RuntimeOrigin,
+            attestation,
+        );
+
+        // Catch-up checkpointed straight from the proof.
+        assert_eq!(
+            LastCheckpoint::<T>::get(DEV_CHAIN_KEY).map(|c| c.block_number),
+            Some(att_header / 100 * 100)
+        );
+    }
+
+    /// `commit_attestation` on the catch-up path against a checkpointing queue of `q` entries,
+    /// each carrying the largest attestor set and an attestation interval's worth of roots.
+    /// Catch-up reads, decodes and removes every queued attestation. Only the marginal cost of
+    /// `q` is charged on top of [`commit_attestation`]. `weigh_data` charges the roots in queued
+    /// proofs separately through [`continuity_roots`], so the interval's worth of roots measured
+    /// here per entry is charged twice, erring high.
+    #[benchmark]
+    fn commit_attestation_queued(q: Linear<0, { T::MaxCheckpointingQueueLen::get() - 1 }>) {
+        let (attestors, attestation_prev) = setup_commit::<T>(1);
+
+        // Queued entries are only decoded, never re-verified, so their attestors need not be
+        // registered.
+        let queued_attestors: Vec<T::AccountId> = (0..T::MaxAttestationNodes::get())
+            .map(|j| account("queued", j, SEED))
+            .collect();
+        let attestation_interval = ChainAttestationInterval::<T>::get(DEV_CHAIN_KEY);
+        let mut queue = VecDeque::new();
+        for i in 0..q as u64 {
+            let header_number = (i + 1) * attestation_interval;
+            let mut queued = attestation_prev.clone();
+            queued.attestation.header_number = header_number;
+            queued.attestation.root = H256::from_low_u64_be(i + 1);
+            queued.attestors = queued_attestors.clone();
+            queued.continuity_proof = construct_fragment(
+                Some(attestation_prev.digest()),
+                RangeInclusive::new(i * attestation_interval + 1, header_number - 1),
+            );
+            let digest = queued.digest();
+            Attestations::<T>::insert(DEV_CHAIN_KEY, digest, queued);
+            queue.push_back(digest);
+        }
+        CheckpointingQueues::<T>::insert(DEV_CHAIN_KEY, queue);
+
+        let attestation = create_signed_attestation::<T>(
+            attestors.clone(),
+            DEV_CHAIN_KEY,
+            1,
+            CATCH_UP_SPAN as u64 + attestation_interval,
+            Some(attestation_prev.digest()),
+        );
+
+        #[extrinsic_call]
+        commit_attestation(
+            attestors[0].attestor_origin.clone() as <T as frame_system::Config>::RuntimeOrigin,
+            attestation,
+        );
+
+        // Catch-up consumed the whole queue; the legacy path would have left this commit in it.
+        assert!(CheckpointingQueues::<T>::get(DEV_CHAIN_KEY).is_empty());
+    }
+
+    /// Per-root cost of expanding continuity proofs into the boundary-digest map, as a commit
+    /// that condenses the queue does for its own proof and every queued one. A single proof is
+    /// capped at `MaxCatchup` roots, too few for `commit_attestation`'s `s` to resolve it.
+    #[benchmark]
+    fn continuity_roots(r: Linear<0, 20_000>) {
+        let proof =
+            construct_fragment(Some(H256::repeat_byte(1)), RangeInclusive::new(1, r as u64));
+        let mut block_digests = sp_std::collections::btree_map::BTreeMap::new();
+
+        #[block]
+        {
+            for (block_number, digest) in proof.block_digests(1) {
+                block_digests.entry(block_number).or_insert(digest);
+            }
+        }
+
+        assert_eq!(block_digests.len(), r as usize);
+    }
+
+    #[benchmark]
+    fn set_min_bond_requirement() {
+        // Setup
+        let root_origin = <T as frame_system::Config>::RuntimeOrigin::root();
+        let new_min_bond_requirement: BalanceOf<T> = BalanceOf::<T>::max_value();
+
+        #[extrinsic_call]
+        _(
+            root_origin as <T as frame_system::Config>::RuntimeOrigin,
+            DEV_CHAIN_KEY,
+            new_min_bond_requirement,
+        )
+    }
+
+    #[benchmark]
+    fn attest() {
+        // Setup
+        let stash_id = create_funded_user_with_balance::<T>("stash", 0);
+        let attestor_id: T::AccountId = create_funded_user_with_balance::<T>("attestor", 1);
+        let attestor = Attestor::<T>::new(stash_id, attestor_id.clone(), 0);
+
+        assert_ok!(Attestation::<T>::register_attestor(
+            attestor.stash_origin.clone(),
+            DEV_CHAIN_KEY,
+            attestor_id,
+        ));
+
+        let signed_origin = attestor.attestor_origin;
+
+        #[extrinsic_call]
+        _(
+            signed_origin as <T as frame_system::Config>::RuntimeOrigin,
+            DEV_CHAIN_KEY,
+            attestor.public_key,
+            attestor.signature,
+        )
+    }
+
+    #[benchmark]
+    fn chill() {
+        // Setup
+        let stash_id = create_funded_user_with_balance::<T>("stash", 0);
+        let attestor_id: T::AccountId = create_funded_user_with_balance::<T>("attestor", 1);
+        let attestor = Attestor::<T>::new(stash_id, attestor_id.clone(), 0);
+
+        assert_ok!(Attestation::<T>::register_attestor(
+            attestor.stash_origin.clone(),
+            DEV_CHAIN_KEY,
+            attestor_id.clone(),
+        ));
+
+        assert_ok!(Attestation::<T>::attest(
+            attestor.attestor_origin.clone(),
+            DEV_CHAIN_KEY,
+            attestor.public_key,
+            attestor.signature,
+        ));
+
+        let signed_origin = attestor.stash_origin;
+
+        #[extrinsic_call]
+        _(
+            signed_origin as <T as frame_system::Config>::RuntimeOrigin,
+            DEV_CHAIN_KEY,
+            attestor_id,
+        )
+    }
+
+    #[benchmark]
+    fn withdraw_unbonded() {
+        // Setup: match unregister path that queues retired BLS keys, then exercise purge in withdraw
+        let stash_id = create_funded_user_with_balance::<T>("stash", 0);
+        let attestor_id: T::AccountId = create_funded_user_with_balance::<T>("attestor", 1);
+        let attestor = Attestor::<T>::new(stash_id, attestor_id.clone(), 0);
+
+        assert_ok!(Attestation::<T>::register_attestor(
+            attestor.stash_origin.clone(),
+            DEV_CHAIN_KEY,
+            attestor_id.clone(),
+        ));
+        assert_ok!(Attestation::<T>::attest(
+            attestor.attestor_origin.clone(),
+            DEV_CHAIN_KEY,
+            attestor.public_key,
+            attestor.signature,
+        ));
+        assert_ok!(Attestation::<T>::chill(
+            attestor.stash_origin.clone(),
+            DEV_CHAIN_KEY,
+            attestor_id.clone(),
+        ));
+        assert_ok!(Attestation::<T>::unregister_attestor(
+            attestor.stash_origin.clone(),
+            DEV_CHAIN_KEY,
+            attestor_id,
+        ));
+
+        let signed_origin = attestor.stash_origin;
+
+        #[extrinsic_call]
+        _(signed_origin as <T as frame_system::Config>::RuntimeOrigin)
+    }
+
+    #[benchmark]
+    fn import_checkpoints() {
+        let root_origin = <T as frame_system::Config>::RuntimeOrigin::root();
+        let mock_checkpoints: Vec<AttestationCheckpoint> = (0..100u8)
+            .map(|i| AttestationCheckpoint {
+                block_number: i as u64,
+                digest: H256::from([i; 32]),
+            })
+            .collect();
+
+        #[extrinsic_call]
+        _(
+            root_origin as <T as frame_system::Config>::RuntimeOrigin,
+            DEV_CHAIN_KEY,
+            mock_checkpoints.try_into().unwrap(),
+        )
+    }
+
+    #[benchmark]
+    fn forward_patch_checkpoints() {
+        let root_origin = <T as frame_system::Config>::RuntimeOrigin::root();
+        let mock_checkpoints: Vec<AttestationCheckpoint> = (0..100u8)
+            .map(|i| AttestationCheckpoint {
+                block_number: i as u64,
+                digest: H256::from([i; 32]),
+            })
+            .collect();
+
+        #[extrinsic_call]
+        _(
+            root_origin as <T as frame_system::Config>::RuntimeOrigin,
+            DEV_CHAIN_KEY,
+            false,
+            mock_checkpoints.try_into().unwrap(),
+        )
+    }
+
+    #[benchmark]
+    fn set_attestation_chain_genesis_block_number() {
+        // Setup
+        let root_origin = <T as frame_system::Config>::RuntimeOrigin::root();
+        let genesis_block_number: u64 = 100;
+
+        #[extrinsic_call]
+        _(
+            root_origin as <T as frame_system::Config>::RuntimeOrigin,
+            DEV_CHAIN_KEY,
+            genesis_block_number,
+        )
+    }
+
+    #[benchmark]
+    fn set_election_policy() {
+        // Setup
+        let root_origin = <T as frame_system::Config>::RuntimeOrigin::root();
+        let election_policiy = AttestorElectionPolicy::AuthorizedOnly;
+
+        #[extrinsic_call]
+        _(
+            root_origin as <T as frame_system::Config>::RuntimeOrigin,
+            DEV_CHAIN_KEY,
+            election_policiy,
+        )
+    }
+
+    #[benchmark]
+    fn authorize_attestor() {
+        // Setup
+        let root_origin = <T as frame_system::Config>::RuntimeOrigin::root();
+
+        let attestor_id: T::AccountId = create_funded_user_with_balance::<T>("attestor", 4);
+
+        #[extrinsic_call]
+        _(
+            root_origin as <T as frame_system::Config>::RuntimeOrigin,
+            DEV_CHAIN_KEY,
+            attestor_id,
+        )
+    }
+
+    #[benchmark]
+    fn remove_authorized_attestor() {
+        // Setup
+        let root_origin = <T as frame_system::Config>::RuntimeOrigin::root();
+
+        let stash_id = create_funded_user_with_balance::<T>("stash", 0);
+        let attestor_id: T::AccountId = create_funded_user_with_balance::<T>("attestor", 4);
+        let att = Attestor::<T>::new(stash_id, attestor_id.clone(), 0);
+
+        Attestation::<T>::register_attestor(
+            att.stash_origin.clone(),
+            DEV_CHAIN_KEY,
+            attestor_id.clone(),
+        ).expect("If adding the attestor doesn't work, then we aren't benchmarking the right path anyways.");
+
+        Attestation::<T>::authorize_attestor(
+            root_origin.clone(),
+            DEV_CHAIN_KEY,
+            attestor_id.clone(),
+        ).expect("If authorizing the attestor doesn't work, then we aren't benchmarking the right path anyways.");
+
+        #[extrinsic_call]
+        _(
+            root_origin as <T as frame_system::Config>::RuntimeOrigin,
+            DEV_CHAIN_KEY,
+            attestor_id,
+        )
+    }
+
+    #[benchmark]
+    fn kick_active_attestor() {
+        // Setup
+        let root_origin = <T as frame_system::Config>::RuntimeOrigin::root();
+
+        let stash_id = create_funded_user_with_balance::<T>("stash", 0);
+        let attestor_id: T::AccountId = create_funded_user_with_balance::<T>("attestor", 4);
+        let att = Attestor::<T>::new(stash_id, attestor_id.clone(), 0);
+
+        Attestation::<T>::register_attestor(
+            att.stash_origin.clone(),
+            DEV_CHAIN_KEY,
+            attestor_id.clone(),
+        ).expect("If adding the attestor doesn't work, then we aren't benchmarking the right path anyways.");
+
+        #[extrinsic_call]
+        _(
+            root_origin as <T as frame_system::Config>::RuntimeOrigin,
+            DEV_CHAIN_KEY,
+            attestor_id,
+            true,
+        )
+    }
+
+    #[benchmark]
+    fn force_election(a: Linear<1, MAX_ATTESTORS_PARAM>) {
+        // Setup: `a` registered attestors, all `Waiting`, so the election visits every one and
+        // rewrites every one (the per-attestor worst case).
+        let root_origin = <T as frame_system::Config>::RuntimeOrigin::root();
+
+        for j in 0..a {
+            let stash_id = create_funded_user_with_balance::<T>("stash", j);
+            let attestor_id: T::AccountId =
+                create_funded_user_with_balance::<T>("attestor", j + 100);
+            let attestor = Attestor::<T>::new(stash_id, attestor_id.clone(), j);
+
+            assert_ok!(Attestation::<T>::register_attestor(
+                attestor.stash_origin.clone(),
+                DEV_CHAIN_KEY,
+                attestor_id.clone(),
+            ));
+
+            assert_ok!(Attestation::<T>::attest(
+                attestor.attestor_origin.clone(),
+                DEV_CHAIN_KEY,
+                attestor.public_key,
+                attestor.signature,
+            ));
+        }
+
+        #[extrinsic_call]
+        _(
+            root_origin as <T as frame_system::Config>::RuntimeOrigin,
+            DEV_CHAIN_KEY,
+        );
+
+        assert_eq!(
+            ActiveAttestors::<T>::get(DEV_CHAIN_KEY).len(),
+            a as usize,
+            "every Waiting attestor must have been elected"
+        );
+    }
+
+    #[benchmark]
+    fn force_apply_updates() {
+        // Setup: populate pending storage items for all supported chains
+        let root_origin = <T as frame_system::Config>::RuntimeOrigin::root();
+
+        // Set pending values that will be applied
+        PendingAttestationInterval::<T>::insert(DEV_CHAIN_KEY, 200u64);
+        PendingTargetSampleSize::<T>::insert(DEV_CHAIN_KEY, 10u32);
+        PendingMaxCatchup::<T>::insert(DEV_CHAIN_KEY, 50u32);
+
+        #[extrinsic_call]
+        _(root_origin as <T as frame_system::Config>::RuntimeOrigin)
+    }
+
+    #[benchmark]
+    fn revert_to() {
+        let stash_id = create_funded_user_with_balance::<T>("stash", 1);
+        let attestor_id: T::AccountId = create_funded_user_with_balance::<T>("attestor", 4);
+
+        let root_origin = <T as frame_system::Config>::RuntimeOrigin::root();
+        let chain_key: ChainKey = DEV_CHAIN_KEY;
+
+        let revert_height: u64 = 1_500;
+        let pivot = Pallet::<T>::compute_block_index_for(revert_height);
+
+        // `revert_to` bounds its synchronous `Attestations` clear to
+        // `MAX_ATTESTATIONS_CLEARED_PER_BLOCK`; queuing more doesn't cost this call anything
+        // extra.
+        let attestations_to_remove = clear_or_revert::MAX_ATTESTATIONS_CLEARED_PER_BLOCK as u64;
+
+        let attestor = Attestor::new(stash_id, attestor_id, 0);
+
+        for i in 0..attestations_to_remove {
+            let a = create_signed_attestation::<T>(
+                Vec::from([attestor.clone()]),
+                chain_key,
+                1,
+                i * 10, // We don't need attestations to be at realistic heights
+                None,
+            );
+
+            Attestations::<T>::insert(chain_key, a.digest(), a.clone());
+            CheckpointingQueues::<T>::mutate(chain_key, |q| q.push_back(a.digest()));
+
+            // Set LastDigest
+            if i == (attestations_to_remove) - 1 {
+                LastDigest::<T>::insert(chain_key, (a.header_number(), a.digest()));
+            }
+        }
+
+        // 2) Ensure revert target checkpoint exists (required by do_revert_to)
+        let revert_digest = H256::from(&sp_io::hashing::blake2_256(&revert_height.to_be_bytes()));
+        Checkpoints::<T>::insert(chain_key, revert_height, revert_digest);
+
+        // Also set a LastCheckpoint so that pruning state can be properly established within `revert_to`
+        let last_digest = H256::from(&sp_io::hashing::blake2_256(
+            &(revert_height + CHECKPOINT_BUCKET_SIZE).to_be_bytes(),
+        ));
+        LastCheckpoint::<T>::insert(
+            chain_key,
+            AttestationCheckpoint {
+                block_number: revert_height + CHECKPOINT_BUCKET_SIZE,
+                digest: last_digest,
+            },
+        );
+
+        // 3) Very pessimistic case for bucket cleanup loop:
+        // Inserting a checkpoint at every block from our revert height through the end of the bucket
+        let max_in_bucket_above: u64 = pivot + CHECKPOINT_BUCKET_SIZE - 1;
+        for height in (revert_height + 1)..=max_in_bucket_above {
+            CheckpointBuckets::<T>::insert((chain_key, pivot, height), ());
+            let digest = H256::from(&sp_io::hashing::blake2_256(&height.to_be_bytes()));
+            Checkpoints::<T>::insert(chain_key, height, digest);
+        }
+
+        // -----------------------------
+        // Call (MEASURED)
+        // -----------------------------
+        #[extrinsic_call]
+        _(
+            root_origin as <T as frame_system::Config>::RuntimeOrigin,
+            chain_key,
+            revert_height,
+        );
+    }
+}

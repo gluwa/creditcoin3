@@ -1,0 +1,39 @@
+---
+name: Check runtime changes
+
+"on":
+  pull_request:
+    paths:
+      - '**Cargo.*'
+      - 'precompiles/**'
+      - 'runtime/**'
+      - '.github/workflows/check-runtime-changes.yml'
+
+concurrency:
+  group: ${{ github.ref }}-${{ github.workflow }}
+  cancel-in-progress: true
+
+permissions: read-all
+
+jobs:
+  check-version:
+    runs-on: ubuntu-26.04
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Check if version.rs was modified
+        run: |
+          ./.github/check-version.sh "remotes/origin/$GITHUB_BASE_REF" "$GITHUB_SHA"
+  # dangerous conditions that will brick the blockchain
+  danger-will-brick-the-blockchain:
+    runs-on: ubuntu-26.04
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Check for changes in Proof-of-Stake EPOCH duration
+        run: |
+          ./.github/check-for-changes-in-epoch-duration.sh "remotes/origin/$GITHUB_BASE_REF" "$GITHUB_SHA"

@@ -1,0 +1,2015 @@
+#![cfg_attr(not(feature = "std"), no_std)]
+
+pub use migrations::{MigrateAttestationContinuityProofV0ToV1, MigrateAttestorsCountV1ToV2};
+pub use pallet::*;
+
+#[allow(clippy::unnecessary_cast)]
+pub mod weights;
+
+#[cfg(test)]
+mod mock;
+
+#[cfg(test)]
+mod tests;
+
+#[cfg(any(test, feature = "runtime-benchmarks"))]
+mod continuity_dev;
+
+#[cfg(feature = "runtime-benchmarks")]
+mod benchmarking;
+
+mod asset;
+pub mod clear_or_revert;
+mod continuity;
+pub mod extensions;
+mod impls;
+mod ledger;
+pub mod migrations;
+
+pub use extensions::PrevalidateAttestationCommit;
+
+#[frame_support::pallet]
+pub mod pallet {
+    use core::marker::PhantomData;
+
+    use crate::clear_or_revert::{CheckpointPruningState, RemovedChainCleanupPhase};
+    use crate::ledger::AttestorLedger;
+    use attestor_primitives::{
+        AttestationChainConfiguration, AttestationCheckpoint, Attestor, AttestorStatus,
+        BlsPublicKey, BlsPublicKeyWrapper, BlsSignature, ChainAttestationIntervalType,
+        ChainEncodingVersion, ChainKey, Digest, SignedAttestation,
+    };
+    use frame_support::{
+        dispatch::{
+            ClassifyDispatch, DispatchClass, DispatchResultWithPostInfo, Pays, PaysFee,
+            PostDispatchInfo, WeighData,
+        },
+        pallet_prelude::{OptionQuery, ValueQuery, *},
+        traits::{ConstU32, Currency, LockableCurrency, OnUnbalanced},
+        Blake2_128Concat, Twox64Concat,
+    };
+    use frame_system::pallet_prelude::*;
+    use parity_scale_codec::{DecodeWithMemTracking, FullCodec};
+    use sp_staking::StakingInterface;
+    use sp_std::collections::{btree_set::BTreeSet, vec_deque::VecDeque};
+    use sp_std::{fmt::Debug, vec::Vec};
+    use supported_chains_primitives::provider::{OnRegisterChainProvider, SupportedChainsProvider};
+
+    // Amount of blocks tracked in a single checkpoint bucket
+    pub const CHECKPOINT_BUCKET_SIZE: u64 = 1000;
+
+    /// The balance type of this pallet.
+    pub type BalanceOf<T> = <T as Config>::CurrencyBalance;
+    pub type PositiveImbalanceOf<T> = <<T as Config>::Currency as Currency<
+        <T as frame_system::Config>::AccountId,
+    >>::PositiveImbalance;
+
+    /// The election policy used when electing new attestors after each epoch.
+    #[derive(
+        PartialEq,
+        Eq,
+        Copy,
+        Clone,
+        Encode,
+        Decode,
+        DecodeWithMemTracking,
+        RuntimeDebug,
+        TypeInfo,
+        MaxEncodedLen,
+        Default,
+    )]
+    pub enum AttestorElectionPolicy {
+        /// Any attestor can be selected.
+        #[default]
+        OpenToAny = 0,
+        /// Only authorized attestors can be selected.
+        AuthorizedOnly = 1,
+        /// No new attestors can be selected.
+        DeniedToAll = 2,
+    }
+
+    // We define this type alias so that clippy doesn't complain about the unused unit type.
+    type AuthorizationValue = ();
+
+    #[pallet::config]
+    pub trait Config: frame_system::Config + pallet_balances::Config {
+        #[allow(deprecated)]
+        type RuntimeEvent: From<Event<Self>> + IsType<<Self as frame_system::Config>::RuntimeEvent>;
+        type WeightInfo: WeightInfo;
+        // TODO: when updating polkadot-sdk we should use `InspectLockableCurrency`
+        type Currency: LockableCurrency<
+            Self::AccountId,
+            Moment = BlockNumberFor<Self>,
+            Balance = Self::CurrencyBalance,
+        >;
+        /// Just the `Currency::Balance` type; we have this item to allow us to constrain it to
+        /// `From<u128>`.
+        type CurrencyBalance: sp_runtime::traits::AtLeast32BitUnsigned
+            + FullCodec
+            + Copy
+            + MaybeSerializeDeserialize
+            + core::fmt::Debug
+            + Default
+            + From<u64>
+            + From<u128>
+            + TypeInfo
+            + MaxEncodedLen;
+        #[pallet::constant]
+        type DefaultAttestationsPerCheckpoint: Get<u32>;
+        /// Runtime-safe ceiling for the per-chain checkpoint interval (see
+        /// [`Pallet::set_attestations_per_checkpoint`]). `CommitAttestationWeight::weigh_data`
+        /// charges `commit_attestation`'s declared dispatch weight with reads/writes that scale
+        /// linearly with this interval, so an unbounded value would let a privileged caller
+        /// inflate `commit_attestation`'s weight past the `Normal` block budget, after which no
+        /// attestor's commit could be included in a block. This must stay low enough that the
+        /// interval-driven weight leaves comfortable headroom under the smallest `Normal`
+        /// extrinsic weight limit configured across build profiles.
+        #[pallet::constant]
+        type MaxAttestationCheckpointInterval: Get<u32>;
+        #[pallet::constant]
+        type DefaultAttestationInterval: Get<ChainAttestationIntervalType>;
+        /// Runtime-safe ceiling for the per-chain attestation interval (see
+        /// [`Pallet::set_chain_attestation_interval`]). Bounds `max_roots` (`max(MaxCatchup,
+        /// interval)`) in continuity-proof validation, so an unbounded value would neuter the
+        /// `OversizedContinuityProof` guard the same way an unbounded checkpoint interval
+        /// neuters the `commit_attestation` weight bound.
+        #[pallet::constant]
+        type MaxChainAttestationInterval: Get<ChainAttestationIntervalType>;
+        /// Default [`TargetSampleSize`] for chains registered without an explicit one.
+        ///
+        /// Inert — it does not affect quorum. Set at RFC-0174's ~120 sortition floor so the
+        /// default records the population at which committee sampling would start being worth
+        /// building, rather than any committee size actually run.
+        #[pallet::constant]
+        type DefaultTargetSampleSize: Get<u32>;
+        /// The default maximum catchup bound, expressed in **blocks**.
+        /// When an attestation chain falls behind the source chain (e.g.
+        /// during bootstrap or after a network stall), attestors produce
+        /// larger-than-usual attestations whose continuity proofs span
+        /// more blocks. To prevent unbounded proof sizes from overwhelming
+        /// runtime validation (risking an execution chain stall), this
+        /// parameter caps the continuity proof size: each catchup
+        /// attestation covers **at most** this many blocks.
+        #[pallet::constant]
+        type DefaultMaxCatchup: Get<u32>;
+        /// Runtime-safe ceiling for the per-chain `MaxCatchup` (see [`Pallet::set_max_catchup`]).
+        /// Catch-up commits walk and checkpoint up to this many roots, so `integrity_test` checks
+        /// their declared weight against the `Normal` extrinsic limit at this value.
+        #[pallet::constant]
+        type MaxCatchupCeiling: Get<u32>;
+        #[pallet::constant]
+        type MaxAttestationNodes: Get<u32>;
+        // TODO: Make this useful
+        #[pallet::constant]
+        type CommittmentInterval: Get<u64>;
+        #[pallet::constant]
+        type DefaultMinBondRequirement: Get<u128>;
+        #[pallet::constant]
+        type MaxUnlockingChunks: Get<u32>;
+        /// Number of eras that staked funds must remain bonded for.
+        #[pallet::constant]
+        type BondingDuration: Get<u32>;
+        /// Default duration in number of attestations for which we keep attestations after they are condensed in a checkpoint.
+        #[pallet::constant]
+        type DefaultAttestationRetentionDuration: Get<u32>;
+        /// The access to staking functionality.
+        type Staking: StakingInterface<Balance = BalanceOf<Self>, AccountId = Self::AccountId>;
+        /// Handler for the unbalanced increment when rewarding a staker.
+        /// NOTE: in most cases, the implementation of `OnUnbalanced` should modify the total
+        /// issuance.
+        type Reward: OnUnbalanced<PositiveImbalanceOf<Self>>;
+
+        /// The type of the BLS aggregated signature
+        type BlsSignature: FullCodec
+            + Clone
+            + Debug
+            + PartialEq
+            + Eq
+            + Send
+            + Sync
+            + TypeInfo
+            + MaxEncodedLen
+            + From<[u8; 42]>;
+
+        type SupportedChains: SupportedChainsProvider;
+
+        /// The current epoch index. Elections run from the epoch hook are labelled with the
+        /// epoch that hook was called for; elections forced via [`Pallet::force_election`]
+        /// happen mid-epoch and read the current index from here so `AttestorsElected`
+        /// carries the same epoch either way.
+        type CurrentEpochIndex: Get<u64>;
+
+        /// Maximum number of successful `commit_attestation` calls per chain in a single block.
+        /// Attestors pipeline consecutive heights, each extending the one before, so more than
+        /// one can land per block; this must leave room for those. An over-limit commit fails
+        /// and stays valid for resubmission in a later block.
+        #[pallet::constant]
+        type MaxAttestationsPerBlock: Get<u32>;
+        /// Maximum length of a chain's [`CheckpointingQueues`] entry. Must be greater than
+        /// `2 * MaxAttestationCheckpointInterval + 1`.
+        #[pallet::constant]
+        type MaxCheckpointingQueueLen: Get<u32>;
+        #[pallet::constant]
+        type MaxCheckpointsImportedPerCall: Get<u32>;
+        #[pallet::constant]
+        type DefaultAttestationChainGenesisBlockNumber: Get<u64>;
+        /// Origin that can perform Operator-only calls
+        type OperatorsOrigin: EnsureOrigin<Self::RuntimeOrigin>;
+    }
+
+    pub trait WeightInfo {
+        fn register_attestor() -> Weight;
+        fn unregister_attestor() -> Weight;
+        fn set_max_attestors() -> Weight;
+        fn register_invulnerable() -> Weight;
+        fn unregister_invulnerable() -> Weight;
+        fn set_max_invulnerables() -> Weight;
+        fn commit_attestation(a: u32, b: u32) -> Weight;
+        fn commit_attestation_queued(q: u32) -> Weight;
+        fn continuity_roots(r: u32) -> Weight;
+        fn set_target_sample_size() -> Weight;
+        fn set_chain_attestation_interval() -> Weight;
+        fn set_attestations_per_checkpoint() -> Weight;
+        fn set_min_bond_requirement() -> Weight;
+        fn chill() -> Weight;
+        fn attest() -> Weight;
+        fn withdraw_unbonded() -> Weight;
+        fn import_checkpoints() -> Weight;
+        fn set_attestation_chain_genesis_block_number() -> Weight;
+        fn set_election_policy() -> Weight;
+        fn authorize_attestor() -> Weight;
+        fn remove_authorized_attestor() -> Weight;
+        fn kick_active_attestor() -> Weight;
+        /// `a` = attestors registered on the chain (every one is visited; `Waiting`/`Leaving`
+        /// ones are rewritten).
+        fn force_election(a: u32) -> Weight;
+        fn set_max_catchup() -> Weight;
+        fn force_apply_updates() -> Weight;
+        fn revert_to() -> Weight;
+        fn forward_patch_checkpoints() -> Weight;
+    }
+
+    #[pallet::storage]
+    #[pallet::getter(fn attestors)]
+    // Attestor storage maps a "Stash account" to an Attestor (controller)
+    // Per supported chain
+    pub type Attestors<T: Config> = StorageDoubleMap<
+        _,
+        Twox64Concat,
+        ChainKey,
+        Blake2_128Concat,
+        T::AccountId,
+        Attestor<T::AccountId>,
+    >;
+
+    /// Number of registered attestors per chain. Maintained incrementally in
+    /// [`Pallet::try_insert_attestor_and_emit_event`] and
+    /// [`Pallet::remove_attestor_and_emit_event`] so that
+    /// [`Pallet::attestor_list_has_space`] is O(1) rather than O(N) over
+    /// [`Attestors`].
+    #[pallet::storage]
+    #[pallet::getter(fn attestors_count)]
+    pub type AttestorsCount<T: Config> = StorageMap<_, Blake2_128Concat, ChainKey, u32, ValueQuery>;
+
+    #[pallet::storage]
+    #[pallet::getter(fn active_attestor_set)]
+    // Active attestors are the ones that have been registered and are not in the chilling state
+    pub type ActiveAttestors<T: Config> =
+        StorageMap<_, Blake2_128Concat, ChainKey, Vec<T::AccountId>, ValueQuery>;
+
+    #[derive(Clone, Encode, Decode, Eq, PartialEq, RuntimeDebug, TypeInfo, MaxEncodedLen)]
+    pub struct RetiredAttestorBlsKeyEntry<AccountId: MaxEncodedLen> {
+        pub bls_public_key: BlsPublicKey,
+        pub purge_at_era: u32,
+        pub stash: AccountId,
+    }
+
+    /// BLS public keys kept after [`unregister_attestor`](Pallet::unregister_attestor) so
+    /// aggregated attestations that still list this controller can be verified until the unbond
+    /// delay elapses. Purged in [`withdraw_unbonded`](Pallet::withdraw_unbonded) once
+    /// `purge_at_era` is reached.
+    #[pallet::storage]
+    pub type RetiredAttestorBlsKeys<T: Config> = StorageDoubleMap<
+        _,
+        Twox64Concat,
+        ChainKey,
+        Blake2_128Concat,
+        T::AccountId,
+        RetiredAttestorBlsKeyEntry<T::AccountId>,
+        OptionQuery,
+    >;
+
+    /// Stash accounts with pending [`RetiredAttestorBlsKeys`] entries (for pruning on withdraw).
+    #[pallet::storage]
+    pub type RetiredAttestorKeysByStash<T: Config> = StorageMap<
+        _,
+        Blake2_128Concat,
+        T::AccountId,
+        BoundedVec<(ChainKey, T::AccountId), ConstU32<64>>,
+        ValueQuery,
+    >;
+
+    /// Maps an active BLS public key on a chain to its owning attestor controller account.
+    ///
+    /// Used to enforce that no two attestors on the same chain register the same BLS public
+    /// key. Without this map, distinct [`Attestors`] entries can share a BLS pubkey (each
+    /// passing the proof-of-possession check independently), which collapses the BLS
+    /// aggregation quorum: one BLS private key can satisfy threshold-of-N because aggregated
+    /// keys/signatures are linear in the underlying key.
+    ///
+    /// Lifetime: inserted by [`Pallet::start_attesting`], rotated when an idle attestor
+    /// re-attests with a new key, retained through retirement (the BLS key stays "claimed"
+    /// while the corresponding [`RetiredAttestorBlsKeys`] entry is still live so attestations
+    /// referencing the retired controller can still be verified), and finally removed when
+    /// the retired entry is purged in [`Pallet::withdraw_unbonded`] or when the chain itself
+    /// is removed.
+    #[pallet::storage]
+    pub type BlsKeyOwner<T: Config> = StorageDoubleMap<
+        _,
+        Twox64Concat,
+        ChainKey,
+        Blake2_128Concat,
+        BlsPublicKey,
+        T::AccountId,
+        OptionQuery,
+    >;
+
+    #[pallet::storage]
+    #[pallet::getter(fn invulnerables)]
+    pub type Invulnerables<T: Config> =
+        StorageDoubleMap<_, Twox64Concat, ChainKey, Blake2_128Concat, T::AccountId, bool>;
+
+    #[pallet::storage]
+    #[pallet::getter(fn max_attestors)]
+    pub type MaxAttestors<T: Config> =
+        StorageMap<_, Blake2_128Concat, ChainKey, u32, ValueQuery, MaxAttestorsDefault<T>>;
+
+    #[pallet::storage]
+    #[pallet::getter(fn max_invulnerables)]
+    pub type MaxInvulnerables<T: Config> =
+        StorageMap<_, Blake2_128Concat, ChainKey, u32, ValueQuery, MaxInvulernablesDefault<T>>;
+
+    #[pallet::type_value]
+    pub fn MaxAttestorsDefault<T: Config>() -> u32 {
+        T::MaxAttestationNodes::get()
+    }
+
+    #[pallet::type_value]
+    pub fn MaxInvulernablesDefault<T: Config>() -> u32 {
+        T::MaxAttestationNodes::get()
+    }
+
+    #[pallet::storage]
+    #[pallet::getter(fn attestations)]
+    pub type Attestations<T: Config> = StorageDoubleMap<
+        _,
+        Blake2_128Concat,
+        ChainKey,
+        Blake2_128Concat,
+        Digest,
+        SignedAttestation<T::Hash, T::AccountId>,
+        OptionQuery,
+    >;
+
+    #[pallet::storage]
+    #[pallet::getter(fn checkpoints)]
+    pub type Checkpoints<T: Config> =
+        StorageDoubleMap<_, Blake2_128Concat, ChainKey, Identity, u64, Digest, OptionQuery>;
+
+    #[pallet::storage]
+    pub type CheckpointBuckets<T: Config> = StorageNMap<
+        _,
+        (
+            NMapKey<Blake2_128Concat, ChainKey>, // ChainKey
+            NMapKey<Blake2_128Concat, u64>,      // Block number pivot see: CHECKPOINT_BUCKET_SIZE
+            NMapKey<Blake2_128Concat, u64>,      // Block number
+        ),
+        (),
+        ValueQuery,
+    >;
+
+    #[pallet::storage]
+    #[pallet::getter(fn last_checkpoint)]
+    pub type LastCheckpoint<T> = StorageMap<_, Blake2_128Concat, ChainKey, AttestationCheckpoint>;
+
+    #[pallet::storage]
+    #[pallet::getter(fn checkpointing_queues)]
+    pub type CheckpointingQueues<T: Config> =
+        StorageMap<_, Blake2_128Concat, ChainKey, VecDeque<Digest>, ValueQuery, GetDefault>;
+
+    /// Number of successful attestation commits per chain in the block recorded alongside it.
+    /// Bounded by [`Config::MaxAttestationsPerBlock`].
+    #[pallet::storage]
+    pub type AttestationsInBlock<T: Config> =
+        StorageMap<_, Blake2_128Concat, ChainKey, (BlockNumberFor<T>, u32), OptionQuery>;
+
+    #[pallet::storage]
+    #[pallet::getter(fn last_attestation_digest)]
+    pub type LastDigest<T: Config> =
+        StorageMap<_, Blake2_128Concat, ChainKey, (u64, Digest), OptionQuery>;
+
+    #[pallet::storage]
+    #[pallet::getter(fn pending_target_sample_size)]
+    pub type PendingTargetSampleSize<T: Config> =
+        StorageMap<_, Blake2_128Concat, ChainKey, u32, OptionQuery>;
+
+    /// Reserved for future committee sortition. **Does not affect quorum.**
+    ///
+    /// `validate_attestation` derives its threshold from `|ActiveAttestors|` alone (see
+    /// [`attestor_primitives::calculate_quorum`]). Setting this value changes nothing today; it
+    /// is kept so RFC-0174 has its parameter when sortition is built.
+    ///
+    /// Its default is RFC-0174's ~120 committee floor — the population at which sampling would
+    /// start being worth building. `MaxAttestationNodes` sits below that, so the ceiling would
+    /// have to be raised before this value could matter.
+    #[pallet::storage]
+    #[pallet::getter(fn target_sample_size)]
+    pub type TargetSampleSize<T: Config> =
+        StorageMap<_, Blake2_128Concat, ChainKey, u32, ValueQuery, TargetSampleSizeDefault<T>>;
+
+    #[pallet::type_value]
+    pub fn TargetSampleSizeDefault<T: Config>() -> u32 {
+        T::DefaultTargetSampleSize::get()
+    }
+
+    #[pallet::storage]
+    #[pallet::getter(fn chain_attestation_interval)]
+    pub type ChainAttestationInterval<T: Config> = StorageMap<
+        _,
+        Blake2_128Concat,
+        ChainKey,
+        ChainAttestationIntervalType,
+        ValueQuery,
+        AttestationIntervalDefault<T>,
+    >;
+
+    #[pallet::type_value]
+    pub fn AttestationIntervalDefault<T: Config>() -> ChainAttestationIntervalType {
+        T::DefaultAttestationInterval::get()
+    }
+
+    #[pallet::storage]
+    #[pallet::getter(fn pending_attestation_interval)]
+    pub type PendingAttestationInterval<T: Config> =
+        StorageMap<_, Blake2_128Concat, ChainKey, ChainAttestationIntervalType, OptionQuery>;
+
+    #[pallet::storage]
+    #[pallet::getter(fn attestation_checkpoint_interval)]
+    pub type AttestationCheckpointInterval<T: Config> = StorageMap<
+        _,
+        Blake2_128Concat,
+        ChainKey,
+        u32,
+        ValueQuery,
+        DefaultAttestationsPerCheckpoint<T>,
+    >;
+
+    #[pallet::type_value]
+    pub fn DefaultAttestationsPerCheckpoint<T: Config>() -> u32 {
+        T::DefaultAttestationsPerCheckpoint::get()
+    }
+
+    /// The maximum catchup bound (in **blocks**) per chain. During catchup,
+    /// each attestation's continuity proof will span **at most** this many
+    /// blocks, preventing unbounded proof sizes from stalling the
+    /// execution chain.
+    #[pallet::storage]
+    #[pallet::getter(fn max_catchup)]
+    pub type MaxCatchup<T: Config> =
+        StorageMap<_, Blake2_128Concat, ChainKey, u32, ValueQuery, MaxCatchupDefault<T>>;
+
+    #[pallet::type_value]
+    pub fn MaxCatchupDefault<T: Config>() -> u32 {
+        T::DefaultMaxCatchup::get()
+    }
+
+    #[pallet::storage]
+    #[pallet::getter(fn pending_max_catchup)]
+    pub type PendingMaxCatchup<T: Config> =
+        StorageMap<_, Blake2_128Concat, ChainKey, u32, OptionQuery>;
+
+    #[pallet::storage]
+    #[pallet::getter(fn min_bond_requirement)]
+    pub type MinBondRequirement<T: Config> = StorageMap<
+        _,
+        Blake2_128Concat,
+        ChainKey,
+        BalanceOf<T>,
+        ValueQuery,
+        DefaultMinBondRequirement<T>,
+    >;
+
+    #[pallet::type_value]
+    pub fn DefaultMinBondRequirement<T: Config>() -> BalanceOf<T> {
+        T::DefaultMinBondRequirement::get().into()
+    }
+
+    /// Map from all (unlocked) "controller" accounts to info regarding staking.
+    ///
+    /// Note: All the reads and mutations to this storage *MUST* be done through the methods exposed
+    /// by [`AttestorLedger`] to ensure data and lock consistency.
+    #[pallet::storage]
+    #[pallet::getter(fn ledger)]
+    pub type Ledger<T: Config> = StorageMap<_, Blake2_128Concat, T::AccountId, AttestorLedger<T>>;
+
+    /// Progress markers for removing the checkpoints associated with source chains that are no
+    /// longer supported. Maps from a chain_key to a cursor representing the point up to which
+    /// that chain's checkpoints have been removed.
+    #[pallet::storage]
+    #[pallet::getter(fn checkpoint_clearing_cursors)]
+    pub type CheckpointClearingCursors<T: Config> =
+        StorageMap<_, Blake2_128Concat, ChainKey, Vec<u8>, OptionQuery>;
+
+    /// Progress markers for removing checkpoint buckets associated with source chains that are undergoing
+    /// chain reversion or are no longer supported.
+    #[pallet::storage]
+    #[pallet::getter(fn bucket_clearing_cursors)]
+    pub type BucketClearingCursors<T: Config> =
+        StorageMap<_, Blake2_128Concat, ChainKey, Vec<u8>, OptionQuery>;
+
+    /// Progress markers for removing [`Attestations`] entries left over after a chain removal
+    /// or a `revert_to` reversion. Drained by `on_init_clear_attestations`, mirroring
+    /// [`CheckpointClearingCursors`].
+    #[pallet::storage]
+    #[pallet::getter(fn attestation_clearing_cursors)]
+    pub type AttestationClearingCursors<T: Config> =
+        StorageMap<_, Blake2_128Concat, ChainKey, Vec<u8>, OptionQuery>;
+
+    /// Where the attestor-side cleanup of a removed chain stands. Drained a bounded batch per
+    /// block by `on_init_cleanup_removed_chains`; the entry is removed once nothing is left.
+    #[pallet::storage]
+    pub type RemovedChainCleanup<T: Config> =
+        StorageMap<_, Blake2_128Concat, ChainKey, RemovedChainCleanupPhase, OptionQuery>;
+
+    /// The pivot of the next checkpoint bucket to be pruned. This is used during a chain reversion, when
+    /// we want to remove all `CheckpointBuckets` entries above the height of the checkpoint we reverted to.
+    #[pallet::storage]
+    pub type CheckpointPruningStates<T: Config> =
+        StorageMap<_, Blake2_128Concat, ChainKey, CheckpointPruningState, OptionQuery>;
+
+    /// The duration in number of attestations for which we keep attestations that have already been
+    /// condensed in a checkpoint. Keeping these for a time ensures that proofs generated using the
+    /// attestations in question remain verifyable long enough to be submitted on-chain.
+    #[pallet::storage]
+    #[pallet::getter(fn attestation_retention_duration)]
+    pub type AttestationRetentionDuration<T: Config> = StorageMap<
+        _,
+        Blake2_128Concat,
+        ChainKey,
+        u32,
+        ValueQuery,
+        DefaultAttestationRetentionDuration<T>,
+    >;
+
+    #[pallet::type_value]
+    pub fn DefaultAttestationRetentionDuration<T: Config>() -> u32 {
+        T::DefaultAttestationRetentionDuration::get()
+    }
+
+    /// A queue containing the digests of attestations to be removed from storage. When the queue fills beyond
+    /// AttestationRetentionDuration, we remove attestations from the queue and from the Attestations storage
+    /// map.
+    #[pallet::storage]
+    #[pallet::getter(fn attestation_removal_queue)]
+    pub type AttestationRemovalQueues<T: Config> =
+        StorageMap<_, Blake2_128Concat, ChainKey, VecDeque<Digest>, ValueQuery, GetDefault>;
+
+    #[pallet::type_value]
+    pub fn AttestationChainGenesisBlockNumberDefault<T: Config>() -> u64 {
+        T::DefaultAttestationChainGenesisBlockNumber::get()
+    }
+
+    /// The genesis block number for the attestation chain.
+    /// This is used to determine the starting point for the attestation chain.
+    #[pallet::storage]
+    #[pallet::getter(fn attestation_chain_genesis_block_number)]
+    pub type AttestationChainGenesisBlockNumber<T: Config> = StorageMap<
+        _,
+        Blake2_128Concat,
+        ChainKey,
+        u64,
+        ValueQuery,
+        AttestationChainGenesisBlockNumberDefault<T>,
+    >;
+
+    /// The current election policy for each chain.
+    /// Represents the policy used when electing new attestors after each epoch.
+    #[pallet::storage]
+    #[pallet::getter(fn chain_election_policy)]
+    pub type ChainElectionPolicy<T: Config> =
+        StorageMap<_, Blake2_128Concat, ChainKey, AttestorElectionPolicy, ValueQuery>;
+
+    #[pallet::storage]
+    #[pallet::getter(fn authorized_attestors)]
+    #[allow(clippy::unused_unit)]
+    // Operator-authorized attestor controller accounts: (1) required before `register_attestor` when
+    // the election policy is `AuthorizedOnly`; (2) used at election time to promote waiting attestors.
+    pub type AuthorizedAttestors<T: Config> = StorageDoubleMap<
+        _,
+        Blake2_128Concat,
+        ChainKey,
+        Blake2_128Concat,
+        T::AccountId,
+        AuthorizationValue,
+        ValueQuery,
+    >;
+
+    /// The in-code storage version.
+    const STORAGE_VERSION: StorageVersion = StorageVersion::new(2);
+
+    #[pallet::pallet]
+    #[pallet::storage_version(STORAGE_VERSION)]
+    #[pallet::without_storage_info]
+    pub struct Pallet<T>(_);
+
+    #[pallet::genesis_config]
+    #[derive(frame_support::DefaultNoBound)]
+    pub struct GenesisConfig<T: Config> {
+        pub invulnerables: Vec<(T::AccountId, BlsPublicKeyWrapper)>,
+        pub attestation_chain_configurations: Vec<AttestationChainConfiguration>,
+    }
+
+    #[pallet::genesis_build]
+    impl<T: Config> BuildGenesisConfig for GenesisConfig<T> {
+        fn build(&self) {
+            for chain_configuration in self.attestation_chain_configurations.iter() {
+                // Same bounds as chain registration and the setters, which a hand-written chain
+                // spec would otherwise bypass.
+                assert!(
+                    chain_configuration.target_sample_size > 0,
+                    "target_sample_size must be non-zero"
+                );
+                assert!(
+                    chain_configuration.attestation_interval > 0
+                        && chain_configuration.attestation_interval
+                            <= T::MaxChainAttestationInterval::get()
+                        && chain_configuration.attestation_interval
+                            <= T::DefaultMaxCatchup::get() as u64,
+                    "attestation_interval must be non-zero and within MaxChainAttestationInterval and DefaultMaxCatchup"
+                );
+                assert!(
+                    chain_configuration.attestations_per_checkpoint > 0
+                        && chain_configuration.attestations_per_checkpoint
+                            <= T::MaxAttestationCheckpointInterval::get(),
+                    "attestations_per_checkpoint must be non-zero and within MaxAttestationCheckpointInterval"
+                );
+
+                // Set the committee set size for the chain
+                TargetSampleSize::<T>::insert(
+                    chain_configuration.chain_key,
+                    chain_configuration.target_sample_size,
+                );
+
+                ChainAttestationInterval::<T>::insert(
+                    chain_configuration.chain_key,
+                    chain_configuration.attestation_interval,
+                );
+                AttestationCheckpointInterval::<T>::insert(
+                    chain_configuration.chain_key,
+                    chain_configuration.attestations_per_checkpoint,
+                );
+
+                MaxAttestors::<T>::insert(
+                    chain_configuration.chain_key,
+                    T::MaxAttestationNodes::get(),
+                );
+
+                MaxInvulnerables::<T>::insert(
+                    chain_configuration.chain_key,
+                    T::MaxAttestationNodes::get(),
+                );
+
+                for invulnerable in self.invulnerables.iter() {
+                    Invulnerables::<T>::insert(
+                        chain_configuration.chain_key,
+                        invulnerable.0.clone(),
+                        true,
+                    );
+                }
+
+                // Track the checkpoint with the highest block_number for LastCheckpoint
+                let mut last_checkpoint: Option<AttestationCheckpoint> = None;
+
+                for checkpoint in chain_configuration.checkpoints.iter() {
+                    Checkpoints::<T>::insert(
+                        chain_configuration.chain_key,
+                        checkpoint.block_number,
+                        checkpoint.digest,
+                    );
+                    CheckpointBuckets::<T>::insert(
+                        (
+                            chain_configuration.chain_key,
+                            Pallet::<T>::compute_block_index_for(checkpoint.block_number),
+                            checkpoint.block_number,
+                        ),
+                        (),
+                    );
+
+                    // Only update last_checkpoint if this checkpoint has a higher block_number
+                    if last_checkpoint
+                        .as_ref()
+                        .is_none_or(|lc| checkpoint.block_number >= lc.block_number)
+                    {
+                        last_checkpoint = Some(checkpoint.clone());
+                    }
+                }
+                if let Some(checkpoint) = last_checkpoint {
+                    LastCheckpoint::<T>::insert(chain_configuration.chain_key, checkpoint);
+                }
+            }
+        }
+    }
+
+    #[pallet::event]
+    #[pallet::generate_deposit(pub(super) fn deposit_event)]
+    pub enum Event<T: Config> {
+        /// Emitted when an attestor is properly registered with the attestation system
+        AttestorRegistered(ChainKey, T::AccountId),
+        AttestorUnregistered(ChainKey, T::AccountId),
+        /// Emitted when an invulnerable is properly registered with the attestation system
+        InvulnerableRegistered(ChainKey, T::AccountId),
+        InvulnerableUnregistered(ChainKey, T::AccountId),
+        BlockAttested(ChainKey, u64, Digest),
+        CheckpointReached(ChainKey, AttestationCheckpoint),
+        PendingTargetSampleSizeSet(ChainKey, u32),
+        TargetSampleSizeChanged(ChainKey, u32),
+        Bonded {
+            stash: T::AccountId,
+            amount: BalanceOf<T>,
+        },
+        Unbonded {
+            stash: T::AccountId,
+            amount: BalanceOf<T>,
+        },
+        Withdrawn {
+            stash: T::AccountId,
+            amount: BalanceOf<T>,
+        },
+        AttestorActivated(ChainKey, T::AccountId, BlsPublicKey),
+        AttestorChilled(ChainKey, T::AccountId),
+        AttestorsElected {
+            epoch: u64,
+            chain_key: ChainKey,
+            attestors: Vec<T::AccountId>,
+        },
+        MinBondRequirementUpdated(ChainKey, BalanceOf<T>),
+
+        /// Note a change in the attestation interval for a source chain. Also notes the
+        /// block number of the latest attestation for that source chain at the time of
+        /// the interval change.
+        AttestationIntervalChanged(ChainKey, ChainAttestationIntervalType),
+        PendingAttestationIntervalSet(ChainKey, ChainAttestationIntervalType),
+        /// Signals that checkpoints were cleared for a chain that is no longer supported.
+        /// A fixed number of checkpoints will be cleared per block until none remain.
+        CheckpointsCleared(ChainKey),
+        CheckpointIntervalChanged(ChainKey, u32),
+        MaxCatchupChanged(ChainKey, u32),
+        PendingMaxCatchupSet(ChainKey, u32),
+        /// A source chain was removed via pallet supported chains. Associated storage
+        /// in pallet attestation was cleaned up.
+        ClearedStorageForRemovedChain(ChainKey),
+        /// Max attestors changed for a chain
+        MaxAttestorsChanged(ChainKey, u32),
+        /// Attestation chain genesis block number was set for a chain.
+        AttestationChainGenesisBlockNumberSet(ChainKey, u64),
+        /// Note a change in the attestor election policy.
+        ChangedElectionPolicy(ChainKey, AttestorElectionPolicy),
+        /// An attestor was authorized for a specific chain.
+        AuthorizedAttestorAdded(ChainKey, T::AccountId),
+        /// An attestor was unauthorized for a specific chain.
+        AuthorizedAttestorRemoved(ChainKey, T::AccountId),
+        /// An operator forced an election for a single chain's attestor set. `epoch` is the
+        /// epoch index the election was labelled with (the same value a scheduled election at
+        /// that time would carry).
+        ForcedElection {
+            chain_key: ChainKey,
+            epoch: u64,
+        },
+        /// Pending updates were force-applied via operator call.
+        ForcedUpdatesApplied,
+        /// A chain reversion was triggered
+        RevertedAttestationChainTo {
+            chain_key: ChainKey,
+            checkpoint_height: u64,
+            checkpoint_digest: Digest,
+        },
+        /// Operator forward-patched checkpoints (overwrite / optional suffix wipe).
+        ForwardCheckpointPatchApplied {
+            chain_key: ChainKey,
+            wiped_suffix: bool,
+            tip_block_number: u64,
+        },
+    }
+
+    #[pallet::error]
+    pub enum Error<T> {
+        /// The AccountId supplied has already been registered
+        AlreadyAttestor,
+        /// The attestor list is at the max size allowed by the current configuration
+        AttestorListFull,
+        /// the address supplied is not currently registered as an attestor
+        AddressNotAttestor,
+        /// The invulnerable list is full
+        InvulnerableListFull,
+        /// The call to set_max_invulnerables, most likely because the current list is longer than the new requested maximum
+        MaxInvulnerablesCannotBeChanged,
+        /// The call the urnegister_invulnerable failed because the address is not invulnerable
+        AddressIsNotInvulnerable,
+        /// The call to attest_block failed, the block's cryptographic committments were invalid
+        InvalidAttestation,
+        // If there is no digest stored yet
+        NoPreviousDigest,
+        // If there is a duplicate attestation
+        AttestationExists,
+        /// The chain is not supported
+        ChainNotSupported,
+        // Bls public key is invalid
+        InvalidBlsPublicKey,
+        // Invalid BLS signature
+        InvalidBlsSignature,
+        // Failed proof of possession check
+        InvalidProofOfPossession,
+        // Accessed non-existant storage entry, in checkpointing queue
+        // or attestations. This error should not occur unless there
+        // is a bug in this pallet.
+        CheckpointCreationError,
+        // The last checkpoint is empty when it is not expected to be
+        LastCheckpointEmpty,
+        // Checkpoint width calculated as zero which should be impossible
+        CheckpointWidthIsZero,
+        // Not enough attestations to create a checkpoint found in the checkpointing queue
+        CheckpointingQueueDrained,
+        // The attestation referenced in the queue points to a non-existent attestation
+        AttestationNotFound,
+        // The attestation in which the target checkpoint block should have been
+        // doesn't contain the expected block number
+        CheckpointTargetNotFound,
+        // Invalid attestor account
+        InvalidAttestorAccount,
+        // Insufficient balance to bond
+        InsufficientBalance,
+        // Not a stash account
+        NotStash,
+        // No more unlock chunks
+        NoMoreChunks,
+        // Not your attestor
+        NotYourAttestor,
+        // Already bonded
+        AlreadyBonded,
+        // Attestor is not in idle state
+        AttestorNotIdle,
+        // No supported chains
+        NoSupportedChains,
+        /// Tried to set attestation interval to zero, or above `MaxChainAttestationInterval`.
+        InvalidAttestationInterval,
+        /// Tried to set attestations per checkpoint to zero, or above the runtime-level
+        /// `MaxAttestationCheckpointInterval` ceiling. That ceiling keeps the interval-driven
+        /// part of `commit_attestation`'s dispatch weight within the `Normal` block budget.
+        InvalidAttestationsPerCheckpoint,
+        /// Tried to set `MaxCatchup` to zero, below the attestation interval, or above the
+        /// runtime-level `MaxCatchupCeiling`.
+        InvalidMaxCatchup,
+        // Tried to set committee set size to an invalid value.
+        InvalidTargetSampleSize,
+        /// Tried to set per-chain `MaxAttestors` above the runtime-level `MaxAttestationNodes`
+        /// ceiling, to zero, or below the chain's registered or active attestor count. The
+        /// ceiling is what `commit_attestation`'s benchmarked weight bound is measured against,
+        /// so a per-chain value above it would undercharge weight.
+        InvalidMaxAttestors,
+        /// A `commit_attestation` payload carried more attestor accounts than the per-chain
+        /// `MaxAttestors` ceiling. The attestor list is iterated and stored, and dispatch weight
+        /// is bounded by `MaxAttestors`, so an over-long list is both a weight under-accounting
+        /// and a storage-bloat vector. Rejected before any expensive BLS work.
+        TooManyAttestors,
+        // Tried to import checkpoints for chain key that already has attestations.
+        AttestationFoundWhileImporting,
+        // Invalid attestation chain block number.
+        InvalidAttestationBlockNumber,
+        // Errors when validating an attestation
+        // Invalid attestor account
+        InvalidAttestorFound,
+        // Attestor is not active
+        AttestorNotActive,
+        // BLS public key is invalid
+        AttestorWithInvalidPublicKey,
+        // Majority of signatures not reached
+        MajorityNotReached,
+        /// The BLS public key supplied is already registered to another attestor controller
+        /// on this chain (active or retired). BLS keys must be unique per chain so the
+        /// aggregation quorum reflects independent signers.
+        BlsKeyAlreadyRegistered,
+        /// The attestation lists enough distinct controller accounts but they map to fewer
+        /// distinct BLS public keys than the threshold. Without this check a single BLS
+        /// signer could satisfy the threshold by being aliased under multiple controller
+        /// accounts.
+        InsufficientUniqueSigners,
+        /// Too many retired attestor key entries are queued for this stash
+        RetiredAttestorPendingFull,
+        // Attestor is already authorized for the chain.
+        AttestorAlreadyAuthorized,
+        /// `register_attestor` was called under `AuthorizedOnly` without a prior `authorize_attestor`
+        /// for this attestor controller account.
+        NotPreAuthorizedToRegister,
+        /// `register_attestor` targeted a controller account whose retired BLS-key protection is
+        /// still live and owned by a different stash. Clearing it would prematurely release that
+        /// stash's BLS-key claim, so the registration is rejected.
+        ControllerRetiredByAnotherStash,
+        // Attestor is not authorized for the chain.
+        AttestorNotAuthorized,
+        // No finalized attestation found when one is required
+        NoFinalizedAttestation,
+        // Cannot set genesis block number when attestations or checkpoints already exist for the chain
+        AttestationsAlreadyExist,
+        // Continuity proof is empty when it shouldn't be
+        EmptyContinuityProof,
+        // Continuity proof is invalid
+        InvalidAttestationContinuityProof,
+        // Continuity proof tail does not link to last finalized attestation
+        InvalidAttestationContinuityProofTail,
+        // Continuity proof head does not link to attestation prev_digest
+        InvalidAttestationContinuityProofHead,
+        // Continuity proof has a bad block link
+        InvalidAttestationContinuityProofBlock,
+        // Invalid genesis block in continuity proof
+        InvalidAttestationContinuityProofBlockGenesis,
+        // Attestation previous digest is invalid
+        InvalidAttestationPrevDigest,
+        /// No longer constructed — `do_revert_to` now defers leftover rows to a cursor instead
+        /// of failing. Kept so this doesn't shift the SCALE index of variants below it.
+        TooManyAttestations,
+        // Tried to revert to a height at which there is no checkpoint
+        NoSuchCheckpoint,
+        // Last checkpoint not set when attempting to `revert_to` checkpoint or when importing checkpoints, which require referencing the last checkpoint
+        LastCheckpointNotSet,
+        // Tried to trigger reversion for a chain that is still processing a current reversion.
+        TriedToRevertDuringOngoingReversion,
+        /// Attestor is already idle and cannot chill again.
+        AttestorAlreadyIdle,
+        /// A voluntary chill is already scheduled for this attestor.
+        AttestorChillAlreadyScheduled,
+        /// Checkpoint pruning, checkpoint clearing, or bucket clearing is already in progress for this chain.
+        CheckpointMaintenanceInProgress,
+        /// Operator forward patch contained no checkpoints.
+        EmptyCheckpointPatch,
+        /// More checkpoints sit above the patch tip than allowed by [`MAX_CHECKPOINT_SUFFIX_WIPE_TOTAL`].
+        CheckpointSuffixWipeTooLarge,
+        /// More attestations remain on-chain than this dispatch can clear; splits/recovery tooling needed.
+        TooManyAttestationsForForwardPatchClear,
+        // Continuity proof `roots` exceeds `max_catchup * attestation_interval`.
+        // Defends `validate_attestation_continuity` against an attacker feeding an unbounded
+        // `Vec<H256>` and forcing an O(n) keccak chain inside dispatch.
+        // NOTE: appended at the end of the enum on purpose — inserting mid-list would shift the
+        // SCALE index of every following variant relative to the last released runtime.
+        OversizedContinuityProof,
+        /// A `revert_to`/removal cleanup (attestation cursor or checkpoint pruning) is still
+        /// draining for this chain; commits are rejected so cleanup can't collaterally delete a
+        /// new attestation or checkpoint.
+        AttestationCleanupInProgress,
+        /// The chain already received [`Config::MaxAttestationsPerBlock`] attestations this block.
+        TooManyAttestationsInBlock,
+        /// Tried to set per-chain `MaxInvulnerables` to zero or above the runtime-level
+        /// `MaxAttestationNodes` ceiling. Mirrors [`Error::InvalidMaxAttestors`].
+        InvalidMaxInvulnerables,
+    }
+
+    #[pallet::hooks]
+    impl<T: Config> Hooks<BlockNumberFor<T>> for Pallet<T> {
+        /// Initialization
+        fn on_initialize(_now: BlockNumberFor<T>) -> Weight {
+            let prune_weight = Self::on_init_prune_checkpoints();
+            let checkpoint_clear_weight = Self::on_init_clear_checkpoints();
+            let bucket_clear_weight = Self::on_init_clear_buckets();
+            let attestation_clear_weight = Self::on_init_clear_attestations();
+            let removed_chain_weight = Self::on_init_cleanup_removed_chains();
+
+            // Return combined weight from helpers this is a more practical
+            prune_weight
+                .saturating_add(checkpoint_clear_weight)
+                .saturating_add(bucket_clear_weight)
+                .saturating_add(attestation_clear_weight)
+                .saturating_add(removed_chain_weight)
+        }
+
+        fn integrity_test() {
+            assert!(T::MaxAttestationsPerBlock::get() > 0);
+            // Registration defaults must satisfy the setters' `interval <= MaxCatchup` rule.
+            assert!(T::DefaultAttestationInterval::get() <= T::DefaultMaxCatchup::get() as u64);
+            // Room for the queue a chain holds between checkpoints at the largest allowed
+            // checkpoint interval. Queued attestations are at least an attestation interval
+            // apart (see `validate_attestation`), so a steady interval never fills the queue; a
+            // full one (e.g. after the interval grew) is condensed into an off-grid checkpoint.
+            assert!(
+                T::MaxCheckpointingQueueLen::get()
+                    > T::MaxAttestationCheckpointInterval::get()
+                        .saturating_mul(2)
+                        .saturating_add(1)
+            );
+            let ceiling = T::MaxCatchupCeiling::get();
+            // Registration starts every chain at `DefaultMaxCatchup`, which the setter would
+            // reject above the ceiling.
+            assert!(T::DefaultMaxCatchup::get() <= ceiling);
+
+            let normal = T::BlockWeights::get();
+            let Some(max_extrinsic) = normal.get(DispatchClass::Normal).max_extrinsic else {
+                return;
+            };
+            let max_queue = T::MaxCheckpointingQueueLen::get();
+
+            // The worst commit at one setting, with `MaxCatchup` at its ceiling, must fit a normal
+            // extrinsic. Valid proofs reach `max(MaxCatchup, interval)` roots; the candidates are
+            // that, and the shortest and longest proofs around the catch-up threshold.
+            let check = |interval: u64, checkpoint_interval: u32, queue_len: u32| {
+                let width = interval.saturating_mul(checkpoint_interval as u64).max(1);
+                let proof_cap = (ceiling as u64).max(interval);
+                let gap = (queue_len as u64)
+                    .saturating_add(1)
+                    .saturating_mul(interval);
+                for proof_len in [
+                    proof_cap,
+                    width.saturating_mul(2),
+                    width.saturating_mul(2).saturating_sub(1),
+                ] {
+                    if proof_len == 0 || proof_len > proof_cap {
+                        continue;
+                    }
+                    let state = CommitWeightState {
+                        proof_len: proof_len as u32,
+                        attestors: T::MaxAttestationNodes::get(),
+                        queue_len,
+                        attestation_interval: interval,
+                        checkpoint_interval,
+                        max_catchup: ceiling,
+                        header_span: gap.saturating_add(proof_len),
+                    };
+                    let worst = state.weight::<T>(|| gap);
+                    assert!(
+                        worst.all_lte(max_extrinsic),
+                        "worst-case commit_attestation exceeds max_extrinsic: {worst:?} > {max_extrinsic:?} for {state:?}"
+                    );
+                }
+            };
+
+            // A full queue at the default intervals, as after the interval grew.
+            check(
+                T::DefaultAttestationInterval::get(),
+                T::DefaultAttestationsPerCheckpoint::get(),
+                max_queue,
+            );
+
+            // Every interval and checkpoint interval up to the maxima. The setters keep the
+            // interval within `MaxCatchup`, so it never exceeds the ceiling. A chain holds at
+            // most `2 * checkpoint_interval + 1` queued attestations at a fixed setting.
+            let sweep = |max: u64| {
+                core::iter::successors(Some(1u64), |v| u64::checked_mul(*v, 2))
+                    .take_while(move |v| *v < max)
+                    .chain([max])
+            };
+            for interval in sweep(T::MaxChainAttestationInterval::get().min(ceiling as u64)) {
+                for checkpoint_interval in sweep(T::MaxAttestationCheckpointInterval::get() as u64)
+                {
+                    let queue_len = checkpoint_interval
+                        .saturating_mul(2)
+                        .saturating_add(1)
+                        .min(max_queue as u64) as u32;
+                    check(interval, checkpoint_interval as u32, queue_len);
+                }
+            }
+        }
+    }
+
+    /// Deprecation notice: The extrinsics with indexes 8, 12, 15 and 17 have been removed.
+    /// The functionality of these extrinsics has been eliminated.
+    ///
+    /// Index 25 (`force_election(epoch: u64)`, an all-chains election) is retired and must not
+    /// be reused: its replacement `force_election(chain_key)` takes a single `u64` too, so a
+    /// call encoded against the old metadata would otherwise decode as a per-chain election of
+    /// whatever chain key the epoch number happens to name. Under a fresh index such a stale
+    /// submission fails to decode instead.
+    #[pallet::call]
+    impl<T: Config> Pallet<T> {
+        #[pallet::call_index(0)]
+        #[pallet::weight(<T as Config>::WeightInfo::set_chain_attestation_interval())]
+        pub fn set_chain_attestation_interval(
+            origin: OriginFor<T>,
+            chain_key: ChainKey,
+            chain_attestation_interval: ChainAttestationIntervalType,
+        ) -> DispatchResult {
+            T::OperatorsOrigin::ensure_origin(origin)?;
+
+            ensure! {
+                chain_attestation_interval > 0,
+                Error::<T>::InvalidAttestationInterval
+            };
+
+            // An unbounded interval would inflate `max_roots` in continuity-proof validation,
+            // neutering the `OversizedContinuityProof` guard (see `MaxChainAttestationInterval`).
+            ensure!(
+                chain_attestation_interval <= T::MaxChainAttestationInterval::get(),
+                Error::<T>::InvalidAttestationInterval
+            );
+
+            // Attestors never attest past `MaxCatchup` blocks beyond the last attested height,
+            // and the runtime requires each attestation to be at least an interval past it, so a
+            // larger interval would leave every height out of reach.
+            ensure!(
+                chain_attestation_interval <= Self::effective_max_catchup(chain_key) as u64,
+                Error::<T>::InvalidAttestationInterval
+            );
+
+            ensure!(
+                T::SupportedChains::is_chain_supported(chain_key),
+                Error::<T>::ChainNotSupported
+            );
+
+            PendingAttestationInterval::<T>::set(chain_key, Some(chain_attestation_interval));
+
+            Self::deposit_event(Event::<T>::PendingAttestationIntervalSet(
+                chain_key,
+                chain_attestation_interval,
+            ));
+
+            Ok(())
+        }
+
+        /// Set the per-chain [`TargetSampleSize`]. Applies at the next epoch via
+        /// [`PendingTargetSampleSize`].
+        ///
+        /// **This has no effect on anything today.** The quorum is `2/3+1` of
+        /// `|ActiveAttestors|` and does not read this value; the committee sortition that would
+        /// consume it (RFC-0174) is unbuilt and out of scope while `MaxAttestationNodes` sits
+        /// below its ~120 floor. The call is kept so the parameter survives for that work — see
+        /// [`TargetSampleSize`] for when it could start to matter.
+        #[pallet::call_index(1)]
+        #[pallet::weight(<T as Config>::WeightInfo::set_target_sample_size())]
+        pub fn set_target_sample_size(
+            origin: OriginFor<T>,
+            chain_key: ChainKey,
+            new_target_sample_size: u32,
+        ) -> DispatchResult {
+            T::OperatorsOrigin::ensure_origin(origin)?;
+
+            ensure! {
+                new_target_sample_size > 0,
+                Error::<T>::InvalidTargetSampleSize
+            };
+
+            // Mirror `set_chain_attestation_interval` / `set_max_catchup`: reject pending
+            // entries for chains we don't track. Without this, the epoch hook would write
+            // `TargetSampleSize::<T>::set(bogus_key, _)` and emit an event — and because
+            // `apply_interval_updates` previously bounded its cleanup by the supported-chain
+            // count, surplus bogus entries even survived the clear and re-fired every epoch.
+            ensure!(
+                T::SupportedChains::is_chain_supported(chain_key),
+                Error::<T>::ChainNotSupported
+            );
+
+            PendingTargetSampleSize::<T>::set(chain_key, Some(new_target_sample_size));
+
+            Self::deposit_event(Event::<T>::PendingTargetSampleSizeSet(
+                chain_key,
+                new_target_sample_size,
+            ));
+
+            Ok(())
+        }
+
+        #[pallet::call_index(2)]
+        #[pallet::weight(<T as Config>::WeightInfo::register_attestor())]
+        pub fn register_attestor(
+            origin: OriginFor<T>,
+            chain_key: ChainKey,
+            attestor_id: T::AccountId,
+        ) -> DispatchResult {
+            let who = ensure_signed(origin)?;
+
+            Self::try_insert_attestor_and_emit_event(chain_key, who, attestor_id)
+        }
+
+        #[pallet::call_index(3)]
+        #[pallet::weight(<T as Config>::WeightInfo::unregister_attestor())]
+        pub fn unregister_attestor(
+            origin: OriginFor<T>,
+            chain_key: ChainKey,
+            attestor_id: T::AccountId,
+        ) -> DispatchResult {
+            let who = ensure_signed(origin)?;
+
+            Self::remove_attestor_and_emit_event(chain_key, who, attestor_id)?;
+
+            Ok(())
+        }
+
+        #[pallet::call_index(4)]
+        #[pallet::weight(<T as Config>::WeightInfo::set_max_attestors())]
+        pub fn set_max_attestors(
+            origin: OriginFor<T>,
+            chain_key: ChainKey,
+            new_max: u32,
+        ) -> DispatchResult {
+            T::OperatorsOrigin::ensure_origin(origin)?;
+
+            // Bound by the runtime-level ceiling. This is the same value that backs the
+            // `BoundedVec` capacities used elsewhere for active attestors and that drives
+            // the `commit_attestation` weight benchmark, so accepting a per-chain `new_max`
+            // above it would either overflow those bounds or silently undercharge dispatch
+            // weight. Also reject zero so the operator can't accidentally disable
+            // attestations for a chain through this path — chain removal has its own flow.
+            ensure!(new_max > 0, Error::<T>::InvalidMaxAttestors);
+            ensure!(
+                new_max <= T::MaxAttestationNodes::get(),
+                Error::<T>::InvalidMaxAttestors
+            );
+
+            // Mirror the other setters: pending updates for unsupported chains are useless
+            // storage churn at best and surface bogus events at worst.
+            ensure!(
+                T::SupportedChains::is_chain_supported(chain_key),
+                Error::<T>::ChainNotSupported
+            );
+
+            // The quorum is a share of the active set, so a limit below the roster would make
+            // every commit fail. Registration already gates on this limit.
+            let roster = AttestorsCount::<T>::get(chain_key).max(Self::working_set_size(chain_key));
+            ensure!(new_max >= roster, Error::<T>::InvalidMaxAttestors);
+
+            MaxAttestors::<T>::insert(chain_key, new_max);
+
+            Self::deposit_event(Event::<T>::MaxAttestorsChanged(chain_key, new_max));
+
+            Ok(())
+        }
+
+        #[pallet::call_index(5)]
+        #[pallet::weight(<T as Config>::WeightInfo::register_invulnerable())]
+        pub fn register_invulnerable(
+            origin: OriginFor<T>,
+            chain_key: ChainKey,
+            attestor: T::AccountId,
+        ) -> DispatchResult {
+            T::OperatorsOrigin::ensure_origin(origin)?;
+
+            Self::try_insert_invulnerable_and_emit_event(chain_key, &attestor)
+        }
+
+        #[pallet::call_index(6)]
+        #[pallet::weight(<T as Config>::WeightInfo::unregister_invulnerable())]
+        pub fn unregister_invulnerable(
+            origin: OriginFor<T>,
+            chain_key: ChainKey,
+            attestor: T::AccountId,
+        ) -> DispatchResult {
+            T::OperatorsOrigin::ensure_origin(origin)?;
+
+            ensure!(
+                Self::address_is_invulnerable(chain_key, &attestor),
+                Error::<T>::AddressIsNotInvulnerable
+            );
+
+            Self::remove_invulnerable_and_emit_event(chain_key, attestor)
+        }
+
+        #[pallet::call_index(7)]
+        #[pallet::weight(<T as Config>::WeightInfo::set_max_invulnerables())]
+        pub fn set_max_invulnerables(
+            origin: OriginFor<T>,
+            chain_key: ChainKey,
+            new_max: u32,
+        ) -> DispatchResult {
+            T::OperatorsOrigin::ensure_origin(origin)?;
+
+            // Same bounds as `set_max_attestors` and chain registration: non-zero and at most
+            // the runtime-level `MaxAttestationNodes` ceiling.
+            ensure!(new_max > 0, Error::<T>::InvalidMaxInvulnerables);
+            ensure!(
+                new_max <= T::MaxAttestationNodes::get(),
+                Error::<T>::InvalidMaxInvulnerables
+            );
+
+            let count = Invulnerables::<T>::iter_prefix_values(chain_key)
+                .collect::<Vec<_>>()
+                .len() as u32;
+
+            ensure!(
+                new_max >= count,
+                Error::<T>::MaxInvulnerablesCannotBeChanged
+            );
+
+            MaxInvulnerables::<T>::insert(chain_key, new_max);
+            Ok(())
+        }
+
+        /// Inclusion fees are assessed up front for every caller ([`Pays::Yes`] via
+        /// [`CommitAttestationWeight`]) so the transaction pool cannot admit zero-fee spam from
+        /// callers who are not active attestors. On successful commit, active attestors receive
+        /// [`PostDispatchInfo`] with [`Pays::No`] so the final fee is waived.
+        #[pallet::call_index(9)]
+        #[pallet::weight(CommitAttestationWeight::<T>::default())]
+        pub fn commit_attestation(
+            origin: OriginFor<T>,
+            attestation: SignedAttestation<T::Hash, T::AccountId>,
+        ) -> DispatchResultWithPostInfo {
+            // Only allow active attestors to commit attestations
+            let account = ensure_signed(origin)?;
+            let chain_key = attestation.chain_key();
+            let active_attestors = ActiveAttestors::<T>::get(chain_key)
+                .into_iter()
+                .collect::<BTreeSet<_>>();
+            ensure!(
+                active_attestors.contains(&account),
+                Error::<T>::AttestorNotActive
+            );
+
+            Self::do_commit_attestation(attestation)?;
+            Ok(PostDispatchInfo {
+                actual_weight: None,
+                pays_fee: Pays::No,
+            })
+        }
+
+        #[pallet::call_index(10)]
+        #[pallet::weight(<T as Config>::WeightInfo::set_attestations_per_checkpoint())]
+        pub fn set_attestations_per_checkpoint(
+            origin: OriginFor<T>,
+            chain_key: ChainKey,
+            attestations_per_checkpoint: u32,
+        ) -> DispatchResult {
+            T::OperatorsOrigin::ensure_origin(origin)?;
+
+            ensure! {
+                attestations_per_checkpoint > 0,
+                Error::<T>::InvalidAttestationsPerCheckpoint
+            };
+
+            // Bound by the runtime-level ceiling: `weigh_data` charges `commit_attestation`'s
+            // weight with reads/writes that scale linearly with this interval, so accepting an
+            // unbounded value here would let a privileged caller inflate that weight past the
+            // `Normal` block budget and lock every attestor out of `commit_attestation`.
+            ensure!(
+                attestations_per_checkpoint <= T::MaxAttestationCheckpointInterval::get(),
+                Error::<T>::InvalidAttestationsPerCheckpoint
+            );
+
+            ensure!(
+                T::SupportedChains::is_chain_supported(chain_key),
+                Error::<T>::ChainNotSupported
+            );
+
+            AttestationCheckpointInterval::<T>::set(chain_key, attestations_per_checkpoint);
+            Self::deposit_event(Event::<T>::CheckpointIntervalChanged(
+                chain_key,
+                attestations_per_checkpoint,
+            ));
+
+            Ok(())
+        }
+
+        #[pallet::call_index(11)]
+        #[pallet::weight(<T as Config>::WeightInfo::set_min_bond_requirement())]
+        pub fn set_min_bond_requirement(
+            origin: OriginFor<T>,
+            chain_key: ChainKey,
+            min_bond_requirement: BalanceOf<T>,
+        ) -> DispatchResult {
+            T::OperatorsOrigin::ensure_origin(origin)?;
+
+            MinBondRequirement::<T>::set(chain_key, min_bond_requirement);
+
+            Self::deposit_event(Event::<T>::MinBondRequirementUpdated(
+                chain_key,
+                min_bond_requirement,
+            ));
+
+            Ok(())
+        }
+
+        #[pallet::call_index(13)]
+        #[pallet::weight(<T as Config>::WeightInfo::attest())]
+        pub fn attest(
+            origin: OriginFor<T>,
+            chain_key: ChainKey,
+            bls_public_key: BlsPublicKey,
+            proof_of_possession: BlsSignature,
+        ) -> DispatchResult {
+            let who = ensure_signed(origin)?;
+
+            Self::start_attesting(chain_key, who, bls_public_key, proof_of_possession)?;
+
+            Ok(())
+        }
+
+        #[pallet::call_index(14)]
+        #[pallet::weight(<T as Config>::WeightInfo::chill())]
+        pub fn chill(
+            origin: OriginFor<T>,
+            chain_key: ChainKey,
+            attestor_id: T::AccountId,
+        ) -> DispatchResult {
+            let who = ensure_signed(origin)?;
+
+            let attestor = Attestors::<T>::get(chain_key, &attestor_id)
+                .ok_or(Error::<T>::AddressNotAttestor)?;
+
+            // Only chill your own attestor
+            ensure!(attestor.stash == who, Error::<T>::NotYourAttestor);
+
+            match attestor.status {
+                AttestorStatus::Idle => Err(Error::<T>::AttestorAlreadyIdle.into()),
+                AttestorStatus::Leaving => Err(Error::<T>::AttestorChillAlreadyScheduled.into()),
+                AttestorStatus::Waiting => {
+                    Self::do_chill_attestor_immediate(chain_key, attestor_id);
+                    Ok(())
+                }
+                AttestorStatus::Active => {
+                    Self::schedule_voluntary_chill(chain_key, attestor_id);
+                    Ok(())
+                }
+            }
+        }
+
+        #[pallet::call_index(16)]
+        #[pallet::weight(<T as Config>::WeightInfo::withdraw_unbonded())]
+        pub fn withdraw_unbonded(origin: OriginFor<T>) -> DispatchResult {
+            let who = ensure_signed(origin)?;
+
+            Self::do_withdraw_unbonded(&who)?;
+
+            Ok(())
+        }
+
+        #[pallet::call_index(18)]
+        #[pallet::weight(<T as Config>::WeightInfo::import_checkpoints())]
+        pub fn import_checkpoints(
+            origin: OriginFor<T>,
+            chain_key: ChainKey,
+            checkpoints: BoundedVec<AttestationCheckpoint, T::MaxCheckpointsImportedPerCall>,
+        ) -> DispatchResult {
+            T::OperatorsOrigin::ensure_origin(origin)?;
+
+            Self::do_import_checkpoints(chain_key, checkpoints)?;
+
+            Ok(())
+        }
+
+        #[pallet::call_index(19)]
+        #[pallet::weight(<T as Config>::WeightInfo::set_attestation_chain_genesis_block_number())]
+        pub fn set_attestation_chain_genesis_block_number(
+            origin: OriginFor<T>,
+            chain_key: ChainKey,
+            genesis_block_number: u64,
+        ) -> DispatchResult {
+            T::OperatorsOrigin::ensure_origin(origin)?;
+
+            ensure!(
+                T::SupportedChains::is_chain_supported(chain_key),
+                Error::<T>::ChainNotSupported
+            );
+
+            // Ensure no attestations or checkpoints exist for this chain before setting genesis block number
+            ensure!(
+                Attestations::<T>::iter_prefix(chain_key).next().is_none()
+                    && Checkpoints::<T>::iter_prefix(chain_key).next().is_none(),
+                Error::<T>::AttestationsAlreadyExist
+            );
+
+            // Set the genesis block number for the attestation chain
+            AttestationChainGenesisBlockNumber::<T>::insert(chain_key, genesis_block_number);
+
+            Self::deposit_event(Event::<T>::AttestationChainGenesisBlockNumberSet(
+                chain_key,
+                genesis_block_number,
+            ));
+
+            Ok(())
+        }
+
+        #[pallet::call_index(21)]
+        #[pallet::weight(<T as Config>::WeightInfo::set_election_policy())]
+        pub fn set_election_policy(
+            origin: OriginFor<T>,
+            chain_key: ChainKey,
+            new_policy: AttestorElectionPolicy,
+        ) -> DispatchResult {
+            T::OperatorsOrigin::ensure_origin(origin)?;
+
+            ensure!(
+                T::SupportedChains::is_chain_supported(chain_key),
+                Error::<T>::ChainNotSupported
+            );
+
+            ChainElectionPolicy::<T>::insert(chain_key, new_policy);
+
+            Self::deposit_event(Event::<T>::ChangedElectionPolicy(chain_key, new_policy));
+
+            Ok(())
+        }
+
+        #[pallet::call_index(22)]
+        #[pallet::weight(<T as Config>::WeightInfo::authorize_attestor())]
+        pub fn authorize_attestor(
+            origin: OriginFor<T>,
+            chain_key: ChainKey,
+            attestor_id: T::AccountId,
+        ) -> DispatchResult {
+            T::OperatorsOrigin::ensure_origin(origin)?;
+
+            ensure!(
+                T::SupportedChains::is_chain_supported(chain_key),
+                Error::<T>::ChainNotSupported
+            );
+            ensure!(
+                !AuthorizedAttestors::<T>::contains_key(chain_key, &attestor_id),
+                Error::<T>::AttestorAlreadyAuthorized
+            );
+
+            AuthorizedAttestors::<T>::insert(chain_key, attestor_id.clone(), ());
+
+            Self::deposit_event(Event::<T>::AuthorizedAttestorAdded(chain_key, attestor_id));
+
+            Ok(())
+        }
+
+        #[pallet::call_index(23)]
+        #[pallet::weight(<T as Config>::WeightInfo::remove_authorized_attestor())]
+        pub fn remove_authorized_attestor(
+            origin: OriginFor<T>,
+            chain_key: ChainKey,
+            attestor_id: T::AccountId,
+        ) -> DispatchResult {
+            T::OperatorsOrigin::ensure_origin(origin)?;
+
+            ensure!(
+                AuthorizedAttestors::<T>::contains_key(chain_key, &attestor_id),
+                Error::<T>::AttestorNotAuthorized
+            );
+
+            AuthorizedAttestors::<T>::remove(chain_key, &attestor_id);
+
+            Self::deposit_event(Event::<T>::AuthorizedAttestorRemoved(
+                chain_key,
+                attestor_id,
+            ));
+
+            Ok(())
+        }
+
+        #[pallet::call_index(24)]
+        #[pallet::weight(<T as Config>::WeightInfo::kick_active_attestor())]
+        pub fn kick_active_attestor(
+            origin: OriginFor<T>,
+            chain_key: ChainKey,
+            attestor_id: T::AccountId,
+            unregister: bool,
+        ) -> DispatchResult {
+            T::OperatorsOrigin::ensure_origin(origin)?;
+
+            let attestor = Attestors::<T>::get(chain_key, &attestor_id)
+                .ok_or(Error::<T>::AddressNotAttestor)?;
+
+            Self::do_chill_attestor_immediate(chain_key, attestor_id.clone());
+
+            if unregister {
+                // If unregister is true, also remove the attestor from the attestor list
+                let stash = attestor.stash.clone();
+                Self::remove_attestor_and_emit_event(chain_key, stash, attestor_id)?;
+            }
+
+            Ok(())
+        }
+
+        /// Force an attestor election for a single chain, without waiting for the epoch
+        /// boundary.
+        ///
+        /// Runs the same selection the epoch hook runs for `chain_key` only: `Waiting`
+        /// attestors are admitted per the chain's election policy, `Leaving` attestors are
+        /// retired, and `AttestorsElected` is emitted if the resulting set differs from the
+        /// current one. Other chains are untouched. The election is labelled with the current
+        /// epoch index.
+        #[pallet::call_index(30)]
+        #[pallet::weight(<T as Config>::WeightInfo::force_election(AttestorsCount::<T>::get(chain_key)))]
+        pub fn force_election(origin: OriginFor<T>, chain_key: ChainKey) -> DispatchResult {
+            T::OperatorsOrigin::ensure_origin(origin)?;
+
+            ensure!(
+                T::SupportedChains::is_chain_supported(chain_key),
+                Error::<T>::ChainNotSupported
+            );
+
+            let epoch = T::CurrentEpochIndex::get();
+            Self::elect_attestors_for_chain(chain_key, epoch);
+
+            Self::deposit_event(Event::<T>::ForcedElection { chain_key, epoch });
+
+            Ok(())
+        }
+
+        /// Set the maximum catchup bound (in **blocks**) for a given chain.
+        /// During catchup, continuity proofs will span at most this many
+        /// blocks per attestation. Must be greater than zero and at most
+        /// [`Config::MaxCatchupCeiling`]. Takes effect at the next checkpoint.
+        #[pallet::call_index(26)]
+        #[pallet::weight(<T as Config>::WeightInfo::set_max_catchup())]
+        pub fn set_max_catchup(
+            origin: OriginFor<T>,
+            chain_key: ChainKey,
+            max_catchup: u32,
+        ) -> DispatchResult {
+            T::OperatorsOrigin::ensure_origin(origin)?;
+
+            ensure! {
+                max_catchup > 0,
+                Error::<T>::InvalidMaxCatchup
+            };
+
+            // An unbounded value would let `commit_attestation`'s declared weight outgrow a block.
+            ensure!(
+                max_catchup <= T::MaxCatchupCeiling::get(),
+                Error::<T>::InvalidMaxCatchup
+            );
+
+            // See `set_chain_attestation_interval`: the interval must stay within `MaxCatchup`.
+            ensure!(
+                max_catchup as u64 >= Self::effective_attestation_interval(chain_key),
+                Error::<T>::InvalidMaxCatchup
+            );
+
+            ensure!(
+                T::SupportedChains::is_chain_supported(chain_key),
+                Error::<T>::ChainNotSupported
+            );
+
+            PendingMaxCatchup::<T>::set(chain_key, Some(max_catchup));
+
+            Self::deposit_event(Event::<T>::PendingMaxCatchupSet(chain_key, max_catchup));
+
+            Ok(())
+        }
+
+        /// Force apply all pending configuration updates immediately.
+        ///
+        /// This applies pending attestation intervals, target sample sizes,
+        /// and max catchup values for all supported chains without waiting
+        /// for the next epoch boundary.
+        #[pallet::call_index(27)]
+        #[pallet::weight(<T as Config>::WeightInfo::force_apply_updates())]
+        pub fn force_apply_updates(origin: OriginFor<T>) -> DispatchResult {
+            T::OperatorsOrigin::ensure_origin(origin)?;
+
+            Self::apply_interval_updates();
+
+            Self::deposit_event(Event::<T>::ForcedUpdatesApplied);
+
+            Ok(())
+        }
+
+        /// Revert an attestation chain to the given checkpoint digest. This should only
+        /// be called if a deep reorg occurred on the corresponding source chain and one
+        /// or more attestations have become invalid.
+        #[pallet::call_index(28)]
+        #[pallet::weight(<T as Config>::WeightInfo::revert_to())]
+        pub fn revert_to(
+            origin: OriginFor<T>,
+            chain_key: ChainKey,
+            checkpoint_height: u64,
+        ) -> DispatchResult {
+            T::OperatorsOrigin::ensure_origin(origin)?;
+
+            ensure!(
+                T::SupportedChains::is_chain_supported(chain_key),
+                Error::<T>::ChainNotSupported
+            );
+
+            // Both cursors are seeded together but drain independently, so either can still be
+            // mid-flight after the other finishes.
+            ensure! {
+                CheckpointPruningStates::<T>::get(chain_key).is_none()
+                    && AttestationClearingCursors::<T>::get(chain_key).is_none(),
+                Error::<T>::TriedToRevertDuringOngoingReversion
+            };
+
+            let checkpoint_digest = Self::do_revert_to(chain_key, checkpoint_height)?;
+
+            Self::deposit_event(Event::<T>::RevertedAttestationChainTo {
+                chain_key,
+                checkpoint_height,
+                checkpoint_digest,
+            });
+
+            Ok(())
+        }
+
+        /// Overwrite or insert checkpoints and optionally drop every checkpoint above the batch tip.
+        ///
+        /// Clears **[`Attestations`]**, **[`CheckpointingQueues`]**, **[`AttestationRemovalQueues`]**, and
+        /// **[`LastDigest`]** for this `chain_key` first so stale attestations cannot contradict the patched
+        /// ladder (see [`crate::pallet::Pallet::purge_attestations_for_forward_patch`]).
+        ///
+        /// Does **not** unregister attestors or alter bonding ledger entries — attestors resume committing
+        /// attestations after recovery.
+        ///
+        /// When `wipe_suffix` is true, every checkpoint strictly above the batch tip is removed in this
+        /// dispatch (bounded by [`crate::impls::MAX_CHECKPOINT_SUFFIX_WIPE_TOTAL`]).
+        #[pallet::call_index(29)]
+        #[pallet::weight(<T as Config>::WeightInfo::forward_patch_checkpoints())]
+        pub fn forward_patch_checkpoints(
+            origin: OriginFor<T>,
+            chain_key: ChainKey,
+            wipe_suffix: bool,
+            checkpoints: BoundedVec<AttestationCheckpoint, T::MaxCheckpointsImportedPerCall>,
+        ) -> DispatchResult {
+            T::OperatorsOrigin::ensure_origin(origin)?;
+
+            Self::do_forward_patch_checkpoints(chain_key, wipe_suffix, checkpoints)?;
+
+            Ok(())
+        }
+    }
+
+    impl<T: Config> OnRegisterChainProvider for Pallet<T> {
+        fn on_register_chain(
+            chain_key: ChainKey,
+            _chain_id: u64,
+            _chain_name: Vec<u8>,
+            target_sample_size: Option<u32>,
+            chain_attestation_interval: Option<u64>,
+            attestation_checkpoint_interval: Option<u32>,
+            max_attestors: Option<u32>,
+            max_invulnerables: Option<u32>,
+            attestation_chain_genesis_block_number: Option<u64>,
+            _encoding: ChainEncodingVersion,
+        ) -> Result<(), &'static str> {
+            // Registration must mirror each setter's zero/ceiling checks — those only run when
+            // an operator updates the value later, so `Some(_)` here could otherwise plant a
+            // value that bricks submission or defeats a weight/proof-size guard. This handler is
+            // transactional, so an `Err` here rolls back the chain insert too.
+            if let Some(v) = target_sample_size {
+                if v == 0 {
+                    return Err("InvalidTargetSampleSize");
+                }
+            }
+            if let Some(v) = chain_attestation_interval {
+                if v == 0
+                    || v > T::MaxChainAttestationInterval::get()
+                    || v > MaxCatchup::<T>::get(chain_key) as u64
+                {
+                    return Err("InvalidAttestationInterval");
+                }
+            }
+            if let Some(v) = attestation_checkpoint_interval {
+                if v == 0 || v > T::MaxAttestationCheckpointInterval::get() {
+                    return Err("InvalidAttestationsPerCheckpoint");
+                }
+            }
+            // Same rationale, extended to the roster-capacity params: `set_max_attestors`
+            // enforces `0 < new_max <= MaxAttestationNodes` (the ceiling backing the
+            // `BoundedVec` capacities and the `commit_attestation` weight bound), but that
+            // check only runs when an operator updates the value later — registration must
+            // enforce it too, or a chain can be stored with a roster limit the rest of the
+            // pallet never expects.
+            if let Some(v) = max_attestors {
+                if v == 0 || v > T::MaxAttestationNodes::get() {
+                    return Err("InvalidMaxAttestors");
+                }
+            }
+            if let Some(v) = max_invulnerables {
+                if v == 0 || v > T::MaxAttestationNodes::get() {
+                    return Err("InvalidMaxInvulnerables");
+                }
+            }
+
+            TargetSampleSize::<T>::insert(
+                chain_key,
+                target_sample_size.unwrap_or(T::DefaultTargetSampleSize::get()),
+            );
+
+            Self::deposit_event(Event::<T>::TargetSampleSizeChanged(
+                chain_key,
+                target_sample_size.unwrap_or(T::DefaultTargetSampleSize::get()),
+            ));
+
+            ChainAttestationInterval::<T>::insert(
+                chain_key,
+                chain_attestation_interval.unwrap_or(T::DefaultAttestationInterval::get()),
+            );
+
+            Self::deposit_event(Event::<T>::AttestationIntervalChanged(
+                chain_key,
+                chain_attestation_interval.unwrap_or(T::DefaultAttestationInterval::get()),
+            ));
+
+            AttestationCheckpointInterval::<T>::insert(
+                chain_key,
+                attestation_checkpoint_interval
+                    .unwrap_or(T::DefaultAttestationsPerCheckpoint::get()),
+            );
+
+            Self::deposit_event(Event::<T>::CheckpointIntervalChanged(
+                chain_key,
+                attestation_checkpoint_interval
+                    .unwrap_or(T::DefaultAttestationsPerCheckpoint::get()),
+            ));
+
+            MaxAttestors::<T>::insert(
+                chain_key,
+                max_attestors.unwrap_or(T::MaxAttestationNodes::get()),
+            );
+
+            Self::deposit_event(Event::<T>::MaxAttestorsChanged(
+                chain_key,
+                max_attestors.unwrap_or(T::MaxAttestationNodes::get()),
+            ));
+
+            MaxInvulnerables::<T>::insert(
+                chain_key,
+                max_invulnerables.unwrap_or(T::MaxAttestationNodes::get()),
+            );
+
+            AttestationChainGenesisBlockNumber::<T>::insert(
+                chain_key,
+                attestation_chain_genesis_block_number
+                    .unwrap_or(T::DefaultAttestationChainGenesisBlockNumber::get()),
+            );
+
+            Self::deposit_event(Event::<T>::AttestationChainGenesisBlockNumberSet(
+                chain_key,
+                attestation_chain_genesis_block_number
+                    .unwrap_or(T::DefaultAttestationChainGenesisBlockNumber::get()),
+            ));
+
+            Ok(())
+        }
+    }
+
+    /// See the Polkadot SDK docs on [custom fees]
+    ///
+    /// [custom fees]: https://docs.polkadot.com/polkadot-protocol/parachain-basics/blocks-transactions-fees/fees/#custom-fees
+    struct CommitAttestationWeight<T>(PhantomData<T>);
+
+    impl<T> Default for CommitAttestationWeight<T> {
+        fn default() -> Self {
+            Self(PhantomData)
+        }
+    }
+
+    impl<T: Config> WeighData<(&SignedAttestation<T::Hash, T::AccountId>,)>
+        for CommitAttestationWeight<T>
+    {
+        fn weigh_data(&self, attestation: (&SignedAttestation<T::Hash, T::AccountId>,)) -> Weight {
+            let chain_key = attestation.0.chain_key();
+            let s = attestation.0.continuity_proof.len() as u32;
+            // Charge the variable attestor-list cost from the *actual* payload length rather than
+            // the fixed runtime `MaxAttestationNodes`. The on-chain `validate_attestation` /
+            // txpool prevalidation reject any payload whose `attestors.len()` exceeds the
+            // per-chain `MaxAttestors`, so the count is bounded; we cap here as defense in depth
+            // so a payload that somehow slips past still cannot undercharge below the benchmarked
+            // ceiling. Using the real length avoids over-charging the common case where a chain's
+            // `MaxAttestors` (or the actual quorum) is far below `MaxAttestationNodes`.
+            let max_attestors =
+                MaxAttestors::<T>::get(chain_key).min(T::MaxAttestationNodes::get());
+            let m = (attestation.0.attestors.len() as u32).min(max_attestors);
+
+            let header_number = attestation.0.header_number();
+            let last_checkpoint = LastCheckpoint::<T>::get(chain_key)
+                .map(|c| c.block_number)
+                .unwrap_or(header_number);
+
+            CommitWeightState {
+                proof_len: s,
+                attestors: m,
+                // Charged from the stored queue length, read from its length prefix.
+                queue_len: Pallet::<T>::checkpointing_queue_len(chain_key),
+                attestation_interval: ChainAttestationInterval::<T>::get(chain_key),
+                checkpoint_interval: AttestationCheckpointInterval::<T>::get(chain_key),
+                max_catchup: MaxCatchup::<T>::get(chain_key),
+                header_span: header_number.saturating_sub(last_checkpoint),
+            }
+            .weight::<T>(|| {
+                LastDigest::<T>::get(chain_key)
+                    .map(|(h, _)| h)
+                    .unwrap_or(last_checkpoint)
+                    .saturating_sub(last_checkpoint)
+            })
+        }
+    }
+
+    /// The chain state `commit_attestation`'s declared weight is derived from. `weigh_data` fills
+    /// it from storage; `integrity_test` fills it with the worst case at the configured maxima.
+    #[derive(Debug, Clone, Copy)]
+    pub(crate) struct CommitWeightState {
+        /// Roots in the attestation's own continuity proof.
+        pub proof_len: u32,
+        /// Attestors in the payload, already capped at the chain's `MaxAttestors`.
+        pub attestors: u32,
+        /// Entries in the checkpointing queue.
+        pub queue_len: u32,
+        pub attestation_interval: u64,
+        pub checkpoint_interval: u32,
+        pub max_catchup: u32,
+        /// Blocks from the last checkpoint to the attestation's header.
+        pub header_span: u64,
+    }
+
+    impl CommitWeightState {
+        /// `attested_gap` is only called on the catch-up path: the blocks from the last
+        /// checkpoint to the last attested height.
+        pub(crate) fn weight<T: Config>(&self, attested_gap: impl FnOnce() -> u64) -> Weight {
+            let checkpoint_width = self
+                .attestation_interval
+                .saturating_mul(self.checkpoint_interval as u64)
+                .max(1);
+            let proof_len = self.proof_len as u64;
+
+            // Continuity-proof roots walked beyond the attestation's own proof. The catch-up
+            // path expands every queued attestation's proof. Each proof extends the digest
+            // before it (see `validate_attestation_continuity`), so together they cover exactly
+            // the blocks between the last checkpoint and the last attested height plus the
+            // queued proof that straddles the checkpoint. A queued proof is shorter than
+            // `2 * checkpoint_width`, since a longer one takes the catch-up path instead, and no
+            // longer than the proof cap `validate_attestation_continuity` enforces. The legacy
+            // path walks one queued proof to locate the checkpoint target; the fallback for a
+            // full queue walks none.
+            let catching_up = proof_len >= checkpoint_width.saturating_mul(2);
+            let max_proof_len = (self.max_catchup as u64).max(self.attestation_interval);
+            let straddle = checkpoint_width.saturating_mul(2).min(max_proof_len);
+            let extra_roots = if catching_up {
+                attested_gap().saturating_add(straddle)
+            } else {
+                straddle
+            };
+            let extra_roots = extra_roots.min(u32::MAX as u64) as u32;
+
+            // Base weight from benchmarks, measured with checkpoint_width = 10 * 10 = 100.
+            let weight = CommitAttestationWeight::<T>::weight_for(
+                self.proof_len,
+                extra_roots,
+                self.attestors,
+                self.queue_len,
+            );
+
+            // --- Checkpoint creation writes ---
+            // The legacy path creates at most one checkpoint per commit, plus one more if the
+            // queue is then still full; the catch-up path creates one per checkpoint boundary
+            // between the last checkpoint and this attestation. Each costs 3 storage writes
+            // (Checkpoints, CheckpointBuckets, LastCheckpoint) plus a `CheckpointReached` event.
+            let estimated_checkpoints = if catching_up {
+                self.header_span / checkpoint_width
+            } else {
+                2
+            };
+            // The benchmark created `proof_len / 100` checkpoints.
+            let benchmark_checkpoints = proof_len / 100;
+            let extra = estimated_checkpoints.saturating_sub(benchmark_checkpoints);
+            weight.saturating_add(T::DbWeight::get().writes(extra.saturating_mul(4)))
+        }
+    }
+
+    /// Longest own continuity proof the `commit_attestation` benchmark samples (the default
+    /// `MaxCatchup`).
+    pub(crate) const COMMIT_BENCHMARK_MAX_SPAN: u32 = 500;
+
+    impl<T: Config> CommitAttestationWeight<T> {
+        /// Commit weight for an attestation with `own` continuity-proof roots and `m`
+        /// attestors, plus `extra` roots walked in queued proofs and the marginal cost of a
+        /// checkpointing queue of `q` entries. Each queued entry is read, decoded and removed.
+        /// The own proof is charged through `commit_attestation`, whose `s` slope covers
+        /// everything a commit does per root of its own proof. That benchmark only samples the
+        /// catch-up path (`s` from 200), so its intercept is an extrapolation that moves between
+        /// runs; the own proof is charged at no less than the top of the sampled range, which
+        /// never falls below a measured point. Only a proof past it (a `MaxCatchup` raised above
+        /// the default) is charged along the slope. The extra roots are only walked, so each is
+        /// charged through `continuity_roots` alone and no root is counted twice.
+        pub(crate) fn weight_for(own: u32, extra: u32, m: u32, q: u32) -> Weight {
+            let marginal = |f: fn(u32) -> Weight, n: u32| f(n).saturating_sub(f(0));
+            let own = own.max(COMMIT_BENCHMARK_MAX_SPAN);
+            <T as Config>::WeightInfo::commit_attestation(own, m)
+                .saturating_add(marginal(<T as Config>::WeightInfo::continuity_roots, extra))
+                .saturating_add(marginal(
+                    <T as Config>::WeightInfo::commit_attestation_queued,
+                    q,
+                ))
+        }
+    }
+
+    impl<T: Config> ClassifyDispatch<(&SignedAttestation<T::Hash, T::AccountId>,)>
+        for CommitAttestationWeight<T>
+    {
+        fn classify_dispatch(
+            &self,
+
+            _attestations: (&SignedAttestation<T::Hash, T::AccountId>,),
+        ) -> DispatchClass {
+            DispatchClass::Normal
+        }
+    }
+
+    impl<T: Config> PaysFee<(&SignedAttestation<T::Hash, T::AccountId>,)>
+        for CommitAttestationWeight<T>
+    {
+        /// Always [`Pays::Yes`] at validation time: [`PaysFee`] only sees call arguments, not the
+        /// signer, so fee exemption must not depend on `attestation.attestors`. Successful commits
+        /// from active attestors waive the charged fee via [`PostDispatchInfo`] in
+        /// [`Pallet::commit_attestation`].
+        fn pays_fee(&self, _attestation: (&SignedAttestation<T::Hash, T::AccountId>,)) -> Pays {
+            Pays::Yes
+        }
+    }
+}

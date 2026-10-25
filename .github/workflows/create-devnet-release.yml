@@ -1,0 +1,97 @@
+---
+name: Create Devnet release
+
+"on":
+  # Allows you to run this workflow manually from the Actions tab
+  workflow_dispatch:
+    inputs:
+      NETWORK:
+        required: true
+        type: choice
+        options:
+          - devnet
+          - asc-devnet
+        default: devnet
+        description: "Network to release for. Dispatch from that network's branch, or any branch for a devnet hotfix."
+
+permissions: read-all
+
+jobs:
+  bump-version:
+    runs-on: ubuntu-26.04
+    # checkov:skip=CKV2_GHA_1:We need this for auto-commit
+    permissions: write-all
+    steps:
+      # Fail before anything is committed: release.yml rejects a tag that is not on the
+      # branch its suffix names, but by then the version bump would already be pushed.
+      - name: Check the network matches the dispatched branch
+        env:
+          NETWORK: ${{ inputs.NETWORK }}
+        run: |
+          case "$NETWORK:$GITHUB_REF_NAME" in
+              # any branch: a devnet hotfix, the tag check below decides if it is safe
+              devnet:*) ;;
+              asc-devnet:writeability-off-usc-dev|asc-devnet:asc-dev) ;;
+              *)
+                  echo "FAIL: cannot release '$NETWORK' from branch '$GITHUB_REF_NAME'"
+                  echo "      asc-devnet is released from asc-dev"
+                  exit 1
+                  ;;
+          esac
+
+      - uses: actions/checkout@v7
+        with:
+          token: ${{ secrets.GLUWA_BOT_TOKEN }}
+          # history and tags, for the release version and the tag check
+          fetch-depth: 0
+
+      - name: Configure rustc version
+        run: |
+          RUSTC_VERSION=$(grep channel rust-toolchain.toml | tail -n1 | tr -d " " | cut -f2 -d'"')
+          echo "RUSTC_VERSION=$RUSTC_VERSION" >> "$GITHUB_ENV"
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: ${{ env.RUSTC_VERSION }}
+          components: rustfmt
+
+      # Count from the highest release to this network, not from version.rs alone: a hotfix
+      # cut from another branch takes a spec_version that this branch has not seen yet.
+      - name: Bump version
+        id: bump-version
+        env:
+          NETWORK: ${{ inputs.NETWORK }}
+        run: |
+          RELEASED=$(git tag -l "*-$NETWORK" | grep -E "^[0-9]+\.[0-9]+\.[0-9]+-$NETWORK\$" | sort -V | tail -n1 || true)
+          .github/bump-version.sh "${RELEASED%%-*}"
+
+          git status
+          git diff
+
+      - name: Check the tag would be accepted by the release pipeline
+        env:
+          # the tag does not exist yet, so the script checks HEAD
+          TAG_NAME: "${{ steps.bump-version.outputs.new_version }}-${{ inputs.NETWORK }}"
+        run: |
+          .github/check-tag-suffix-vs-origin-branch.sh
+
+      - name: Commit, tag & push changes to ${{ github.ref_name }}
+        uses: EndBug/add-and-commit@v11
+        with:
+          push: true
+          add: "Cargo.toml Cargo.lock runtime/src/version.rs"
+          author_name: gluwa-bot
+          author_email: creditcoin@gluwa.com
+          message: "Bump version to ${{ steps.bump-version.outputs.new_version }}"
+          tag: "${{ steps.bump-version.outputs.new_version }}-${{ inputs.NETWORK }}"
+          github_token: ${{ secrets.GLUWA_BOT_TOKEN }}
+
+      - name: Report result to Slack
+        if: always()
+        uses: act10ns/slack@v2
+        with:
+          webhook-url: ${{ secrets.SLACK_WEBHOOK_URL }}
+          status: ${{ job.status }}
+          channel: "#protocol-internal"
+          message: "Bump version to ${{ steps.bump-version.outputs.new_version }}-${{ inputs.NETWORK }}! Check for release in 1hr; cc <!subteam^S028FDV6CCV>"

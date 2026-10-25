@@ -1,0 +1,107 @@
+import { newApi, ApiPromise, KeyringPair } from '../../../lib';
+import { sleep } from '../../utils';
+import {
+    ALICE_NODE_URL,
+    BOB_NODE_URL,
+    initAliceKeyring,
+    randomFundedAccount,
+    fundFromSudo,
+    activateAttestor,
+    CLIBuilder,
+} from '../helpers';
+import { chain_Anvil1_Key } from '../../blockchain-tests/pallets/supported-chains/consts';
+import { parseAmount } from '../../../commands/options';
+
+describe('show-status', () => {
+    let api: ApiPromise;
+    let attestor: any;
+    let stash: any;
+    let CLI: any;
+    let sudoSigner: KeyringPair;
+
+    beforeAll(async () => {
+        ({ api } = await newApi(ALICE_NODE_URL));
+
+        sudoSigner = initAliceKeyring();
+    });
+
+    beforeEach(async () => {
+        attestor = await randomFundedAccount(api, sudoSigner);
+        stash = await randomFundedAccount(api, sudoSigner);
+
+        // eslint-disable-next-line @typescript-eslint/naming-convention
+        CLI = CLIBuilder({});
+    }, 60_000);
+
+    afterAll(async () => {
+        await api.disconnect();
+    });
+
+    it('should display "no attestors" message when stash has none registered', () => {
+        // note: nothing registered yet under this stash!
+        const result = CLI(`attestor show-status --evm-address ${stash.ethEvmAddress} --chain ${chain_Anvil1_Key}`);
+        expect(result.exitCode).toEqual(0);
+        expect(result.stdout).toContain(
+            `No attestors registered for stash ${stash.ethEvmAddress} on chain ${chain_Anvil1_Key}`,
+        );
+    }, 30_000);
+
+    it('should display status Idle for an attestor that was registered but never attested', async () => {
+        // The EVM-derived stash address is what `register_attestor` records as the stash AccountId,
+        // so it must be funded explicitly (separate from the sr25519 account funded by `randomFundedAccount`).
+        await fundFromSudo(api, stash.evmStashAddress, parseAmount('1000'));
+        const authenticatedCLI = CLIBuilder({ CC_SECRET: stash.secret });
+
+        let result = authenticatedCLI(`attestor register --chain ${chain_Anvil1_Key} --attestor ${attestor.address}`);
+        expect(result.exitCode).toEqual(0);
+
+        // The registration was submitted through Alice and returns once it is in a block there;
+        // Bob may not have imported that block yet, so give it a few blocks to catch up.
+        const expected = `Address ${attestor.address} status is Idle`;
+        for (let attempt = 0; attempt < 6; attempt++) {
+            result = CLI(
+                `attestor show-status --evm-address ${stash.ethEvmAddress} --chain ${chain_Anvil1_Key} --url ${BOB_NODE_URL}`,
+            );
+            if (result.exitCode !== 0 || result.stdout.includes(expected)) {
+                break;
+            }
+            await sleep(5_000);
+        }
+        expect(result.exitCode).toEqual(0);
+        expect(result.stdout).toContain(expected);
+    }, 120_000);
+
+    test('should display status Active for an attestor after election promotes it', async () => {
+        await fundFromSudo(api, stash.evmStashAddress, parseAmount('1000'));
+        const authenticatedCLI = CLIBuilder({ CC_SECRET: stash.secret });
+
+        let result = authenticatedCLI(`attestor register --chain ${chain_Anvil1_Key} --attestor ${attestor.address}`);
+        expect(result.exitCode).toEqual(0);
+
+        // Transition attestor to Active via api.tx.attestation.attest() + election wait.
+        // No external attestor binary needed.
+        await activateAttestor(api, attestor, chain_Anvil1_Key);
+
+        result = CLI(`attestor show-status --evm-address ${stash.ethEvmAddress} --chain ${chain_Anvil1_Key}`);
+        expect(result.exitCode).toEqual(0);
+        expect(result.stdout).toContain(`Address ${attestor.address} status is Active`);
+    }, 400_000);
+
+    test('should list every attestor of the stash with its status', async () => {
+        await fundFromSudo(api, stash.evmStashAddress, parseAmount('2000'));
+        const authenticatedCLI = CLIBuilder({ CC_SECRET: stash.secret });
+
+        const attestor2 = await randomFundedAccount(api, sudoSigner);
+
+        let result = authenticatedCLI(`attestor register --chain ${chain_Anvil1_Key} --attestor ${attestor.address}`);
+        expect(result.exitCode).toEqual(0);
+
+        result = authenticatedCLI(`attestor register --chain ${chain_Anvil1_Key} --attestor ${attestor2.address}`);
+        expect(result.exitCode).toEqual(0);
+
+        result = CLI(`attestor show-status --evm-address ${stash.ethEvmAddress} --chain ${chain_Anvil1_Key}`);
+        expect(result.exitCode).toEqual(0);
+        expect(result.stdout).toContain(`Address ${attestor.address} status is Idle`);
+        expect(result.stdout).toContain(`Address ${attestor2.address} status is Idle`);
+    }, 120_000);
+});

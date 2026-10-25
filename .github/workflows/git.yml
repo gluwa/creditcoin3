@@ -1,0 +1,171 @@
+---
+name: git
+
+"on":
+  pull_request:
+
+concurrency:
+  group: ${{ github.ref }}-${{ github.workflow }}
+  cancel-in-progress: true
+
+permissions: read-all
+
+jobs:
+  setup:
+    runs-on: ubuntu-26.04
+    outputs:
+      previous_release: ${{ steps.devnet-env.outputs.previous_release || steps.testnet-env.outputs.previous_release || steps.mainnet-env.outputs.previous_release }}
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Devnet ENV
+        id: devnet-env
+        if: contains(fromJSON('["usc-dev", "dev"]'), github.base_ref)
+        run: |
+          # shellcheck disable=SC2129
+          PREV_RELEASE=$(.github/extract-release-tag.sh "devnet")
+          echo "previous_release=$PREV_RELEASE" >> "$GITHUB_OUTPUT"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+
+      - name: Testnet ENV
+        id: testnet-env
+        if: github.base_ref == 'usc-testnet'
+        run: |
+          # shellcheck disable=SC2129
+          PREV_RELEASE=$(.github/extract-release-tag.sh "testnet")
+          echo "previous_release=$PREV_RELEASE" >> "$GITHUB_OUTPUT"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+
+      - name: Mainnet ENV
+        id: mainnet-env
+        if: github.base_ref == 'main'
+        run: |
+          # shellcheck disable=SC2129
+          PREV_RELEASE=$(.github/extract-release-tag.sh "mainnet")
+          echo "previous_release=$PREV_RELEASE" >> "$GITHUB_OUTPUT"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+
+  check-changelog:
+    if: github.base_ref == 'usc-testnet' || github.base_ref == 'main'
+    needs: setup
+    uses: ./.github/workflows/generate-changelog.yml
+    with:
+      previous-release: "${{ needs.setup.outputs.previous_release }}"
+    secrets: inherit
+
+  sanity:
+    # note: github.{base_ref|head_ref} only available on pull requests
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-26.04
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # The PR head as this repository sees it. `refs/pull/<n>/head` exists for fork and
+          # same-repo PRs alike, whereas `github.head_ref` names a branch that only exists in
+          # the fork, so checking that out here failed every fork PR before any check ran.
+          ref: refs/pull/${{ github.event.pull_request.number }}/head
+
+      - name: Check for duplicate files
+        run: |
+          .github/check-for-duplicate-files.sh
+
+      - name: Install Solidity compiler
+        run: |
+          sudo .github/install-solidity-compiler.sh
+
+      - name: Generate ABI from source code
+        working-directory: ./precompiles/metadata
+        run: |
+          solc --version
+          ./abi-creator.sh
+
+      - name: Check for broken symlinks
+        run: |
+          .github/check-for-broken-symlinks.sh
+
+  # Warns when a PR into dev would make the next dev -> usc-testnet promotion conflict.
+  #
+  # Only conflicts this PR adds count. The trunks are reconciled by merge, so whatever
+  # dev on its own already conflicts on is trunk drift, not this PR's doing: failing every
+  # open PR for it taught everyone to ignore the check. trunk-drift.yml reports that drift
+  # once a day instead. (A rebase onto usc-testnet used to be checked too; it can't pass
+  # once a fix reaches both trunks as separate squash commits, and nobody rebases trunks.)
+  merge-check:
+    runs-on: ubuntu-26.04
+    timeout-minutes: 10
+    if: contains(fromJSON('["usc-dev", "dev"]'), github.base_ref)
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Check the PR adds no conflicts with usc-testnet
+        env:
+          BASE: origin/${{ github.base_ref }}
+          TARGET: origin/usc-testnet
+        run: |
+          set -euo pipefail
+          # Files a merge into usc-testnet would conflict on, without touching the worktree.
+          # merge-tree exits 1 when the merge conflicts, which is an answer here, but also for
+          # a ref it can't resolve. So check both refs first, and that the output starts with
+          # the merged tree's id, before reading its exit status as "conflicts".
+          conflicts() {
+            local ref out rc=0
+            for ref in "$TARGET" "$1"; do
+              git rev-parse --verify --quiet "${ref}^{commit}" >/dev/null \
+                || { echo "unknown ref: $ref" >&2; exit 2; }
+            done
+            out=$(git merge-tree --write-tree --name-only --no-messages "$TARGET" "$1") || rc=$?
+            if [ "$rc" -gt 1 ] || ! head -n 1 <<< "$out" | grep -qE '^[0-9a-f]{40,64}$'; then
+              echo "git merge-tree failed for $1 (exit $rc): $out" >&2
+              exit 2
+            fi
+            tail -n +2 <<< "$out" | sort -u
+          }
+          BEFORE=$(conflicts "$BASE")
+          AFTER=$(conflicts HEAD)
+          NEW=$(comm -13 <(echo "$BEFORE") <(echo "$AFTER") | sed '/^$/d')
+
+          if [ -n "$BEFORE" ]; then
+            echo "::notice::${BASE} already conflicts with ${TARGET} (trunk drift, not this PR):"
+            echo "$BEFORE"
+          fi
+          if [ -n "$NEW" ]; then
+            echo "::error::This PR adds merge conflicts with ${TARGET} in:"
+            echo "$NEW"
+            echo "Resolve them here, or plan to resolve them in the next promotion PR." >&2
+            exit 1
+          fi
+          echo "INFO: no new conflicts with ${TARGET}"
+
+  target-branch-check:
+    runs-on: ubuntu-26.04
+    steps:
+      - name: Check the target branch of this PR
+        run: |
+          TARGET_BRANCH="${{ github.base_ref }}"
+
+          # usc-dev is being renamed to dev; accept both until the cleanup lands.
+          if [ "$TARGET_BRANCH" == "usc-dev" ] || [ "$TARGET_BRANCH" == "dev" ]; then
+            exit 0
+          fi
+
+          if [ "$TARGET_BRANCH" == "usc-testnet" ]; then
+            exit 0
+          fi
+
+          if [ "$TARGET_BRANCH" == "main" ]; then
+            exit 0
+          fi
+
+          # note: GitHub appears to display these in reverse order
+          echo "::warning::Existing CI jobs may not be scheduled! Look out for missing statuses!"
+          echo "::warning::Target branch for this PR is a non-standard one!"
+          exit 1

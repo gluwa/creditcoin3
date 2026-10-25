@@ -1,0 +1,1575 @@
+//! Lightweight attestation pool — digest-only votes; submitter owns the continuity proof.
+//!
+//! # What changed vs. v1
+//!
+//! - Votes are tiny: just `(chain_key, height, digest, attestor_id, signature_bls)`. No continuity
+//!   proof, no header hash. ~200 B vs. a few KB per vote.
+//! - The pool indexes votes by `(height, digest)` only. The `CompoundDigest` (digest +
+//!   digest_continuity + header_hash) is gone — without proofs in votes there's nothing to compound.
+//! - The "pending by tail_prev_digest" mechanism is gone. That existed because legacy votes
+//!   carried full proofs that could mismatch on the tail digest. With digest-only votes, there's
+//!   nothing to mismatch on at gossip time. Tail-digest validation moves to the submitter (it's
+//!   the only one that needs a continuity proof).
+//! - The submitter, when it receives a quorum, looks up its local continuity proof for
+//!   `(height, digest)` and runs the head/tail/continuity checks before submitting. Other
+//!   attestors do no proof work.
+//!
+//! # API shape (kept similar to v1 to ease the transition in the validation task)
+//!
+//! - [`attestation_pool`] returns `(Sender, Receiver)`.
+//! - The receiver exposes `async fn recv() -> Option<(Quorum, Permit)>` (Notify-backed —
+//!   no manual `Waker` plumbing).
+//! - The receiver consumer must call `mark_valid` / `mark_invalid` / `mark_for_later` with the
+//!   permit so the inner pool stays consistent.
+//!
+//! See [`Sender`] for the chain-event seams (`note_attestation_finalization`,
+//! `note_attestation_interval_change`, `note_attestors_elected`,
+//! `note_quorum_change`, `note_attestation_chain_reversion`).
+
+mod error;
+
+pub use error::Error;
+
+/// Minimal metrics hook the pool can call without taking a hard dep on the `metrics` crate.
+/// Implementations live in the attestor binary (`attestor`) where the full Prometheus
+/// registry already exists. A no-op default impl is provided so tests + small consumers
+/// don't have to write boilerplate.
+pub trait MetricsHook: Send + Sync {
+    /// Called once per height the first time a quorum is observed there. `elapsed` is
+    /// the wall-clock time between the first vote arriving and quorum being reached.
+    fn quorum_delay(&self, _elapsed: std::time::Duration) {}
+    /// Called when a vote is rejected as known-invalid / equivocation / unauthorized.
+    fn invalid_vote(&self) {}
+    /// Called when an equivocation is specifically detected (subset of invalid_vote).
+    fn equivocation(&self) {}
+}
+
+/// No-op metrics hook. Useful in tests and when a binary doesn't want any metrics.
+pub struct NoMetrics;
+impl MetricsHook for NoMetrics {}
+
+// Lets `Box<dyn MetricsHook>` itself satisfy the `MetricsHook` bound, so the builder's
+// generic `with_metrics(impl MetricsHook)` accepts a boxed trait object as well as a concrete
+// impl. Mirrors the same trick legacy `MetricsAttestationPool` used.
+impl MetricsHook for Box<dyn MetricsHook> {
+    fn quorum_delay(&self, elapsed: std::time::Duration) {
+        self.as_ref().quorum_delay(elapsed);
+    }
+    fn invalid_vote(&self) {
+        self.as_ref().invalid_vote();
+    }
+    fn equivocation(&self) {
+        self.as_ref().equivocation();
+    }
+}
+
+use std::collections::{BTreeMap, BTreeSet, HashSet};
+use std::num::NonZero;
+use std::sync::atomic::AtomicUsize;
+use std::sync::Arc;
+
+use parking_lot::Mutex;
+
+use attestor_primitives::{AttestorId, ChainKey, Digest, Height};
+
+// --------------------------------------- [ Vote payload ] ------------------------------------- //
+
+/// A lightweight vote: only the digest plus the per-attestor BLS signature.
+///
+/// Attestors verify a vote against their **own local `AttestationData`** at the same height. The
+/// signed bytes are the local `AttestationData.serialize()` — peers only need their local data
+/// plus the sender's BLS pubkey to verify.
+///
+/// If a peer hasn't built its own local attestation at `height` yet, it queues the vote pending
+/// (in v2 we just drop / refuse with `InvalidHeight` — production is what brings the local data
+/// in, and once the local digest matches, future votes for the same digest verify).
+#[derive(Clone, Debug, parity_scale_codec::Encode, parity_scale_codec::Decode)]
+pub struct Vote {
+    pub chain_key: ChainKey,
+    pub height: Height,
+    pub digest: Digest,
+    pub attestor: AttestorId,
+    pub signature_bls: attestor_primitives::bls::WrapEncode<bls_signatures::Signature>,
+}
+
+impl Vote {
+    pub fn digest(&self) -> Digest {
+        self.digest
+    }
+
+    pub fn height(&self) -> Height {
+        self.height
+    }
+
+    pub fn chain_key(&self) -> ChainKey {
+        self.chain_key
+    }
+
+    pub fn attestor_id(&self) -> AttestorId {
+        self.attestor.clone()
+    }
+}
+
+// --------------------------------------- [ Configuration ] ------------------------------------ //
+
+#[derive(builder::Builder)]
+pub struct Config {
+    pub attestors: Vec<cc_client::AccountId32>,
+    pub quorum: NonZero<usize>,
+    pub attestation_interval: NonZero<Height>,
+    pub start_height: Height,
+    pub max_catchup: NonZero<Height>,
+    pub start_digest: Option<Digest>,
+    pub start_height_finalized: Option<Height>,
+    /// Hook the pool calls for metric updates. Pass [`NoMetrics`] in `Box::new` if you don't
+    /// want any. The attestor binary supplies a real impl wired to its Prometheus registry.
+    pub metrics: Box<dyn MetricsHook>,
+}
+
+// ------------------------------------- [ Sender / Receiver ] ---------------------------------- //
+
+/// Pool sender — cheap to clone, used by production and p2p to push votes into the pool.
+pub struct Sender {
+    inner: Arc<Shared>,
+}
+
+/// Pool receiver — single consumer (the validation task).
+pub struct Receiver {
+    inner: Arc<Shared>,
+}
+
+pub fn attestation_pool(config: Config) -> (Sender, Receiver) {
+    if config.quorum.get() > 255 {
+        tracing::warn!(quorum = %config.quorum, "⚠️ abnormally high quorum");
+    }
+
+    tracing::info!(
+        height = %config.start_height,
+        interval = %config.attestation_interval,
+        quorum = %config.quorum,
+        "📮 starting attestation pool"
+    );
+
+    let pool = Pool::new(
+        ValidateAttestor::new(config.attestors),
+        config.quorum,
+        config.attestation_interval,
+        config.start_height,
+        config.max_catchup,
+        config.start_digest,
+        config.start_height_finalized,
+        config.metrics,
+    );
+
+    let shared = Arc::new(Shared {
+        pool: Mutex::new(State::Open(Box::new(pool))),
+        senders: AtomicUsize::new(1),
+        notify: tokio::sync::Notify::new(),
+    });
+
+    (
+        Sender {
+            inner: shared.clone(),
+        },
+        Receiver { inner: shared },
+    )
+}
+
+// ----------------------------------------- [ Internals ] -------------------------------------- //
+
+struct Shared {
+    pool: Mutex<State>,
+    senders: AtomicUsize,
+    /// Tokens the receiver awaits on. Push side calls `notify_one()` after any state change
+    /// that may surface a quorum; receiver uses the canonical
+    /// `notified().enable() → check → await` pattern (see [`Receiver::recv`]) to avoid missed
+    /// wakeups. Replaces the v0 hand-rolled `VecDeque<Waker>`.
+    notify: tokio::sync::Notify,
+}
+
+enum State {
+    // Pool is boxed so the `Closed` variant doesn't pay the full ~360 B size cost. All access
+    // is via `State::Open(pool)` patterns where `pool: &mut Box<Pool>` auto-derefs to `Pool`'s
+    // methods, so call sites are unchanged.
+    Open(Box<Pool>),
+    Closed,
+}
+
+struct Pool {
+    forks: Forks,
+    valid: ValidBatch,
+    validate_attestor: ValidateAttestor,
+    validate_quorum: ValidateQuorum,
+    delays: Delays,
+    metrics: Box<dyn MetricsHook>,
+    /// Digest of the most recent *locally-marked-valid* quorum. Used by the submitter so it can
+    /// match a quorum's digest against the locally-known one (helps the fork-vs-our-chain
+    /// distinction).
+    digest_local: Option<Digest>,
+    /// Highest height we've locally marked valid (and committed to submit/stash). Votes at
+    /// heights ≤ this are rejected even before on-chain finalization arrives — otherwise we'd
+    /// double-stash the same height (production keeps gossiping; new votes form a fresh fork
+    /// at the same height; pool re-yields a quorum; validation stashes again).
+    locally_validated_height: Option<Height>,
+    /// Changes whenever the committee is refreshed or the vote pool is reset. A validation
+    /// result from an older generation must not defer a fork in the refreshed pool.
+    validation_generation: u64,
+}
+
+impl Pool {
+    #[allow(clippy::too_many_arguments)]
+    fn new(
+        validate_attestor: ValidateAttestor,
+        quorum: NonZero<usize>,
+        interval: NonZero<Height>,
+        start_height: Height,
+        max_catchup: NonZero<Height>,
+        last_finalized_digest: Option<Digest>,
+        last_finalized_height: Option<Height>,
+        metrics: Box<dyn MetricsHook>,
+    ) -> Self {
+        Self {
+            forks: Forks::new(last_finalized_digest, last_finalized_height),
+            valid: ValidBatch::default(),
+            validate_attestor,
+            validate_quorum: ValidateQuorum {
+                target: quorum,
+                interval,
+                start_height,
+                max_catchup,
+            },
+            delays: Delays::default(),
+            metrics,
+            digest_local: None,
+            locally_validated_height: None,
+            validation_generation: 0,
+        }
+    }
+
+    fn push(&mut self, vote: Vote) -> Result<(), Error> {
+        if let Err(err) = self.validate_attestor.check(&vote) {
+            self.metrics.invalid_vote();
+            return Err(err);
+        }
+
+        // Use whichever lower bound is higher: on-chain finalized, or locally validated. The
+        // latter rejects new votes at heights we've already chosen a digest for.
+        let lower_bound = self
+            .forks
+            .last_finalized_height
+            .max(self.locally_validated_height);
+
+        if !self
+            .validate_quorum
+            .height_admissible(vote.height, lower_bound)
+        {
+            // Out-of-window votes aren't tagged invalid — they're just stale; we don't bump
+            // the invalid-vote counter for these. They get logged at debug in the caller.
+            return Err(Error::InvalidHeight(
+                vote.attestor.clone(),
+                vote.height,
+                lower_bound.unwrap_or(self.validate_quorum.start_height),
+            ));
+        }
+
+        let height = vote.height;
+        match self.forks.push(vote) {
+            Ok(()) => {}
+            Err(err @ Error::Equivocation(..)) => {
+                self.metrics.equivocation();
+                self.metrics.invalid_vote();
+                return Err(err);
+            }
+            Err(err @ Error::KnownInvalid(..)) => {
+                self.metrics.invalid_vote();
+                return Err(err);
+            }
+            Err(err) => return Err(err),
+        }
+        self.delays.push(height);
+        // Receiver notification is fired by `Sender::send` after the lock is released.
+        Ok(())
+    }
+
+    fn peek(&mut self) -> Option<(Quorum, Permit)> {
+        let target = self.validate_quorum.target.get();
+        let fork = self.forks.best(target)?;
+        let height = fork.height;
+        let digest = fork.digest;
+        let chain_key = fork.chain_key;
+        let votes = fork.votes.clone();
+        let vote_count = votes.len();
+
+        if let Some(elapsed) = self.delays.pop(height) {
+            tracing::debug!(
+                ?digest,
+                height,
+                elapsed_ms = elapsed.as_millis(),
+                "⏱️ time from first vote to quorum"
+            );
+            self.metrics.quorum_delay(elapsed);
+        }
+
+        Some((
+            Quorum {
+                height,
+                digest,
+                chain_key,
+                votes,
+            },
+            Permit {
+                height,
+                digest,
+                validation_generation: self.validation_generation,
+                vote_count,
+            },
+        ))
+    }
+
+    fn mark_valid(&mut self, permit: Permit) {
+        self.forks.split_off(permit.height);
+        self.digest_local = Some(permit.digest);
+        self.locally_validated_height = Some(
+            self.locally_validated_height
+                .map(|h| h.max(permit.height))
+                .unwrap_or(permit.height),
+        );
+    }
+
+    fn mark_invalid(&mut self, permit: Permit) {
+        self.forks.invalidate_fork(permit.height, permit.digest);
+    }
+
+    /// Drop a single fork without locking the height or tombstoning it. Used when we can't act on
+    /// this fork (e.g. no local proof) but other forks at the same height should still proceed.
+    fn mark_skipped(&mut self, permit: Permit) {
+        self.forks.drop_fork(permit.height, permit.digest);
+    }
+}
+
+// ---------------------------------------- [ Sender impl ] ------------------------------------- //
+
+impl Sender {
+    /// Submit a vote into the pool. Returns `None` if the pool is closed.
+    pub fn send(&self, vote: Vote) -> Option<Result<(), Error>> {
+        let result = {
+            let mut guard = self.inner.pool.lock();
+            match &mut *guard {
+                State::Open(pool) => Some(pool.push(vote)),
+                State::Closed => None,
+            }
+        };
+        if matches!(result, Some(Ok(()))) {
+            self.inner.notify.notify_one();
+        }
+        result
+    }
+
+    /// A new attestation finalized on-chain — drop everything ≤ that height.
+    pub fn note_attestation_finalization(&self, height: Height, digest: Digest) {
+        let mutated = {
+            let mut guard = self.inner.pool.lock();
+            if let State::Open(pool) = &mut *guard {
+                pool.valid.drop_up_to(height);
+                pool.delays.drop_up_to(height);
+                pool.forks.note_finalized(height, digest);
+                true
+            } else {
+                false
+            }
+        };
+        if mutated {
+            self.inner.notify.notify_one();
+        }
+    }
+
+    pub fn note_attestation_interval_change(&self, interval_new: NonZero<Height>) {
+        let mut guard = self.inner.pool.lock();
+        if let State::Open(pool) = &mut *guard {
+            pool.validation_generation = pool.validation_generation.wrapping_add(1);
+            pool.forks.clear();
+            pool.valid.clear();
+            pool.delays.clear();
+            pool.validate_quorum.interval = interval_new;
+            pool.digest_local = None;
+            pool.locally_validated_height = None;
+        }
+    }
+
+    pub fn note_attestors_elected(&self, attestors: Vec<cc_client::AccountId32>) {
+        let mutated = {
+            let mut guard = self.inner.pool.lock();
+            if let State::Open(pool) = &mut *guard {
+                pool.validation_generation = pool.validation_generation.wrapping_add(1);
+                pool.validate_attestor = ValidateAttestor::new(attestors);
+                // Revalidate stored state against the new set: votes already pooled by signers
+                // that just left the active set can no longer contribute to an on-chain quorum
+                // (the runtime filters `attestors` to the live `ActiveAttestors`), so keeping
+                // them around only inflates fork sizes and lets stale quorums surface. Prune
+                // them now rather than letting the submitter discover the shortfall at
+                // aggregation time.
+                let validate_attestor = &pool.validate_attestor;
+                pool.forks
+                    .retain_signers(|attestor| validate_attestor.set.contains(attestor));
+                true
+            } else {
+                false
+            }
+        };
+        if mutated {
+            // `retain_signers` clears `deferred` (an active-set refresh is exactly the state
+            // change deferred forks wait for) and pruning can break a quorum tie — either can
+            // surface a ready quorum with no further vote to trigger a wake. A receiver parked
+            // in `recv()` would otherwise sleep until some unrelated notify while an eligible
+            // quorum sits unseen; mirror every other state-mutating seam.
+            self.inner.notify.notify_one();
+        }
+    }
+
+    /// The on-chain `MaxCatchup` (in blocks) changed — adjust the vote-admission window.
+    pub fn note_max_catchup_change(&self, max_catchup: NonZero<Height>) {
+        let mutated = {
+            let mut guard = self.inner.pool.lock();
+            if let State::Open(pool) = &mut *guard {
+                pool.validate_quorum.max_catchup = max_catchup;
+                true
+            } else {
+                false
+            }
+        };
+        if mutated {
+            // Widening the catch-up window can make a fork admissible that wasn't before; mirror
+            // every other state-mutating seam and wake a parked receiver to re-peek rather than
+            // relying on the next incoming vote to do it.
+            self.inner.notify.notify_one();
+        }
+    }
+
+    /// Install `threshold` as the pool's quorum target.
+    ///
+    /// Takes an already-computed threshold rather than an attestor count. The quorum is
+    /// `2/3+1` of `|ActiveAttestors|`, and a caller passing a raw count here would install a
+    /// threshold the runtime does not enforce. Callers get the authoritative number from
+    /// `Client::quorum`.
+    pub fn note_quorum_change(&self, threshold: u32) {
+        let Some(quorum_new) = NonZero::new(threshold as usize) else {
+            return;
+        };
+        let mutated = {
+            let mut guard = self.inner.pool.lock();
+            if let State::Open(pool) = &mut *guard {
+                pool.validate_quorum.target = quorum_new;
+                pool.validation_generation = pool.validation_generation.wrapping_add(1);
+                pool.forks.deferred.clear();
+                true
+            } else {
+                false
+            }
+        };
+        if mutated {
+            // A relaxed threshold may make a previously sub-quorum fork ready.
+            self.inner.notify.notify_one();
+        }
+    }
+
+    /// The runtime rejected our submission at `height` with `MajorityNotReached` — meaning the
+    /// live quorum on chain (`2/3+1` of `|ActiveAttestors|`) is higher than the one we enforced,
+    /// so our vote count was insufficient.
+    /// Clear the local validation lock for this height so subsequent votes get admitted under
+    /// the new threshold (production / production-on-other-attestors will gossipsub-retransmit).
+    pub fn note_majority_not_reached(&self, height: Height) {
+        let mutated = {
+            let mut guard = self.inner.pool.lock();
+            if let State::Open(pool) = &mut *guard {
+                // Only clear if it was exactly this height (a subsequent quorum may have
+                // advanced the lock; in that case we keep the higher lock — otherwise we'd
+                // open ourselves to a stash being undone).
+                if pool.locally_validated_height == Some(height) {
+                    pool.locally_validated_height = None;
+                    pool.digest_local = None;
+                    true
+                } else {
+                    false
+                }
+            } else {
+                false
+            }
+        };
+        if mutated {
+            self.inner.notify.notify_one();
+        }
+    }
+
+    pub fn note_attestation_chain_reversion(&self, height: Height, digest: Digest) {
+        let mut guard = self.inner.pool.lock();
+        if let State::Open(pool) = &mut *guard {
+            pool.validation_generation = pool.validation_generation.wrapping_add(1);
+            pool.forks.clear();
+            pool.valid.clear();
+            pool.delays.clear();
+            pool.digest_local = None;
+            pool.locally_validated_height = None;
+            pool.forks.last_finalized_height = Some(height);
+            pool.forks.last_finalized_digest = Some(digest);
+        }
+    }
+}
+
+impl Clone for Sender {
+    fn clone(&self) -> Self {
+        self.inner
+            .senders
+            .fetch_add(1, std::sync::atomic::Ordering::AcqRel);
+        Self {
+            inner: self.inner.clone(),
+        }
+    }
+}
+
+impl Drop for Sender {
+    fn drop(&mut self) {
+        let prev = self
+            .inner
+            .senders
+            .fetch_sub(1, std::sync::atomic::Ordering::AcqRel);
+        if prev == 1 {
+            *self.inner.pool.lock() = State::Closed;
+            // Wake a parked `recv()` so it observes the close and returns `None` now — the
+            // same missed-wake class as `note_attestors_elected`: without this, a consumer
+            // waiting on an empty pool learns the senders are gone only when some unrelated
+            // notify happens to fire (never, once all senders are dropped).
+            self.inner.notify.notify_one();
+        }
+    }
+}
+
+// --------------------------------------- [ Receiver impl ] ------------------------------------ //
+
+impl Receiver {
+    pub fn mark_valid(&self, permit: Permit) {
+        let mut guard = self.inner.pool.lock();
+        if let State::Open(pool) = &mut *guard {
+            pool.mark_valid(permit);
+        }
+    }
+
+    pub fn mark_invalid(&self, permit: Permit) {
+        let mut guard = self.inner.pool.lock();
+        if let State::Open(pool) = &mut *guard {
+            pool.mark_invalid(permit);
+        }
+    }
+
+    /// Skip a fork (e.g. no local proof) without locking the height. Other forks at the same
+    /// height remain eligible, unlike `mark_valid` which locks the height to one digest.
+    pub fn mark_skipped(&self, permit: Permit) {
+        let mut guard = self.inner.pool.lock();
+        if let State::Open(pool) = &mut *guard {
+            pool.mark_skipped(permit);
+        }
+    }
+
+    /// Temporarily suppress a quorum that fell below the live runtime threshold after validation
+    /// filtered stale/unverifiable votes. The fork's votes are preserved; a new vote or
+    /// committee refresh makes it eligible for consideration again. If either arrived since
+    /// the permit was issued, leave the fork eligible so the stale result cannot lose that retry.
+    pub fn defer(&self, permit: Permit) {
+        let mut guard = self.inner.pool.lock();
+        if let State::Open(pool) = &mut *guard {
+            let key = (permit.height, permit.digest);
+            if pool.validation_generation == permit.validation_generation
+                && pool
+                    .forks
+                    .by_digest
+                    .get(&key)
+                    .is_some_and(|fork| fork.votes.len() == permit.vote_count)
+            {
+                pool.forks.deferred.insert(key);
+            }
+        }
+    }
+
+    /// Validated locally but waiting on a prior submission to finalize. The pool keeps the
+    /// quorum aside so the validation task can pull it later via `take_next_validated`.
+    pub fn mark_for_later(&self, permit: Permit, signed: SignedQuorum) {
+        let mut guard = self.inner.pool.lock();
+        if let State::Open(pool) = &mut *guard {
+            pool.valid.push(signed);
+            pool.mark_valid(permit);
+        }
+    }
+
+    pub fn take_next_validated(&self) -> Option<SignedQuorum> {
+        let mut guard = self.inner.pool.lock();
+        if let State::Open(pool) = &mut *guard {
+            pool.valid.pop()
+        } else {
+            None
+        }
+    }
+
+    pub fn digest_local(&self) -> Option<Digest> {
+        let guard = self.inner.pool.lock();
+        if let State::Open(pool) = &*guard {
+            pool.digest_local
+        } else {
+            None
+        }
+    }
+}
+
+impl Receiver {
+    /// Await the next quorum. Returns `None` once the pool is closed (all senders dropped).
+    ///
+    /// Uses the canonical `tokio::sync::Notify` subscribe-before-check pattern: we register
+    /// our interest in the next notification *before* peeking, so a push that happens between
+    /// the peek and the await still wakes us. Replaces a hand-rolled `VecDeque<Waker>` and
+    /// custom `impl Stream`.
+    pub async fn recv(&self) -> Option<(Quorum, Permit)> {
+        loop {
+            let notified = self.inner.notify.notified();
+            tokio::pin!(notified);
+            // Register for the next notification *before* the peek — closes the race where
+            // a push happens between us checking and us awaiting.
+            notified.as_mut().enable();
+
+            // Try to pull a quorum out under the lock.
+            let res = {
+                let mut guard = self.inner.pool.lock();
+                match &mut *guard {
+                    State::Open(pool) => Peek::Open(pool.peek()),
+                    State::Closed => Peek::Closed,
+                }
+            };
+            match res {
+                Peek::Open(Some(item)) => return Some(item),
+                Peek::Closed => return None,
+                Peek::Open(None) => {} // wait for the next notify and re-check
+            }
+
+            notified.await;
+        }
+    }
+}
+
+/// Internal helper so the lock guard drops before we await.
+enum Peek {
+    Open(Option<(Quorum, Permit)>),
+    Closed,
+}
+
+// --------------------------------------- [ Output types ] ------------------------------------- //
+
+/// What the validation task receives when a quorum is reached: a flat list of votes (all at
+/// the same `(height, digest)`).
+#[derive(Debug)]
+pub struct Quorum {
+    pub height: Height,
+    pub digest: Digest,
+    pub chain_key: ChainKey,
+    pub votes: Vec<Vote>,
+}
+
+/// A unique token returned alongside each `Quorum`. Must be passed back to `mark_valid` /
+/// `mark_invalid` / `mark_for_later` to remove the corresponding fork from the pool.
+#[must_use]
+#[derive(Clone, Copy, Debug)]
+pub struct Permit {
+    height: Height,
+    digest: Digest,
+    validation_generation: u64,
+    vote_count: usize,
+}
+
+impl Permit {
+    pub fn height(&self) -> Height {
+        self.height
+    }
+    pub fn digest(&self) -> Digest {
+        self.digest
+    }
+}
+
+impl std::fmt::Display for Permit {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{{ height: {}, digest: {} }}", self.height, self.digest)
+    }
+}
+
+/// A locally-validated quorum that can't be submitted yet (waiting for a previous attestation
+/// to finalize on-chain). The submitter owns the continuity proof here — that's the part of the
+/// new protocol where the submitter does the work.
+pub struct SignedQuorum {
+    pub height: Height,
+    pub digest: Digest,
+    pub signed: common::types::AttestationSigned,
+    pub votes: Vec<Vote>,
+}
+
+// ----------------------------------------- [ Forks ] ------------------------------------------ //
+
+struct Forks {
+    /// `(height, digest) -> AttestationVote` — set of votes per fork.
+    by_digest: BTreeMap<(Height, Digest), AttestationVote>,
+    /// Index `(height, signer count, digest)` so we can find the largest fork at a given height.
+    by_height_size: BTreeSet<(Height, usize, Digest)>,
+    /// Tracks one vote per (height, attestor) for cheap equivocation detection.
+    seen: BTreeMap<(Height, AttestorId), Digest>,
+    /// Tombstones for `(height, digest)` forks the submitter validated as invalid. A vote for a
+    /// tombstoned fork is rejected with `KnownInvalid` instead of being re-admitted, so an
+    /// invalidated digest can't silently re-form a quorum and loop through validation. Pruned by
+    /// `split_off` / `note_finalized` as heights finalize, so it stays bounded by the catch-up
+    /// window.
+    invalid: BTreeSet<(Height, Digest)>,
+    /// Quorums temporarily suppressed because their raw vote count met the pool target but their
+    /// live-verifiable vote count did not. Cleared by new votes and active-set refreshes.
+    deferred: BTreeSet<(Height, Digest)>,
+    last_finalized_height: Option<Height>,
+    #[allow(dead_code)]
+    last_finalized_digest: Option<Digest>,
+}
+
+#[derive(Clone)]
+struct AttestationVote {
+    height: Height,
+    digest: Digest,
+    chain_key: ChainKey,
+    votes: Vec<Vote>,
+    signers: HashSet<AttestorId>,
+}
+
+impl Forks {
+    fn new(last_finalized_digest: Option<Digest>, last_finalized_height: Option<Height>) -> Self {
+        Self {
+            by_digest: BTreeMap::new(),
+            by_height_size: BTreeSet::new(),
+            seen: BTreeMap::new(),
+            invalid: BTreeSet::new(),
+            deferred: BTreeSet::new(),
+            last_finalized_height,
+            last_finalized_digest,
+        }
+    }
+
+    fn push(&mut self, vote: Vote) -> Result<(), Error> {
+        let (height, digest, attestor) = (vote.height, vote.digest, vote.attestor.clone());
+
+        // Reject votes for a fork already validated as invalid, so an invalidated digest can't
+        // re-form a quorum and loop back through validation.
+        if self.invalid.contains(&(height, digest)) {
+            return Err(Error::KnownInvalid(attestor, height, digest));
+        }
+
+        let key_seen = (height, attestor.clone());
+
+        match self.seen.get(&key_seen) {
+            Some(prev) if *prev == digest => return Ok(()), // duplicate, idempotent
+            Some(_) => return Err(Error::Equivocation(attestor, height)),
+            None => {
+                self.seen.insert(key_seen, digest);
+            }
+        }
+
+        let key = (height, digest);
+        let entry = self
+            .by_digest
+            .entry(key)
+            .or_insert_with(|| AttestationVote {
+                height,
+                digest,
+                chain_key: vote.chain_key,
+                votes: Vec::new(),
+                signers: HashSet::new(),
+            });
+
+        // Drop the old size index entry — it'll be re-inserted with the new size below.
+        let _ = self
+            .by_height_size
+            .remove(&(height, entry.signers.len(), digest));
+        entry.signers.insert(attestor.clone());
+        entry.votes.push(vote);
+        self.by_height_size
+            .insert((height, entry.signers.len(), digest));
+        self.deferred.remove(&(height, digest));
+
+        Ok(())
+    }
+
+    /// Best candidate fork: highest height with a *clearly dominant* quorum — a fork with
+    /// ≥ `target` votes that is strictly larger than every other quorum-qualified fork at the
+    /// same height.
+    ///
+    /// The quorum is `2/3+1` of `|ActiveAttestors|`, a strict majority of the set the signers
+    /// are drawn from, so two quorum-qualified forks at one height must share a signer and
+    /// cannot both be honest. The fail-closed handling below is kept anyway: equivocation and a
+    /// lagging view of the active set can still surface a tie here, and the cost of waiting is a
+    /// round where the cost of guessing is committing to a side.
+    /// Selecting one by index ordering would arbitrarily commit this node to a side of the
+    /// split; instead the height is treated as ambiguous (fail closed) until one fork pulls
+    /// strictly ahead, and lower heights remain eligible meanwhile.
+    ///
+    /// We iterate `by_height_size` in reverse (height desc, then size desc within a height, then
+    /// digest desc), so the first entry seen per height is its largest fork; a tie is detected by
+    /// peeking at the next entry of the same height.
+    fn best(&self, target: usize) -> Option<&AttestationVote> {
+        let mut iter = self.by_height_size.iter().rev().peekable();
+        while let Some((height, size, digest)) = iter.next() {
+            if self.deferred.contains(&(*height, *digest)) {
+                continue;
+            }
+            let qualified = *size >= target;
+            let tied_qualified = qualified
+                && iter
+                    .clone()
+                    .take_while(|(h, ..)| h == height)
+                    .find(|(h, _, d)| !self.deferred.contains(&(*h, *d)))
+                    .is_some_and(|(_, s, _)| s == size);
+            if qualified && !tied_qualified {
+                return self.by_digest.get(&(*height, *digest));
+            }
+            if tied_qualified {
+                tracing::warn!(
+                    height = *height,
+                    votes = *size,
+                    target,
+                    "⚖️ multiple quorum-qualified forks at one height — waiting for a dominant fork"
+                );
+            }
+            // Sub-quorum largest fork, or an ambiguous tie → skip the rest of this height.
+            while iter.peek().is_some_and(|(h, ..)| h == height) {
+                iter.next();
+            }
+        }
+        None
+    }
+
+    /// Remove a fork from active consideration without forgetting that its signers voted at this
+    /// height: `seen` is retained so those attestors can't later double-vote. Used for "skip this
+    /// fork" (e.g. no local proof) where the digest may still be legitimate.
+    fn drop_fork(&mut self, height: Height, digest: Digest) {
+        self.deferred.remove(&(height, digest));
+        if let Some(entry) = self.by_digest.remove(&(height, digest)) {
+            self.by_height_size
+                .remove(&(height, entry.signers.len(), digest));
+        }
+    }
+
+    /// Drop a fork and tombstone it: future votes for this `(height, digest)` are rejected with
+    /// `KnownInvalid`. Used when the submitter validated the fork as genuinely invalid.
+    fn invalidate_fork(&mut self, height: Height, digest: Digest) {
+        self.drop_fork(height, digest);
+        self.invalid.insert((height, digest));
+    }
+
+    /// Drop every stored vote whose signer fails `keep` (i.e. left the active attestor set).
+    /// Fork sizes, the size index, and the equivocation tracker are all updated; forks left with
+    /// no signers are removed entirely. `seen` entries for removed signers are dropped too — a
+    /// removed attestor that gets re-elected may legitimately vote again at heights it voted at
+    /// under its previous tenure.
+    fn retain_signers(&mut self, keep: impl Fn(&AttestorId) -> bool) {
+        // A refreshed active/BLS set is exactly the state change deferred forks were waiting for.
+        self.deferred.clear();
+        let keys: Vec<(Height, Digest)> = self.by_digest.keys().copied().collect();
+        for (height, digest) in keys {
+            let Some(entry) = self.by_digest.get_mut(&(height, digest)) else {
+                continue;
+            };
+            let size_before = entry.signers.len();
+            entry.votes.retain(|v| keep(&v.attestor));
+            entry.signers.retain(&keep);
+            if entry.signers.len() == size_before {
+                continue;
+            }
+            self.by_height_size.remove(&(height, size_before, digest));
+            if entry.signers.is_empty() {
+                self.by_digest.remove(&(height, digest));
+            } else {
+                self.by_height_size
+                    .insert((height, entry.signers.len(), digest));
+            }
+        }
+        self.seen.retain(|(_, attestor), _| keep(attestor));
+    }
+
+    fn split_off(&mut self, finalized_height: Height) {
+        let split = finalized_height.saturating_add(1);
+        let to_keep = self.by_digest.split_off(&(split, Digest::zero()));
+        let to_drop = std::mem::replace(&mut self.by_digest, to_keep);
+        for ((h, d), v) in to_drop {
+            self.by_height_size.remove(&(h, v.signers.len(), d));
+            for s in v.signers {
+                self.seen.remove(&(h, s));
+            }
+        }
+        // Trim `by_height_size` of anything below `split`. Building a new set is `O(n log n)`
+        // but `n` is bounded by `max_catchup`, well under 1000 in practice.
+        self.by_height_size.retain(|(h, _, _)| *h >= split);
+        self.deferred.retain(|(h, _)| *h >= split);
+        // Trim `seen`.
+        let split_seen = (split, AttestorId::from_public([0u8; 32]));
+        let kept = self.seen.split_off(&split_seen);
+        self.seen = kept;
+        // NOTE: `invalid` tombstones are deliberately *not* pruned here. `split_off` also runs
+        // on local `mark_valid`, and a locally-validated height can be reopened by
+        // `note_majority_not_reached` — if the tombstones were dropped alongside the forks,
+        // re-gossiped votes for a previously-invalidated digest would be re-admitted and could
+        // re-form the quorum we already rejected. Tombstones are only pruned once the height is
+        // finalized on-chain (see `note_finalized`), which is when reopening becomes impossible.
+    }
+
+    fn clear(&mut self) {
+        self.by_digest.clear();
+        self.by_height_size.clear();
+        self.seen.clear();
+        self.invalid.clear();
+        self.deferred.clear();
+    }
+
+    fn note_finalized(&mut self, height: Height, digest: Digest) {
+        self.split_off(height);
+        // Finalized heights can't be reopened — safe to drop their tombstones now. Keeps
+        // `invalid` bounded by the catch-up window.
+        self.invalid = self
+            .invalid
+            .split_off(&(height.saturating_add(1), Digest::zero()));
+        self.last_finalized_height = Some(height);
+        self.last_finalized_digest = Some(digest);
+    }
+}
+
+// ------------------------------------ [ Validated quorum store ] ------------------------------ //
+
+#[derive(Default)]
+struct ValidBatch {
+    by_height: BTreeMap<Height, SignedQuorum>,
+}
+
+impl ValidBatch {
+    fn push(&mut self, q: SignedQuorum) {
+        self.by_height.insert(q.height, q);
+    }
+
+    fn pop(&mut self) -> Option<SignedQuorum> {
+        // Lowest height first. Stashed quorums were produced in ascending order while an earlier
+        // submission was in flight; draining highest-first would submit a later height and leave
+        // the lower stash to be rejected by the runtime afterwards (it's behind the new latest
+        // attestation) — a doomed, fee-burning extrinsic. Ascending order lets each stash link
+        // forward from the previous one.
+        self.by_height.pop_first().map(|(_, q)| q)
+    }
+
+    fn drop_up_to(&mut self, height: Height) {
+        let kept = self.by_height.split_off(&(height.saturating_add(1)));
+        self.by_height = kept;
+    }
+
+    fn clear(&mut self) {
+        self.by_height.clear();
+    }
+}
+
+// --------------------------------------- [ Delays / metrics ] --------------------------------- //
+
+#[derive(Default)]
+struct Delays {
+    time: BTreeMap<Height, std::time::Instant>,
+}
+
+impl Delays {
+    fn push(&mut self, height: Height) {
+        self.time
+            .entry(height)
+            .or_insert_with(std::time::Instant::now);
+    }
+
+    fn pop(&mut self, height: Height) -> Option<std::time::Duration> {
+        self.time.remove(&height).map(|t| t.elapsed())
+    }
+
+    fn drop_up_to(&mut self, height: Height) {
+        let kept = self.time.split_off(&(height.saturating_add(1)));
+        self.time = kept;
+    }
+
+    fn clear(&mut self) {
+        self.time.clear();
+    }
+}
+
+// --------------------------------------- [ Validators ] --------------------------------------- //
+
+struct ValidateAttestor {
+    set: HashSet<AttestorId>,
+}
+
+impl ValidateAttestor {
+    fn new(attestors: Vec<cc_client::AccountId32>) -> Self {
+        Self {
+            set: attestors
+                .into_iter()
+                .map(|a| AttestorId::new(sp_core::crypto::AccountId32::new(a.0)))
+                .collect(),
+        }
+    }
+
+    fn check(&self, vote: &Vote) -> Result<(), Error> {
+        if !self.set.contains(&vote.attestor) {
+            return Err(Error::Unauthorized(vote.attestor.clone(), vote.height));
+        }
+        Ok(())
+    }
+}
+
+struct ValidateQuorum {
+    target: NonZero<usize>,
+    interval: NonZero<Height>,
+    start_height: Height,
+    max_catchup: NonZero<Height>,
+}
+
+impl ValidateQuorum {
+    fn height_admissible(&self, height: Height, last_finalized: Option<Height>) -> bool {
+        // `max_catchup` is a *block-count* bound (matching the runtime's `MaxCatchup` storage
+        // and `StreamAttestation`): production never emits more than `max_catchup` blocks above
+        // the last finalized attestation. `max(interval)` keeps the next interval-aligned
+        // target admissible when the configured catch-up bound is smaller than the interval.
+        let window = self.max_catchup.get().max(self.interval.get());
+        let base = last_finalized.unwrap_or(self.start_height);
+        let upper = base.saturating_add(window);
+        let above = match last_finalized {
+            Some(f) => height > f,
+            None => height >= self.start_height,
+        };
+        above && height >= self.start_height && height <= upper
+    }
+}
+
+// ----------------------------------------- [ Tests ] ----------------------------------------- //
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use attestor_primitives::bls::WrapEncode;
+
+    fn account(byte: u8) -> cc_client::AccountId32 {
+        cc_client::AccountId32([byte; 32])
+    }
+
+    fn vote(attestor_byte: u8, height: Height, digest: u8) -> Vote {
+        let sk = bls_signatures::PrivateKey::new([attestor_byte; 32]);
+        Vote {
+            chain_key: 1,
+            height,
+            digest: Digest::from([digest; 32]),
+            attestor: AttestorId::new(sp_core::crypto::AccountId32::new([attestor_byte; 32])),
+            signature_bls: WrapEncode(sk.sign([0u8; 1])),
+        }
+    }
+
+    fn pool(target: usize) -> Pool {
+        Pool::new(
+            ValidateAttestor::new(vec![
+                account(0),
+                account(1),
+                account(2),
+                account(3),
+                account(4),
+            ]),
+            std::num::NonZero::new(target).unwrap(),
+            std::num::NonZero::new(1).unwrap(),
+            0,
+            std::num::NonZero::new(1_000).unwrap(),
+            None,
+            None,
+            Box::new(NoMetrics),
+        )
+    }
+
+    fn pool_channels(target: usize) -> (Sender, Receiver) {
+        attestation_pool(Config {
+            attestors: (0..5).map(account).collect(),
+            quorum: NonZero::new(target).unwrap(),
+            attestation_interval: NonZero::new(1).unwrap(),
+            start_height: 0,
+            max_catchup: NonZero::new(1_000).unwrap(),
+            start_digest: None,
+            start_height_finalized: None,
+            metrics: Box::new(NoMetrics),
+        })
+    }
+
+    /// `best()` returns the highest height that has ≥ target votes on the same digest. A
+    /// higher height with only sub-quorum support must not shadow a lower height with quorum.
+    #[test]
+    fn best_picks_highest_height_with_quorum() {
+        let mut p = pool(2);
+
+        // height=10: two votes on digest A → quorum.
+        p.push(vote(0, 10, 0xaa)).unwrap();
+        p.push(vote(1, 10, 0xaa)).unwrap();
+        // height=20: one vote on digest X → sub-quorum.
+        p.push(vote(0, 20, 0xff)).unwrap();
+
+        let best = p.forks.best(2).expect("expected quorum at h=10");
+        assert_eq!(best.height, 10);
+        assert_eq!(best.digest, Digest::from([0xaa; 32]));
+
+        // Push the second vote at h=20 → h=20 reaches quorum and should now win.
+        p.push(vote(2, 20, 0xff)).unwrap();
+        let best = p.forks.best(2).expect("expected quorum at h=20");
+        assert_eq!(best.height, 20);
+        assert_eq!(best.digest, Digest::from([0xff; 32]));
+    }
+
+    /// Two distinct digests at the same height; only the one that crosses the threshold wins.
+    /// The other (sub-quorum) fork must not be returned, even though its digest sorts
+    /// differently in the BTreeSet's tertiary ordering.
+    #[test]
+    fn best_ignores_sub_quorum_forks_at_same_height() {
+        let mut p = pool(3);
+
+        // Fork A: 2 votes, sub-quorum.
+        p.push(vote(0, 10, 0xaa)).unwrap();
+        p.push(vote(1, 10, 0xaa)).unwrap();
+        // Fork B: 2 votes, sub-quorum. Split 4 attestors across two forks for 2+2, target=3 →
+        // no quorum at all.
+        p.push(vote(2, 10, 0xbb)).unwrap();
+        p.push(vote(3, 10, 0xbb)).unwrap();
+        assert!(p.forks.best(3).is_none(), "no fork should cross target=3");
+    }
+
+    /// Two quorum-qualified forks of equal size at the same height are ambiguous — the pool must
+    /// fail closed (return neither) instead of committing to one by index ordering. A lower
+    /// height with an unambiguous quorum stays eligible.
+    #[test]
+    fn best_fails_closed_on_tied_qualified_forks() {
+        let mut p = pool(2);
+
+        // Height 5: a clean quorum (backup candidate).
+        p.push(vote(0, 5, 0xcc)).unwrap();
+        p.push(vote(1, 5, 0xcc)).unwrap();
+        // Height 10: two disjoint 2-vote forks, both meeting target=2 — ambiguous.
+        p.push(vote(0, 10, 0xaa)).unwrap();
+        p.push(vote(1, 10, 0xaa)).unwrap();
+        p.push(vote(2, 10, 0xbb)).unwrap();
+        p.push(vote(3, 10, 0xbb)).unwrap();
+
+        let best = p.forks.best(2).expect("lower unambiguous height qualifies");
+        assert_eq!(best.height, 5, "ambiguous height 10 must be skipped");
+        assert_eq!(best.digest, Digest::from([0xcc; 32]));
+    }
+
+    /// Once one of two qualified forks pulls strictly ahead it is clearly dominant and selected.
+    #[test]
+    fn best_selects_strictly_dominant_fork_over_qualified_runner_up() {
+        let mut p = pool(2);
+
+        // Fork A: 3 votes; fork B: 2 votes — both ≥ target, A strictly dominant.
+        p.push(vote(0, 10, 0xaa)).unwrap();
+        p.push(vote(1, 10, 0xaa)).unwrap();
+        p.push(vote(2, 10, 0xaa)).unwrap();
+        p.push(vote(3, 10, 0xbb)).unwrap();
+        p.push(vote(4, 10, 0xbb)).unwrap();
+
+        let best = p.forks.best(2).expect("dominant fork qualifies");
+        assert_eq!(best.digest, Digest::from([0xaa; 32]));
+        assert_eq!(best.signers.len(), 3);
+    }
+
+    /// `mark_valid` must lock the height: subsequent pushes at the same height are rejected.
+    #[test]
+    fn mark_valid_locks_height_against_future_votes() {
+        let mut p = pool(2);
+
+        p.push(vote(0, 10, 0xaa)).unwrap();
+        p.push(vote(1, 10, 0xaa)).unwrap();
+
+        let (_quorum, permit) = p.peek().expect("quorum should be ready");
+        p.mark_valid(permit);
+
+        // A late vote at the same height (different digest, different attestor) must be
+        // rejected — we've already committed to a digest at h=10.
+        let err = p
+            .push(vote(2, 10, 0xbb))
+            .expect_err("late vote at locked height");
+        assert!(matches!(err, Error::InvalidHeight(..)));
+    }
+
+    /// Equivocation: same attestor, same height, different digest → Error::Equivocation. The
+    /// second push must not partially mutate state (idempotency of failure).
+    #[test]
+    fn equivocation_is_detected() {
+        let mut p = pool(2);
+        p.push(vote(0, 10, 0xaa)).unwrap();
+        let err = p.push(vote(0, 10, 0xbb)).expect_err("equivocation");
+        assert!(matches!(err, Error::Equivocation(..)));
+    }
+
+    /// Repeated push of the exact same (attestor, height, digest) tuple is idempotent and
+    /// must not double-count toward quorum.
+    #[test]
+    fn duplicate_push_is_idempotent() {
+        let mut p = pool(2);
+        p.push(vote(0, 10, 0xaa)).unwrap();
+        p.push(vote(0, 10, 0xaa)).unwrap(); // duplicate
+        assert!(
+            p.forks.best(2).is_none(),
+            "two pushes from same attestor must not form quorum"
+        );
+        p.push(vote(1, 10, 0xaa)).unwrap();
+        assert!(
+            p.forks.best(2).is_some(),
+            "now with a distinct attestor we have quorum"
+        );
+    }
+
+    /// `mark_invalid` tombstones the fork: a later vote for the same `(height, digest)` from a
+    /// fresh attestor is rejected with `KnownInvalid` instead of being re-admitted and re-forming
+    /// the quorum we already rejected.
+    #[test]
+    fn mark_invalid_tombstones_fork_against_revote() {
+        let mut p = pool(2);
+
+        p.push(vote(0, 10, 0xaa)).unwrap();
+        p.push(vote(1, 10, 0xaa)).unwrap();
+
+        let (_quorum, permit) = p.peek().expect("quorum should be ready");
+        p.mark_invalid(permit);
+
+        // A fresh attestor voting for the invalidated digest must be rejected.
+        let err = p
+            .push(vote(2, 10, 0xaa))
+            .expect_err("vote for tombstoned fork");
+        assert!(matches!(err, Error::KnownInvalid(..)));
+        assert!(
+            p.forks.best(2).is_none(),
+            "tombstoned fork must not re-form a quorum"
+        );
+    }
+
+    /// An active-set change must prune pooled votes from removed signers: a fork that reached
+    /// quorum under the old set no longer counts those votes, so it must not surface as a
+    /// quorum under the new set.
+    #[test]
+    fn attestors_elected_prunes_votes_from_removed_signers() {
+        let mut p = pool(2);
+
+        p.push(vote(0, 10, 0xaa)).unwrap();
+        p.push(vote(1, 10, 0xaa)).unwrap();
+        assert!(p.forks.best(2).is_some(), "quorum under the old set");
+
+        // Attestor 1 leaves the active set.
+        p.validate_attestor = ValidateAttestor::new(vec![account(0), account(2), account(3)]);
+        let keep = &p.validate_attestor;
+        p.forks.retain_signers(|a| keep.set.contains(a));
+
+        assert!(
+            p.forks.best(2).is_none(),
+            "pruned fork must not surface as quorum"
+        );
+
+        // A still-active attestor can complete the quorum again.
+        p.push(vote(2, 10, 0xaa)).unwrap();
+        let best = p.forks.best(2).expect("quorum re-formed under new set");
+        assert_eq!(best.signers.len(), 2);
+    }
+
+    /// Pruning must clear the `seen` (equivocation) entry for removed signers so a re-elected
+    /// attestor can vote again, and must drop forks left with no signers.
+    #[test]
+    fn retain_signers_clears_seen_and_empty_forks() {
+        let mut p = pool(2);
+
+        p.push(vote(0, 10, 0xaa)).unwrap();
+        p.forks.retain_signers(|_| false);
+
+        assert!(p.forks.by_digest.is_empty(), "empty fork must be removed");
+        assert!(p.forks.by_height_size.is_empty());
+        assert!(p.forks.seen.is_empty(), "seen entry must be cleared");
+
+        // The same attestor (re-elected) can vote at the same height again — with a different
+        // digest, even — without tripping the equivocation check.
+        p.push(vote(0, 10, 0xbb)).unwrap();
+    }
+
+    #[test]
+    fn deferred_fork_waits_for_meaningful_state_change() {
+        let mut p = pool(2);
+        p.push(vote(0, 10, 0xaa)).unwrap();
+        p.push(vote(1, 10, 0xaa)).unwrap();
+
+        let (_quorum, permit) = p.peek().expect("initial quorum");
+        p.forks.deferred.insert((permit.height, permit.digest));
+
+        assert!(
+            p.peek().is_none(),
+            "deferred fork must not immediately re-yield"
+        );
+
+        // An exact duplicate is not a meaningful state change and must not restart the loop.
+        p.push(vote(1, 10, 0xaa)).unwrap();
+        assert!(p.peek().is_none());
+
+        // A new signer may complete the live quorum, so it re-enables consideration.
+        p.push(vote(2, 10, 0xaa)).unwrap();
+        assert!(
+            p.peek().is_some(),
+            "new signer should re-enable the deferred fork"
+        );
+    }
+
+    #[tokio::test]
+    async fn quorum_refresh_during_validation_keeps_fork_ready() {
+        // Include a quorum returning to its original value: comparing thresholds alone would
+        // miss the intervening refresh and suppress the fork after the last event.
+        for threshold in [1, 2] {
+            let (tx, rx) = pool_channels(2);
+            tx.send(vote(0, 10, 0xaa)).unwrap().unwrap();
+            tx.send(vote(1, 10, 0xaa)).unwrap().unwrap();
+            let (_, old_permit) = rx.recv().await.unwrap();
+
+            // While validation is awaiting an RPC that observes quorum 3, production catches
+            // up with an increase followed by a decrease. No further events or votes arrive.
+            tx.note_quorum_change(3);
+            tx.note_quorum_change(threshold);
+            rx.defer(old_permit);
+
+            let (quorum, permit) =
+                tokio::time::timeout(std::time::Duration::from_secs(2), rx.recv())
+                    .await
+                    .expect("stale validation must not suppress the refreshed quorum")
+                    .unwrap();
+            assert_eq!(quorum.height, 10);
+            assert_eq!(quorum.votes.len(), 2, "pooled votes must be preserved");
+            rx.mark_valid(permit);
+
+            // The lower production threshold must also apply to subsequent heights.
+            for signer in 0..threshold {
+                tx.send(vote(signer as u8, 11, 0xbb)).unwrap().unwrap();
+            }
+            let (next, _) = tokio::time::timeout(std::time::Duration::from_secs(2), rx.recv())
+                .await
+                .expect("new forks must use the refreshed quorum")
+                .unwrap();
+            assert_eq!(next.height, 11);
+            assert_eq!(next.votes.len(), threshold as usize);
+        }
+    }
+
+    #[tokio::test]
+    async fn membership_refresh_during_validation_keeps_fork_ready() {
+        let (tx, rx) = pool_channels(2);
+        tx.send(vote(0, 10, 0xaa)).unwrap().unwrap();
+        tx.send(vote(1, 10, 0xaa)).unwrap().unwrap();
+        let (_, permit) = rx.recv().await.unwrap();
+
+        // A refreshed BLS/active set can make the same two votes verifiable. Neither the
+        // threshold nor this fork's vote count changes, but its validation must be retried.
+        tx.note_attestors_elected(vec![account(0), account(1)]);
+        rx.defer(permit);
+        let (quorum, _) = tokio::time::timeout(std::time::Duration::from_secs(2), rx.recv())
+            .await
+            .expect("stale validation must not suppress a membership refresh")
+            .unwrap();
+        assert_eq!(quorum.votes.len(), 2);
+    }
+
+    #[tokio::test]
+    async fn new_vote_during_validation_keeps_fork_ready() {
+        let (tx, rx) = pool_channels(2);
+        tx.send(vote(0, 10, 0xaa)).unwrap().unwrap();
+        tx.send(vote(1, 10, 0xaa)).unwrap().unwrap();
+        let (_, permit) = rx.recv().await.unwrap();
+
+        // Validation saw only two votes, but the third arrives before its failure is handled.
+        tx.send(vote(2, 10, 0xaa)).unwrap().unwrap();
+        rx.defer(permit);
+        let (quorum, _) = tokio::time::timeout(std::time::Duration::from_secs(2), rx.recv())
+            .await
+            .expect("stale validation must not suppress the additional vote")
+            .unwrap();
+        assert_eq!(quorum.votes.len(), 3);
+    }
+
+    #[tokio::test]
+    async fn deferred_quorum_waits_for_refresh_without_busy_looping() {
+        let (tx, rx) = pool_channels(2);
+        tx.send(vote(0, 10, 0xaa)).unwrap().unwrap();
+        tx.send(vote(1, 10, 0xaa)).unwrap().unwrap();
+        let (_, permit) = rx.recv().await.unwrap();
+
+        // Duplicates before and after deferral must not count as new information.
+        tx.send(vote(1, 10, 0xaa)).unwrap().unwrap();
+        rx.defer(permit);
+        tx.send(vote(0, 10, 0xaa)).unwrap().unwrap();
+        assert!(
+            tokio::time::timeout(std::time::Duration::from_millis(20), rx.recv())
+                .await
+                .is_err(),
+            "an unchanged fork must stay deferred"
+        );
+
+        // A quorum change alone must release the deferred fork, without discarding any votes.
+        tx.note_quorum_change(1);
+        let (quorum, _) = tokio::time::timeout(std::time::Duration::from_secs(2), rx.recv())
+            .await
+            .expect("quorum refresh must release the deferred fork")
+            .unwrap();
+        assert_eq!(quorum.votes.len(), 2);
+    }
+
+    /// An election refresh must WAKE a parked receiver, not just clear `deferred`:
+    /// `note_attestors_elected` → `retain_signers` re-enables deferred forks (and pruning can
+    /// break a quorum tie) with no further vote arriving to fire the next notify. Without its
+    /// own `notify_one()`, validation sleeps in `recv()` while an eligible quorum sits unseen.
+    #[tokio::test]
+    async fn attestors_elected_wakes_parked_receiver() {
+        let active: Vec<cc_client::AccountId32> = (0..5).map(account).collect();
+        let (tx, rx) = attestation_pool(Config {
+            attestors: active.clone(),
+            quorum: NonZero::new(2).unwrap(),
+            attestation_interval: NonZero::new(1).unwrap(),
+            start_height: 0,
+            max_catchup: NonZero::new(1_000).unwrap(),
+            start_digest: None,
+            start_height_finalized: None,
+            metrics: Box::new(NoMetrics),
+        });
+
+        tx.send(vote(0, 10, 0xaa)).unwrap().unwrap();
+        tx.send(vote(1, 10, 0xaa)).unwrap().unwrap();
+        let (_quorum, permit) = rx.recv().await.expect("initial quorum");
+        rx.defer(permit);
+
+        // No further votes: the election note alone must wake the receiver and re-yield.
+        tx.note_attestors_elected(active);
+        let woken = tokio::time::timeout(std::time::Duration::from_secs(2), rx.recv())
+            .await
+            .expect("receiver was not woken by note_attestors_elected")
+            .expect("pool still open");
+        assert_eq!(woken.0.height, 10);
+    }
+
+    /// Dropping the last `Sender` must wake a parked `recv()` so it observes the close and
+    /// returns `None` — otherwise the consumer waits for a notify that can never come.
+    #[tokio::test]
+    async fn dropping_last_sender_wakes_parked_receiver() {
+        let (tx, rx) = attestation_pool(Config {
+            attestors: (0..5).map(account).collect(),
+            quorum: NonZero::new(2).unwrap(),
+            attestation_interval: NonZero::new(1).unwrap(),
+            start_height: 0,
+            max_catchup: NonZero::new(1_000).unwrap(),
+            start_digest: None,
+            start_height_finalized: None,
+            metrics: Box::new(NoMetrics),
+        });
+
+        let outcome = tokio::time::timeout(
+            std::time::Duration::from_secs(2),
+            // `join!` polls the receiver first, parking it on the empty pool; the second
+            // future then drops the last sender, which must produce the wake.
+            async {
+                tokio::join!(rx.recv(), async {
+                    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+                    drop(tx);
+                })
+            },
+        )
+        .await
+        .expect("parked receiver was not woken by the last Sender dropping");
+        assert!(outcome.0.is_none(), "closed pool must yield None");
+    }
+
+    /// A height reopened by `note_majority_not_reached` must not let a previously-invalidated
+    /// fork re-form: `mark_invalid` tombstones survive the local `mark_valid` at the same height
+    /// (they are only pruned on on-chain finalization), so re-gossiped votes for the rejected
+    /// digest stay rejected while fresh digests remain admissible.
+    #[test]
+    fn tombstones_survive_reopened_height() {
+        let mut p = pool(2);
+
+        // Fork A reaches quorum; the submitter validates it as genuinely invalid.
+        p.push(vote(0, 10, 0xaa)).unwrap();
+        p.push(vote(1, 10, 0xaa)).unwrap();
+        let (_quorum, permit) = p.peek().expect("fork A quorum");
+        p.mark_invalid(permit);
+
+        // Fork B reaches quorum and is marked valid — locks the height locally.
+        p.push(vote(2, 10, 0xbb)).unwrap();
+        p.push(vote(3, 10, 0xbb)).unwrap();
+        let (_quorum, permit) = p.peek().expect("fork B quorum");
+        p.mark_valid(permit);
+
+        // Runtime rejects the submission with `MajorityNotReached` — the validation lock is
+        // lifted and the height reopens (mirrors `Sender::note_majority_not_reached`).
+        p.locally_validated_height = None;
+        p.digest_local = None;
+
+        // A re-gossiped vote for the invalidated fork A must still be rejected...
+        let err = p
+            .push(vote(4, 10, 0xaa))
+            .expect_err("tombstone must survive the reopen");
+        assert!(matches!(err, Error::KnownInvalid(..)));
+
+        // ...while votes for a never-invalidated digest are admitted again.
+        p.push(vote(4, 10, 0xbb)).unwrap();
+
+        // On-chain finalization is what finally prunes the tombstone.
+        p.forks.note_finalized(10, Digest::from([0xbb; 32]));
+        assert!(p.forks.invalid.is_empty(), "finalization prunes tombstones");
+    }
+
+    /// `mark_skipped` drops only the one fork and does NOT lock the height: a different fork at
+    /// the same height can still reach quorum afterwards (contrast with `mark_valid`, which
+    /// locks the height to a single digest).
+    #[test]
+    fn mark_skipped_leaves_height_open_for_other_forks() {
+        let mut p = pool(2);
+
+        // Fork A reaches quorum.
+        p.push(vote(0, 10, 0xaa)).unwrap();
+        p.push(vote(1, 10, 0xaa)).unwrap();
+        let (_quorum, permit) = p.peek().expect("quorum should be ready");
+        p.mark_skipped(permit);
+
+        // A different fork at the same height is still admissible and can win.
+        p.push(vote(2, 10, 0xbb)).unwrap();
+        p.push(vote(3, 10, 0xbb)).unwrap();
+        let best = p.forks.best(2).expect("second fork should reach quorum");
+        assert_eq!(best.digest, Digest::from([0xbb; 32]));
+    }
+
+    fn signed_quorum(height: Height) -> SignedQuorum {
+        SignedQuorum {
+            height,
+            digest: Digest::from([height as u8; 32]),
+            signed: attestor_primitives::SignedAttestation {
+                attestation: attestor_primitives::AttestationData::new(
+                    1,
+                    height,
+                    Digest::from([height as u8; 32]),
+                    Default::default(),
+                    None,
+                ),
+                signature: [0u8; 96],
+                attestors: vec![],
+                continuity_proof: Default::default(),
+            },
+            votes: vec![],
+        }
+    }
+
+    /// Stashed quorums drain lowest-height-first. Draining highest-first would submit a later
+    /// height and leave the lower stash to be rejected by the runtime afterwards (behind the new
+    /// latest attestation) — a doomed, fee-burning extrinsic.
+    #[test]
+    fn stashed_quorums_drain_in_ascending_height_order() {
+        let mut batch = ValidBatch::default();
+        for height in [30, 10, 20] {
+            batch.push(signed_quorum(height));
+        }
+        let drained: Vec<Height> = std::iter::from_fn(|| batch.pop().map(|q| q.height)).collect();
+        assert_eq!(drained, vec![10, 20, 30]);
+    }
+}

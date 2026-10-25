@@ -1,0 +1,44 @@
+#!/bin/bash
+
+# Redirect output to stderr.
+exec 1>&2
+echo "INFO: pre-commit: checking if sources are formatted correctly"
+
+cargo fmt --check --
+RESULT=$?
+
+if [ "$RESULT" != "0" ]; then
+    echo "INFO: pre-commit: cargo fmt failed"
+    echo "FAIL: pre-commit: aborting the commit"
+    exit $RESULT
+fi
+
+# Check .toml files excluding 'target/'
+TOML_FILES=$(git diff --cached --name-only '*.toml' ':!target/*')
+
+if [ -n "$TOML_FILES" ]; then
+    taplo format --check "$TOML_FILES"
+    RESULT=$?
+    if [ "$RESULT" != "0" ]; then
+        echo "INFO: pre-commit: taplo format failed"
+        echo "FAIL: pre-commit: aborting the commit"
+        exit $RESULT
+    fi
+fi
+
+for TARGET_DIR in "cc3-indexer" "cli" "docs/smart-contract-development/with-hardhat" "scripts" "scripts/changelog-warnings"; do
+    if [ -n "$(git diff --cached --name-only $TARGET_DIR)" ]; then
+        pushd "$TARGET_DIR" || exit 2
+        yarn check-format
+        RESULT=$?
+        popd || exit 3
+
+        if [ "$RESULT" != "0" ]; then
+            echo "INFO: pre-commit: yarn check-format failed in $TARGET_DIR"
+            echo "FAIL: pre-commit: aborting the commit"
+            exit $RESULT
+        fi
+    fi
+done
+
+exit 0

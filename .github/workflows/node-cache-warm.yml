@@ -1,0 +1,93 @@
+---
+name: node-cache-warm
+
+# actions/setup-node's `cache:` restores and saves under one exact key, a hash of the
+# dependency files, with no restore-only mode and no fallback key. Nothing on dev ever ran
+# those setups (ci.yml and its callees run on pull requests), so no PR could find an entry
+# and every PR saved its own copy: 88 entries, ~19 GiB of the repository's 50 GB cache.
+#
+# This produces each entry on dev. Every setup below must use exactly the `cache` and
+# `cache-dependency-path` of the jobs it serves, or its key will not match theirs. A PR
+# whose lockfiles match dev then restores the entry and saves nothing.
+"on":
+  push:
+    branches: [dev]
+    paths:
+      - "**/yarn.lock"
+      - "**/package-lock.json"
+      - "**/package.json"
+      - ".github/workflows/node-cache-warm.yml"
+  schedule:
+    - cron: "30 3 * * *"
+  workflow_dispatch:
+
+permissions: read-all
+
+concurrency:
+  group: ${{ github.ref }}-${{ github.workflow }}
+  cancel-in-progress: false
+
+jobs:
+  warm:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # ci.yml (validator, attestor and blockchain CLI jobs), unit-test-cli.yml,
+          # sanity.yml, chainspec.yml, runtime-upgrade.yml, check-prover.yml and the
+          # compatibility workflows
+          - name: cli
+            cache: yarn
+            paths: |
+              cli/yarn.lock
+            install: cd cli && yarn install --frozen-lockfile
+
+          # ci.yml cc3-indexer-testing
+          - name: cc3-indexer
+            cache: yarn
+            paths: |
+              cc3-indexer/yarn.lock
+              cli/yarn.lock
+            install: cd cli && yarn install --frozen-lockfile && cd ../cc3-indexer && yarn install --frozen-lockfile
+
+          # ci.yml integration-test-attestator-network
+          - name: attestor-network
+            cache: npm
+            paths: |
+              attestor/scripts/package.json
+              checkpoint-verifier/yarn.lock
+              cli/yarn.lock
+            install: cd attestor/scripts && npm install
+
+          # proof-gen-api-server.yml exercise-scripts and stress-test
+          - name: proof-gen
+            cache: npm
+            paths: |
+              attestor/scripts/package-lock.json
+              scripts/yarn.lock
+            install: cd attestor/scripts && npm install && cd ../../scripts && npm install
+
+          # ci.yml docs-smart-contract-development-with-hardhat
+          - name: hardhat-docs
+            cache: npm
+            paths: docs/smart-contract-development/with-hardhat/package-lock.json
+            install: cd docs/smart-contract-development/with-hardhat && npm install
+
+    name: warm / ${{ matrix.name }}
+    runs-on: ubuntu-26.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: ${{ matrix.cache }}
+          cache-dependency-path: ${{ matrix.paths }}
+
+      # Fills the package manager's cache, which setup-node saves after the job when the
+      # key was not already there.
+      - name: Install
+        env:
+          INSTALL: ${{ matrix.install }}
+        run: bash -euo pipefail -c "$INSTALL"

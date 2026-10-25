@@ -1,0 +1,1583 @@
+//! The Archiver — continuously archives source chain data, computes merkle roots,
+//! and serves root data over HTTP.
+//!
+//! Uses `stream_eth::StreamRoots` for block fetching with automatic RPC reconnection
+//! and exponential backoff retries, ensuring gap-free data archival.
+
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Arc;
+use std::time::{Duration, Instant};
+
+use anyhow::{anyhow, Context, Result};
+use cc_client::Client as CcClient;
+use clap::Parser;
+use futures::StreamExt;
+
+/// Base delay between reconnection attempts (doubles each retry, capped at [`RECONNECT_MAX_DELAY`]).
+const RECONNECT_BASE_DELAY: Duration = Duration::from_secs(2);
+/// Minimum spacing between explicit durability flushes while following the tip. sled also
+/// flushes on its own timer (500 ms by default), so a per-block fsync buys nothing.
+const TIP_FLUSH_INTERVAL: Duration = Duration::from_secs(1);
+/// Maximum delay between reconnection attempts.
+const RECONNECT_MAX_DELAY: Duration = Duration::from_secs(60);
+
+/// Threads for merkle root computation: the explicit `--max-compute-threads` when given,
+/// otherwise available CPUs minus the threads reserved for block fetching (+1 for the main
+/// loop), floored at 1.
+fn compute_parallelism(cfg: &Config) -> std::num::NonZeroUsize {
+    if let Some(explicit) = cfg.max_compute_threads {
+        return explicit;
+    }
+    let available = std::thread::available_parallelism()
+        .unwrap_or(std::num::NonZeroUsize::new(4).unwrap())
+        .get();
+    let parallelism = available.saturating_sub(cfg.max_fetch_tasks.get() + 1);
+    std::num::NonZeroUsize::new(parallelism).unwrap_or(std::num::NonZeroUsize::MIN)
+}
+
+mod anchor;
+
+/// WS client used for block fetching: [`dial`] (fallbacks + deadline) with the configured fetch
+/// mode applied.
+async fn new_fetch_client(cfg: &Config, deadline: Duration) -> Result<eth::Client> {
+    Ok(dial(
+        cfg.stream_rpc_url().as_str(),
+        &cfg.rpc_fallback_urls,
+        deadline,
+        cfg.eth_rps,
+    )
+    .await?
+    .with_fetch_mode(cfg.fetch_mode))
+}
+mod api;
+mod config;
+mod health;
+mod store;
+
+use config::Config;
+use health::MatureTarget;
+use store::RootStore;
+
+#[tokio::main]
+async fn main() -> Result<()> {
+    dotenvy::dotenv().ok();
+
+    tracing_subscriber::fmt()
+        .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
+        .init();
+
+    let cfg = Config::parse();
+
+    // ── Storage ─────────────────────────────────────────────────────────
+    if let Some(parent) = cfg.sled_db_path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+
+    let store = RootStore::open(&cfg.sled_db_path)?;
+
+    // ── Range backfill mode ─────────────────────────────────────────────
+    // `--backfill` with `--end-height` is a one-shot "make start..=end complete, then exit".
+    // Everything else (tip-following, plain end-height runs, open-ended backfill) is unchanged.
+    let range_end = cfg.end_height.filter(|_| cfg.backfill);
+    if let Some(end) = range_end {
+        if end < cfg.start_height {
+            return Err(anyhow!(
+                "--end-height {end} is below --start-height {}",
+                cfg.start_height
+            ));
+        }
+    }
+
+    if cfg.serve_only {
+        return serve_only(&cfg, store).await;
+    }
+
+    if cfg.verify_only {
+        let end = range_end.context("--verify-only requires --backfill and --end-height")?;
+        return ensure_range_complete(&store, cfg.start_height, end);
+    }
+
+    // ── HTTP API + health, before any network handshake ─────────────────
+    // The source-chain handshake, the anchor check and especially `--backfill` can take a long
+    // time. Probes and `/roots` readers must be able to see the process during all of it, so
+    // the API binds first; `/ready` stays 503 ("handshake not complete") until the source
+    // identity is verified below.
+    // Two successful samples can be a full poll interval plus one sample's RPC budget apart (the
+    // poller sleeps, then samples under `RPC_TIMEOUT_SECS`), so the stale window must cover both.
+    anyhow::ensure!(
+        cfg.stale_after_secs.get() > cfg.head_poll_interval_secs.get() + cfg.rpc_timeout_secs.get(),
+        "STALE_AFTER_SECS ({}) must exceed HEAD_POLL_INTERVAL_SECS ({}) + RPC_TIMEOUT_SECS ({}), \
+         or a live source reads as stale between two head samples",
+        cfg.stale_after_secs,
+        cfg.head_poll_interval_secs,
+        cfg.rpc_timeout_secs
+    );
+    let health = Arc::new(health::Health::new(
+        cfg.ready_lag_blocks,
+        Duration::from_secs(cfg.stale_after_secs.get()),
+    ));
+    let api_state = Arc::new(api::AppState {
+        store: store.clone(),
+        max_api_range: cfg.max_api_range,
+        health: health.clone(),
+    });
+    let api_router = api::router(api_state);
+    let listener = tokio::net::TcpListener::bind(cfg.api_bind).await?;
+    tracing::info!(bind = %cfg.api_bind, "HTTP API listening");
+    let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel::<()>();
+    tokio::spawn(async move {
+        axum::serve(listener, api_router)
+            .with_graceful_shutdown(async {
+                shutdown_rx.await.ok();
+            })
+            .await
+            .ok();
+    });
+
+    // ── Determine resume height ─────────────────────────────────────────
+    let latest_stored = store.latest_height()?;
+
+    let mut start_height = match latest_stored {
+        Some(latest) => {
+            let resume = latest + 1;
+            tracing::info!(
+                stored = latest,
+                total_entries = store.count(),
+                resuming_from = resume,
+                "resuming from database"
+            );
+            resume
+        }
+        None => {
+            tracing::info!(from = cfg.start_height, "starting fresh (empty database)");
+            cfg.start_height
+        }
+    };
+
+    // ── Source chain identity ───────────────────────────────────────────
+    // Connect both RPC endpoints up front. They must agree on `chain_id`, and when
+    // `CHAIN_KEY` is set that `chain_id` must be the one registered on Creditcoin for
+    // this archiver's chain key. Both are fatal: archiving the wrong chain under a
+    // given archive name silently corrupts every proof later built from it.
+    let rpc_timeout = Duration::from_secs(cfg.rpc_timeout_secs.get());
+    let ws_client = dial(
+        cfg.stream_rpc_url().as_str(),
+        &cfg.rpc_fallback_urls,
+        rpc_timeout,
+        cfg.eth_rps,
+    )
+    .await?;
+    let http_client = dial(
+        cfg.rpc_http.as_str(),
+        &cfg.rpc_fallback_urls,
+        rpc_timeout,
+        cfg.eth_rps,
+    )
+    .await?;
+    if ws_client.chain_id() != http_client.chain_id() {
+        return Err(anyhow!(
+            "chain_id's from ws vs http don't match! ws_chain_id: {}, http_chain_id: {}",
+            ws_client.chain_id(),
+            http_client.chain_id(),
+        ));
+    }
+    let source_chain_id = ws_client.chain_id();
+    // An endpoint that cannot serve blocks in the configured mode (raw-RLP against a node without
+    // the `debug` namespace, or a block this build cannot decode) fails here rather than having
+    // the stream fail on its first block.
+    ws_client
+        .clone()
+        .with_fetch_mode(cfg.fetch_mode)
+        .check_fetch_mode(rpc_timeout)
+        .await
+        .with_context(|| {
+            format!(
+                "FETCH_MODE={} is not usable on the source RPC",
+                cfg.fetch_mode
+            )
+        })?;
+
+    // ── Registered chain (Creditcoin) ───────────────────────────────────
+    // Previously this lookup only ran when FINALIZATION_LAG was unset, so every
+    // deployment that pinned the lag skipped the chain_id verification along with it.
+    // The verification now runs whenever CHAIN_KEY is available. The client is kept: in
+    // tip-following mode it is what the archiver follows.
+    let registered = match cfg.chain_key {
+        Some(chain_key) => {
+            let cc3_client = CcClient::new_read_only(&cfg.cc3_rpc_url)
+                .await
+                .with_context(|| {
+                    format!(
+                        "Creditcoin3 RPC failed at cc3_rpc_url={}. \
+                         Ensure the node is up, the URL scheme (ws/wss) matches, and network/firewall allows the connection.",
+                        cfg.cc3_rpc_url
+                    )
+                })?;
+            let chain = cc3_client
+                .get_supported_chain(chain_key)
+                .await
+                .context("Failed to retrieve supported chain")?
+                .ok_or_else(|| {
+                    anyhow!(
+                        "No such supported chain. Check that provided chain_key is valid. chain_key: {chain_key}"
+                    )
+                })?;
+            let chain_name = String::from_utf8_lossy(&chain.chain_name).into_owned();
+
+            if chain.chain_id != source_chain_id {
+                return Err(anyhow!(
+                    "source chain_id {} does not match the chain registered on Creditcoin under \
+                     chain_key {} (chain_id {}, name {:?}); check RPC_HTTP/RPC_WS",
+                    source_chain_id,
+                    chain_key,
+                    chain.chain_id,
+                    chain_name,
+                ));
+            }
+            tracing::info!(
+                chain_key,
+                chain_id = source_chain_id,
+                name = %chain_name,
+                "source chain verified against Creditcoin registration"
+            );
+
+            Some((
+                cc3_client,
+                chain_key,
+                chain.maturity_strategy.as_str().to_owned(),
+            ))
+        }
+        None => {
+            tracing::warn!(
+                chain_id = source_chain_id,
+                "CHAIN_KEY not set: cannot verify that RPC_HTTP/RPC_WS serve the chain registered \
+                 on Creditcoin; a misconfigured endpoint would be archived silently"
+            );
+            None
+        }
+    };
+
+    // Pin the archive to this chain, only now that the endpoint has passed every identity
+    // check above (ws/http agreement and, when `CHAIN_KEY` is set, the Creditcoin
+    // registration). Pinning earlier would record a wrong RPC's chain id on a first start
+    // that then exits on the registry mismatch, bricking an archive that never stored a root.
+    match store.pin_chain_id(source_chain_id)? {
+        None => tracing::info!(chain_id = source_chain_id, "pinned archive to source chain"),
+        Some(pinned) => tracing::debug!(chain_id = pinned, "archive chain pin verified"),
+    }
+
+    // ── Canonical anchor ────────────────────────────────────────────────
+    // The stored tip must still be the canonical block at that height; otherwise the tail
+    // sits on an abandoned fork and resuming from `tip + 1` would splice canonical roots on
+    // top of fork roots. Fail closed unless the operator allowed bounded re-anchoring.
+    // Anchor against the WS client, the one the stream resumes from: HTTP can share the chain id
+    // yet sit behind a different (lagging, load-balanced) node still on the abandoned fork, and a
+    // tip verified there says nothing about the blocks WS will splice on. Reconnect does the same
+    // with the freshly dialled WS client.
+    let anchored = anchor::reconcile(&store, cfg.reanchor_max_depth, |h| {
+        canonical_block_hash(&ws_client, h, rpc_timeout)
+    })
+    .await?;
+    match anchored {
+        anchor::Anchor::Empty => {}
+        anchor::Anchor::Verified { tip } => tracing::info!(tip, "stored tip is canonical"),
+        anchor::Anchor::Unverifiable { tip } => tracing::warn!(
+            tip,
+            "stored tip predates the block-hash column; canonical anchor cannot be verified"
+        ),
+        anchor::Anchor::Reanchored { tip, removed } => {
+            tracing::warn!(
+                tip,
+                removed,
+                "stored tail was on an abandoned fork; dropped it and re-anchored"
+            );
+        }
+    }
+    if let Some(resume) = anchored.resume_from() {
+        start_height = resume;
+    }
+
+    // Check if we've already passed the end height.
+    // Range backfill skips this: a shard that is archived to its end is exactly what it needs
+    // to verify.
+    if let Some(end) = cfg.end_height.filter(|_| range_end.is_none()) {
+        if end < start_height {
+            tracing::info!(
+                end_height = end,
+                start_height,
+                "already archived past end-height, nothing to do"
+            );
+            return Ok(());
+        }
+    }
+
+    // ── Boundary ────────────────────────────────────────────────────────
+    // Following the tip with CHAIN_KEY set, the archiver follows the latest attested height,
+    // read at inclusion (Creditcoin's best block) rather than finality: the attestors have
+    // already decided what is mature, and a cache that decides again can
+    // only disagree with them. Explicit ranges and gap backfill still resolve maturity against
+    // the source node, because they walk history that may have no attestations at all (the BSC
+    // sweep computes roots for blocks the attestors will only reach later) and must not become
+    // attestation-gated. That resolution is done lazily so a tip follower never needs to parse
+    // the on-chain strategy.
+    let mode = tip_mode(cfg.chain_key, cfg.end_height, cfg.finalization_lag_override);
+    let source_maturity = || -> Result<eth::Maturity> {
+        let on_chain = registered
+            .as_ref()
+            .map(|(_, _, strategy)| on_chain_maturity(strategy))
+            .transpose()?;
+        resolve_maturity(cfg.finalization_lag_override, on_chain)
+    };
+
+    // The bound and the head tracker start here, ahead of the shutdown wiring and a possibly
+    // hours-long `--backfill`, so probes see the real startup phase (lag against the target)
+    // rather than a stale "handshake not complete" or "source head never observed".
+    let (boundary, attested) = match mode {
+        TipMode::Attested { chain_key } => {
+            let (cc3_client, _, _) = registered
+                .as_ref()
+                .expect("tip_mode only picks Attested when CHAIN_KEY is set");
+            let rx = follow_attested_height(
+                cc3_client.clone(),
+                chain_key,
+                Duration::from_secs(cfg.attested_poll_secs),
+            );
+            (stream_eth::roots::Boundary::Attested(rx.clone()), Some(rx))
+        }
+        TipMode::Source => (
+            stream_eth::roots::Boundary::Source(source_maturity()?),
+            None,
+        ),
+    };
+    // ── Health / freshness bookkeeping ──────────────────────────────────
+    // Readiness is judged against the same number the stream fetches up to: the attested height
+    // clamped to the source head, or the source-resolved mature height. It is re-derived with
+    // every head sample, so an idle chain stays ready and a stalled archiver does not.
+    let ready_target = match &attested {
+        Some(rx) => ReadyTarget::Attested(rx.clone()),
+        None => ReadyTarget::Source(source_maturity()?),
+    };
+    // Identity verified, pinned and the bound decided: `/ready` may now turn green.
+    health.set_source(source_chain_id, ready_target.to_string());
+    // ── Chain head tracker (for ETA, stall judgement and freshness) ─────
+    // `chain_head` is 0 until the first successful read, and `head_seen_at` is the wall-clock
+    // second of the last one, so consumers can tell a real head from "never read" or "stale
+    // because HTTP has been failing"; see `known_head`. The poller runs on the same cadence as
+    // the stream's head poll (`--head-poll-interval-secs`), so `/ready` freshness and the
+    // stream's own liveness floor move together and a sample is stale after three missed
+    // polls. Every read is bounded by the RPC call timeout: a hung HTTP node must age the
+    // sample out, not freeze the poller.
+    let head_poll_interval = Duration::from_secs(cfg.head_poll_interval_secs.get());
+    let head_stale_after = head_poll_interval * HEAD_STALE_AFTER_POLLS;
+    let current_head = match ready_target.sample(&http_client, rpc_timeout).await {
+        Ok((h, target)) => {
+            health.note_head(h);
+            health.note_mature_target(target);
+            h
+        }
+        Err(e) => {
+            tracing::warn!("initial head read failed: {e}");
+            0
+        }
+    };
+    let chain_head = Arc::new(AtomicU64::new(current_head));
+    let head_seen_at = Arc::new(AtomicU64::new(if current_head > 0 {
+        now_secs()
+    } else {
+        0
+    }));
+    {
+        let head = chain_head.clone();
+        let seen_at = head_seen_at.clone();
+        let client = http_client.clone();
+        let health = health.clone();
+        let mut ready_target = ready_target.clone();
+        tokio::spawn(async move {
+            loop {
+                // A new attested height re-samples at once rather than on the next tick, so
+                // `/ready` leaves "target unknown" as soon as Creditcoin has been read.
+                tokio::select! {
+                    _ = tokio::time::sleep(head_poll_interval) => {}
+                    _ = ready_target.changed() => {}
+                }
+                match ready_target.sample(&client, rpc_timeout).await {
+                    Ok((h, target)) => {
+                        head.store(h, Ordering::Release);
+                        seen_at.store(now_secs(), Ordering::Release);
+                        health.note_head(h);
+                        health.note_mature_target(target);
+                    }
+                    Err(e) => tracing::warn!("head poll failed: {e}"),
+                }
+            }
+        });
+    }
+
+    // ── Shutdown signal (SIGINT + SIGTERM) ──────────────────────────────
+    // A `watch` rather than a oneshot so every phase (main loop, reconnect backoff, stream
+    // construction) can select on it repeatedly. Kubernetes stops pods with SIGTERM, so
+    // it must take the same final-batch / final-flush path as Ctrl+C.
+    let (cancel_tx, cancel_rx) = tokio::sync::watch::channel(false);
+    tokio::spawn(async move {
+        wait_for_shutdown_signal().await;
+        tracing::info!("shutting down...");
+        let _ = cancel_tx.send(true);
+    });
+    let mut cancel_rx = cancel_rx;
+    let mut backfill_cancel = cancel_rx.clone();
+
+    // ── Backfill gaps ────────────────────────────────────────────────────
+    if cfg.backfill {
+        // Pass `cfg.start_height` so the gap-finder also reports a pre-first-stored gap
+        // when the database begins at an intermediate height (e.g. partial snapshot
+        // restore). Without an explicit anchor, `find_gaps` could only see neighbour-pair
+        // gaps and would silently miss blocks below the first persisted entry.
+        // In range mode the scan is also bounded above and includes a missing tail.
+        let gaps = store.find_gaps(Some(cfg.start_height), range_end)?;
+        if gaps.is_empty() {
+            tracing::info!("backfill: no gaps found");
+        } else {
+            let total_missing: u64 = gaps.iter().map(|(s, e)| e - s + 1).sum();
+            tracing::info!(
+                gaps = gaps.len(),
+                total_missing,
+                "backfill: found gaps, filling..."
+            );
+            let maturity = source_maturity()?;
+
+            for (gap_start, gap_end) in &gaps {
+                tracing::info!(from = gap_start, to = gap_end, "backfill: filling gap");
+
+                // Both the dial and `StreamRoots::new` (which retries the initial subscribe
+                // without bound) must yield to SIGTERM, or a shutdown during a source outage
+                // never reaches the final flush below.
+                let ws_client = tokio::select! {
+                    _ = cancelled(&mut backfill_cancel) => {
+                        tracing::info!("backfill interrupted by shutdown before dialing");
+                        return backfill_shutdown(&store, cfg.start_height, range_end);
+                    }
+                    c = new_fetch_client(&cfg, rpc_timeout) => c?,
+                };
+                // Same identity rule as startup and reconnect: a fresh dial that lands on
+                // another chain must not fill gaps with foreign roots (the reorg guard only
+                // fires for heights that already exist, so gaps have no second line of
+                // defence).
+                if ws_client.chain_id() != source_chain_id {
+                    return Err(anyhow!(
+                        "backfill: WS endpoint serves chain_id {} but this archive is pinned to {}; aborting",
+                        ws_client.chain_id(),
+                        source_chain_id
+                    ));
+                }
+                let gap_config = stream_eth::roots::ConfigBuilder::new()
+                    .with_client(ws_client)
+                    .with_start_height(*gap_start)
+                    .with_bound(stream_eth::roots::Boundary::Source(maturity))
+                    .with_max_concurrency(cfg.max_fetch_tasks)
+                    .with_max_parallelism(compute_parallelism(&cfg))
+                    .with_head_poll_interval(Duration::from_secs(cfg.head_poll_interval_secs.get()))
+                    .with_rpc_call_timeout(Duration::from_secs(cfg.rpc_timeout_secs.get()))
+                    .with_stop_on_unrecoverable(true)
+                    .build();
+
+                let mut gap_stream = tokio::select! {
+                    _ = cancelled(&mut backfill_cancel) => {
+                        tracing::info!("backfill interrupted by shutdown before subscribing");
+                        return backfill_shutdown(&store, cfg.start_height, range_end);
+                    }
+                    s = stream_eth::StreamRoots::new(gap_config) => s,
+                };
+                let mut filled = 0u64;
+                let flush_size = cfg.flush_every.get() as usize;
+                let mut batch_buf = Vec::with_capacity(flush_size);
+
+                loop {
+                    let info = tokio::select! {
+                        _ = cancelled(&mut backfill_cancel) => {
+                            tracing::info!("backfill interrupted by shutdown; writing pending batch");
+                            break;
+                        }
+                        next = gap_stream.next() => match next {
+                            Some(info) => info,
+                            None => break,
+                        },
+                    };
+                    let done = info.height >= *gap_end;
+                    // Store the source block hash alongside the root so canonical
+                    // replacements (same root, different block) are reconciled across
+                    // restart/backfill, not just within a single run.
+                    batch_buf.push((info.height, info.root, info.hash));
+                    filled += 1;
+
+                    if batch_buf.len() >= flush_size || done {
+                        store.put_roots(&batch_buf)?;
+                        batch_buf.clear();
+                    }
+
+                    if filled % flush_size as u64 == 0 {
+                        tracing::info!(
+                            height = info.height,
+                            filled,
+                            remaining = gap_end.saturating_sub(info.height),
+                            "backfill progress"
+                        );
+                    }
+
+                    if done {
+                        break;
+                    }
+                }
+
+                if !batch_buf.is_empty() {
+                    store.put_roots(&batch_buf)?;
+                    batch_buf.clear();
+                }
+                store.flush().await?;
+                if let Some(err) = gap_stream.take_unrecoverable_error() {
+                    return Err(unrecoverable_fetch(err));
+                }
+                if *backfill_cancel.borrow() {
+                    tracing::info!(from = gap_start, filled, "backfill: stopped by shutdown");
+                    return backfill_shutdown(&store, cfg.start_height, range_end);
+                }
+                tracing::info!(
+                    from = gap_start,
+                    to = gap_end,
+                    filled,
+                    "backfill: gap filled"
+                );
+            }
+
+            tracing::info!("backfill complete");
+        }
+
+        // Range mode never follows the tip: re-verify what was filled (this also catches a
+        // gap stream that ended before reaching its gap end) and exit.
+        if let Some(end) = range_end {
+            return ensure_range_complete(&store, cfg.start_height, end);
+        }
+    }
+
+    // ── Connect to chain ────────────────────────────────────────────────
+    // Reuse the verified clients: WS for StreamRoots (subscriptions + block fetching),
+    // HTTP for chain head tracking. Apply fetch_mode to the WS client so historical
+    // sweeps can use raw-RLP without opening a second pair of connections.
+    let ws_client = ws_client.with_fetch_mode(cfg.fetch_mode);
+    tracing::info!(
+        chain_id = source_chain_id,
+        ws = %eth::redact_url_query(cfg.stream_rpc_url().as_str()),
+        http = %eth::redact_url_query(cfg.rpc_http.as_str()),
+        fetch_mode = %cfg.fetch_mode,
+        "connected to chain"
+    );
+
+    // ── Root stream (with automatic reconnection) ───────────────────────
+    let stream_config = stream_eth::roots::ConfigBuilder::new()
+        .with_client(ws_client)
+        .with_start_height(start_height)
+        .with_bound(boundary.clone())
+        .with_max_concurrency(cfg.max_fetch_tasks)
+        .with_max_parallelism(compute_parallelism(&cfg))
+        .with_head_poll_interval(Duration::from_secs(cfg.head_poll_interval_secs.get()))
+        .with_rpc_call_timeout(Duration::from_secs(cfg.rpc_timeout_secs.get()))
+        .with_stop_on_unrecoverable(true)
+        .build();
+
+    // The initial subscribe retries without bound while the source is down; let SIGTERM win.
+    let mut root_stream = tokio::select! {
+        _ = cancelled(&mut cancel_rx) => {
+            tracing::info!("shutdown requested before the root stream connected; exiting");
+            return Ok(());
+        }
+        s = stream_eth::StreamRoots::new(stream_config) => s,
+    };
+
+    tracing::info!(
+        start = start_height,
+        end_height = ?cfg.end_height,
+        head = current_head,
+        boundary = %boundary,
+        fetch_tasks = ?cfg.max_fetch_tasks,
+        eth_rps = cfg.eth_rps.map(|rps| rps.get()),
+        api = %cfg.api_bind,
+        "starting archiver"
+    );
+
+    // ── Background flush task ───────────────────────────────────────────
+    let flush_store = store.clone();
+    let flush_health = health.clone();
+    let (flush_tx, mut flush_rx) = tokio::sync::mpsc::channel::<()>(1);
+    tokio::spawn(async move {
+        while flush_rx.recv().await.is_some() {
+            match flush_store.flush().await {
+                Ok(()) => flush_health.note_flush_ok(),
+                Err(e) => {
+                    tracing::error!("flush failed: {e}");
+                    flush_health.note_flush_error(&e);
+                }
+            }
+        }
+    });
+
+    // ── Main loop ───────────────────────────────────────────────────────
+    let mut count = 0u64;
+    let start = Instant::now();
+    let flush_size = cfg.flush_every.get() as usize;
+    let mut batch_buf = Vec::with_capacity(flush_size);
+
+    let stream_timeout = Duration::from_secs(cfg.stream_timeout_secs.get());
+    let mut last_height: Option<u64> = None;
+    // Stamped in the past so the first block at the tip is flushed immediately.
+    let mut last_tip_flush = Instant::now() - TIP_FLUSH_INTERVAL;
+
+    loop {
+        let next_item = tokio::select! {
+            _ = cancelled(&mut cancel_rx) => break,
+            result = tokio::time::timeout(stream_timeout, root_stream.next()) => result,
+        };
+
+        let info = match next_item {
+            Ok(Some(info)) => info,
+            reason => {
+                // The next block cannot be fetched at all; reconnecting would only fail on it
+                // again. Keep what was archived and exit.
+                if let Some(err) = root_stream.take_unrecoverable_error() {
+                    if !batch_buf.is_empty() {
+                        store.put_roots(&batch_buf)?;
+                    }
+                    store.flush().await?;
+                    return Err(unrecoverable_fetch(err));
+                }
+                // Under an attested boundary a quiet stream is the normal state between
+                // attestations, not a stall: there is simply nothing released to fetch. Only
+                // treat the timeout as a dead stream when the boundary has moved past what we
+                // hold and the blocks still did not arrive.
+                if let (Err(_), Some(rx)) = (&reason, &attested) {
+                    let next_wanted = last_height.map(|h| h + 1).unwrap_or(start_height);
+                    // The stream fetches up to the published bound clamped to the source head
+                    // it has observed; judge the silence against the same number, or a node
+                    // lagging the attestors would look like a stall and be torn down every
+                    // timeout while it is healthy and simply behind.
+                    // A head that was never read or has gone stale does not clamp: the stream
+                    // is then judged against the raw bound, which errs towards a reconnect,
+                    // never towards hiding a hung fetch behind "nothing to fetch".
+                    let published = *rx.borrow();
+                    let source_head = known_head(&chain_head, &head_seen_at, head_stale_after);
+                    let fetchable = fetchable_bound(published, source_head);
+                    if fetchable.is_none_or(|bound| bound < next_wanted) {
+                        tracing::info!(
+                            ?published,
+                            ?source_head,
+                            next_wanted,
+                            "nothing new to fetch (no new attestation, or the source node has \
+                             not reached it yet)"
+                        );
+                        continue;
+                    }
+                }
+                let msg = match &reason {
+                    Err(_) => "stalled (timeout)",
+                    _ => "ended unexpectedly",
+                };
+                tracing::warn!(?last_height, reason = msg, "stream died, reconnecting...");
+                health.note_reconnect();
+
+                // Flush any pending batch before reconnecting.
+                if !batch_buf.is_empty() {
+                    store.put_roots(&batch_buf)?;
+                    batch_buf.clear();
+                }
+
+                // Reconnect with exponential backoff. Every wait here selects on the shutdown
+                // signal, so a SIGTERM during an outage (or a stuck stream constructor) still
+                // exits through the final-flush path instead of needing a kill.
+                let mut resume_from = last_height.map(|h| h + 1).unwrap_or(start_height);
+                let mut delay = RECONNECT_BASE_DELAY;
+                let mut shutting_down = false;
+                loop {
+                    tokio::select! {
+                        _ = cancelled(&mut cancel_rx) => { shutting_down = true; break; }
+                        _ = tokio::time::sleep(delay) => {}
+                    }
+                    tracing::info!(resume_from, "attempting stream reconnection...");
+
+                    let connect = tokio::select! {
+                        _ = cancelled(&mut cancel_rx) => { shutting_down = true; break; }
+                        c = new_fetch_client(&cfg, rpc_timeout) => c,
+                    };
+                    match connect {
+                        // The endpoint must still be the chain this archive is pinned to. A
+                        // DNS / load-balancer / provider flip to another chain is refused and
+                        // retried, never archived.
+                        Ok(new_ws) if new_ws.chain_id() != source_chain_id => {
+                            tracing::error!(
+                                expected = source_chain_id,
+                                got = new_ws.chain_id(),
+                                "⛔ reconnected WS endpoint serves a different chain; refusing it"
+                            );
+                        }
+                        Ok(new_ws) => {
+                            // The chain may have reorged past our tail while we were away.
+                            // Same rule as startup: verify the anchor, fail closed unless
+                            // bounded re-anchoring is allowed. An RPC error here is just a
+                            // failed reconnect attempt and is retried.
+                            let anchored = tokio::select! {
+                                _ = cancelled(&mut cancel_rx) => { shutting_down = true; break; }
+                                a = anchor::reconcile(&store, cfg.reanchor_max_depth, |h| {
+                                    canonical_block_hash(&new_ws, h, rpc_timeout)
+                                }) => a,
+                            };
+                            match anchored {
+                                Ok(anchor::Anchor::Reanchored { tip, removed }) => {
+                                    tracing::warn!(
+                                        tip,
+                                        removed,
+                                        "stored tail was on an abandoned fork; dropped it and re-anchored"
+                                    );
+                                    resume_from = tip + 1;
+                                    last_height = Some(tip);
+                                }
+                                Ok(a) => {
+                                    if let Some(resume) = a.resume_from() {
+                                        resume_from = resume;
+                                    }
+                                }
+                                Err(e) if e.downcast_ref::<store::StoreError>().is_some() => {
+                                    return Err(e);
+                                }
+                                Err(e) => {
+                                    tracing::warn!("anchor check failed on reconnect: {e:#}");
+                                    delay = (delay * 2).min(RECONNECT_MAX_DELAY);
+                                    continue;
+                                }
+                            }
+                            let new_config = stream_eth::roots::ConfigBuilder::new()
+                                .with_client(new_ws)
+                                .with_start_height(resume_from)
+                                .with_bound(boundary.clone())
+                                .with_max_concurrency(cfg.max_fetch_tasks)
+                                .with_max_parallelism(compute_parallelism(&cfg))
+                                .with_head_poll_interval(Duration::from_secs(
+                                    cfg.head_poll_interval_secs.get(),
+                                ))
+                                .with_rpc_call_timeout(Duration::from_secs(
+                                    cfg.rpc_timeout_secs.get(),
+                                ))
+                                .with_stop_on_unrecoverable(true)
+                                .build();
+                            let built = tokio::select! {
+                                _ = cancelled(&mut cancel_rx) => { shutting_down = true; break; }
+                                s = stream_eth::StreamRoots::new(new_config) => s,
+                            };
+                            root_stream = built;
+                            break;
+                        }
+                        Err(e) => {
+                            tracing::warn!("failed to connect WS client: {e}");
+                        }
+                    }
+
+                    delay = (delay * 2).min(RECONNECT_MAX_DELAY);
+                }
+                if shutting_down {
+                    break;
+                }
+                continue;
+            }
+        };
+
+        let height = info.height;
+        let root = info.root;
+        let block_hash = info.hash;
+        last_height = Some(height);
+
+        // Persist the source block hash with the root for reorg reconciliation.
+        batch_buf.push((height, root, block_hash));
+        count += 1;
+        health.note_progress(height);
+
+        let end_reached = cfg.end_height.is_some_and(|end| height >= end);
+        // Distance to whatever bounds this run: the explicit end, the attested height, or,
+        // resolving maturity locally, the source head. Under an attested bound the last block
+        // of every released range *is* the bound, and it is exactly the block the prover needs
+        // next, so "at the tip" must be measured against that bound rather than the head.
+        let target = cfg.end_height.unwrap_or_else(|| {
+            let published = attested.as_ref().and_then(|rx| *rx.borrow());
+            fetchable_bound(
+                published,
+                known_head(&chain_head, &head_seen_at, head_stale_after),
+            )
+            .unwrap_or_else(|| chain_head.load(Ordering::Acquire))
+        });
+        let remaining = target.saturating_sub(height);
+        let at_tip = at_tip(remaining, cfg.tip_window);
+
+        // Write the batch when full, at the end, or whenever we are at the tip: batching there
+        // only delays when the API can serve a root that is already mature, which is what
+        // proof-gen and the attestors are waiting on. Deep catch-up keeps the batched writes.
+        if batch_buf.len() >= flush_size || end_reached || at_tip {
+            store.put_roots(&batch_buf)?;
+            batch_buf.clear();
+        }
+
+        // Stop if we've reached the end height.
+        if end_reached {
+            tracing::info!(height, total = count, "reached end height, stopping");
+            break;
+        }
+
+        // Durability flush + logging: at the tip at most once per `TIP_FLUSH_INTERVAL` (the
+        // write above already made the root visible; sled's own timer flushes too), every
+        // `flush_every` blocks otherwise.
+        let is_flush =
+            should_request_flush(at_tip, height, cfg.flush_every, last_tip_flush.elapsed());
+        let is_log = is_flush || count % cfg.flush_every.get() == 0;
+
+        if is_flush {
+            let _ = flush_tx.try_send(());
+            last_tip_flush = Instant::now();
+        }
+
+        if is_log {
+            let elapsed_secs = start.elapsed().as_secs_f64();
+            let rate = if elapsed_secs > 0.0 {
+                count as f64 / elapsed_secs
+            } else {
+                0.0
+            };
+            let label = if is_flush { "flushed" } else { "✓" };
+            tracing::info!(
+                height,
+                total = count,
+                rate = format!("{rate:.1} blocks/s"),
+                eta = format_eta(remaining, rate),
+                behind = remaining,
+                "{label}"
+            );
+        }
+    }
+
+    // Flush any remaining batch entries.
+    if !batch_buf.is_empty() {
+        store.put_roots(&batch_buf)?;
+    }
+
+    // ── Shutdown ────────────────────────────────────────────────────────
+    tracing::info!("flushing final state...");
+    store.flush().await?;
+    let _ = shutdown_tx.send(());
+
+    tracing::info!(
+        total = count,
+        elapsed = ?start.elapsed(),
+        "archiver stopped"
+    );
+
+    Ok(())
+}
+
+/// The error the archiver exits with when the root stream ended on a block that no retry can
+/// fetch ([`eth::Error::is_unrecoverable`]).
+fn unrecoverable_fetch(err: stream_eth::Error) -> anyhow::Error {
+    anyhow::Error::new(err).context(
+        "the source RPC cannot serve the next block and retrying will not change that; check \
+         FETCH_MODE and that every RPC endpoint exposes the methods it needs",
+    )
+}
+
+/// True when the archiver is close enough to the chain head that batching would delay the
+/// visibility of mature roots: within `tip_window` blocks of the target. At the tip
+/// `remaining` settles at the finalization lag (plus head-poll latency), which the default
+/// window covers with margin, so tip-following writes every block without operators having
+/// to set `FLUSH_EVERY=1`, while catch-up keeps batched writes right up to the last few
+/// hundred blocks. If the head tracker has no value yet (`0`), `remaining` is `0` and we err
+/// on the side of writing.
+fn at_tip(remaining: u64, tip_window: std::num::NonZeroU64) -> bool {
+    remaining < tip_window.get()
+}
+
+/// Whether to request a durability flush after this block. Catch-up flushes every
+/// `flush_every` blocks. At the tip, flushes are throttled to one per
+/// [`TIP_FLUSH_INTERVAL`]: the root is already visible from the write, and fsync-per-block
+/// was measured at ~9× slower for the final window of a catch-up.
+fn should_request_flush(
+    at_tip: bool,
+    height: u64,
+    flush_every: std::num::NonZeroU64,
+    since_last_tip_flush: Duration,
+) -> bool {
+    (at_tip && since_last_tip_flush >= TIP_FLUSH_INTERVAL) || height % flush_every.get() == 0
+}
+
+/// Resolves once the shutdown signal has fired. Cheap to call repeatedly from `select!`.
+/// Dial an RPC endpoint with the configured fallbacks. A fallback that cannot be reached (or
+/// serves another chain) must never keep the archiver from starting or reconnecting on a
+/// healthy primary, so on fallback failure the dial is retried with the primary alone.
+///
+/// Every dial runs under `deadline`: alloy transports have no default timeout, so without one a
+/// black-holed fallback (or primary) would hang the handshake or a reconnect attempt forever.
+async fn dial(
+    url: &str,
+    fallback_urls: &[String],
+    deadline: Duration,
+    rps: Option<std::num::NonZeroU32>,
+) -> Result<eth::Client> {
+    let client = dial_unpaced(url, fallback_urls, deadline).await?;
+    // Pace before anything clones the client: clones share the pacer they were made from.
+    Ok(match rps {
+        Some(rps) => client.with_rate_limit(rps),
+        None => client,
+    })
+}
+
+/// Dial without a request budget; [`dial`] applies the budget on top.
+async fn dial_unpaced(
+    url: &str,
+    fallback_urls: &[String],
+    deadline: Duration,
+) -> Result<eth::Client> {
+    let primary_only = || async {
+        tokio::time::timeout(deadline, eth::Client::new(url, None))
+            .await
+            .map_err(|_| anyhow!("timed out after {deadline:?} dialing {url}"))?
+    };
+    if fallback_urls.is_empty() {
+        return primary_only().await;
+    }
+    let with_fallbacks = tokio::time::timeout(
+        deadline,
+        eth::Client::new_with_fallbacks(url, fallback_urls, None),
+    )
+    .await
+    .map_err(|_| anyhow!("timed out after {deadline:?} dialing {url} with fallbacks"))
+    .and_then(|r| r);
+    match with_fallbacks {
+        Ok(client) => Ok(client),
+        Err(e) => {
+            tracing::warn!(
+                fallbacks = fallback_urls.len(),
+                "dial with fallback RPCs failed, retrying with the primary only: {e:#}"
+            );
+            primary_only().await
+        }
+    }
+}
+
+/// Hash of the canonical block at `height` as seen by `client`, under the RPC deadline.
+async fn canonical_block_hash(
+    client: &eth::Client,
+    height: u64,
+    timeout: Duration,
+) -> Result<sp_core::H256> {
+    let block = tokio::time::timeout(timeout, client.get_eth_block(height))
+        .await
+        .map_err(|_| anyhow!("timed out fetching block {height}"))??;
+    Ok(sp_core::H256::from_slice(block.header.hash.as_slice()))
+}
+
+async fn cancelled(rx: &mut tokio::sync::watch::Receiver<bool>) {
+    if *rx.borrow() {
+        return;
+    }
+    while rx.changed().await.is_ok() {
+        if *rx.borrow() {
+            return;
+        }
+    }
+    // Sender dropped: treat as shutdown so nothing waits forever.
+}
+
+/// SIGINT (Ctrl+C) or SIGTERM (what systemd / Kubernetes send). Either way the caller takes
+/// the graceful path: pending batch written, final flush, API drained.
+async fn wait_for_shutdown_signal() {
+    #[cfg(unix)]
+    {
+        let mut term = match tokio::signal::unix::signal(
+            tokio::signal::unix::SignalKind::terminate(),
+        ) {
+            Ok(t) => t,
+            Err(e) => {
+                tracing::warn!("failed to register SIGTERM handler: {e}; only Ctrl+C will shut down gracefully");
+                tokio::signal::ctrl_c().await.ok();
+                return;
+            }
+        };
+        tokio::select! {
+            _ = tokio::signal::ctrl_c() => {}
+            _ = term.recv() => {}
+        }
+    }
+    #[cfg(not(unix))]
+    {
+        tokio::signal::ctrl_c().await.ok();
+    }
+}
+
+/// Serve `store` over the HTTP API with no chain connection and no writes, until Ctrl+C.
+async fn serve_only(cfg: &Config, store: RootStore) -> Result<()> {
+    // No source is ever attached, so `/ready` stays 503; `/roots` and `/status` still serve.
+    let health = Arc::new(health::Health::new(
+        cfg.ready_lag_blocks,
+        Duration::from_secs(cfg.stale_after_secs.get()),
+    ));
+    let api_state = Arc::new(api::AppState {
+        store: store.clone(),
+        max_api_range: cfg.max_api_range,
+        health,
+    });
+    let listener = tokio::net::TcpListener::bind(cfg.api_bind).await?;
+    tracing::info!(
+        bind = %cfg.api_bind,
+        entries = store.count(),
+        latest = ?store.latest_height()?,
+        "serve-only: HTTP API listening (no fetching, no writes)"
+    );
+    axum::serve(listener, api::router(api_state))
+        .with_graceful_shutdown(async {
+            tokio::signal::ctrl_c().await.ok();
+            tracing::info!("shutting down...");
+        })
+        .await?;
+    Ok(())
+}
+
+/// How many individual gaps to log before summarising the rest.
+const MAX_LOGGED_GAPS: usize = 50;
+
+/// Warn about stored entries outside `start..=end`. They don't fail verification (they
+/// aren't in the range being checked), but a shard should not have any: they are left over
+/// from a run that strayed past its assigned range.
+fn log_out_of_range(store: &RootStore, start: u64, end: u64) -> Result<()> {
+    let (below, above) = store.count_outside(start, end)?;
+    if below > 0 || above > 0 {
+        tracing::warn!(
+            start,
+            end,
+            below,
+            above,
+            "range backfill: database holds entries outside the requested range"
+        );
+    }
+    Ok(())
+}
+
+/// Exit status for a backfill stopped by SIGTERM / Ctrl+C. Following the tip there is no
+/// "done", so a shutdown is a clean exit. A range shard is only done once `start..=end` is
+/// complete: an interrupted one must exit non-zero, or a job supervisor records the shard as
+/// finished and never reruns it (a rerun resumes from the remaining gaps).
+fn backfill_shutdown(store: &RootStore, start: u64, range_end: Option<u64>) -> Result<()> {
+    match range_end {
+        Some(end) => ensure_range_complete(store, start, end)
+            .context("range backfill interrupted by shutdown before the range was complete"),
+        None => Ok(()),
+    }
+}
+
+/// Verify every block in `start..=end` is stored. Returns an error listing the gaps if not.
+fn ensure_range_complete(store: &RootStore, start: u64, end: u64) -> Result<()> {
+    log_out_of_range(store, start, end)?;
+
+    let expected = end - start + 1;
+    let gaps = store.find_gaps(Some(start), Some(end))?;
+    if gaps.is_empty() {
+        tracing::info!(start, end, blocks = expected, "range verified complete");
+        return Ok(());
+    }
+
+    let missing: u64 = gaps.iter().map(|(s, e)| e - s + 1).sum();
+    for (from, to) in gaps.iter().take(MAX_LOGGED_GAPS) {
+        tracing::error!(from, to, "range verification: missing blocks");
+    }
+    if gaps.len() > MAX_LOGGED_GAPS {
+        tracing::error!(
+            more = gaps.len() - MAX_LOGGED_GAPS,
+            "range verification: further gaps not listed"
+        );
+    }
+    Err(anyhow!(
+        "range {start}..={end} incomplete: {missing} of {expected} blocks missing across {} gap(s)",
+        gaps.len()
+    ))
+}
+
+fn format_eta(remaining: u64, rate: f64) -> String {
+    if rate <= 0.0 || remaining == 0 {
+        return "synced".to_string();
+    }
+    let secs = (remaining as f64 / rate) as u64;
+    let h = secs / 3600;
+    let m = (secs % 3600) / 60;
+    if h > 0 {
+        format!("{h}h{m:02}m")
+    } else {
+        format!("{m}m")
+    }
+}
+
+/// Maturity implied by an on-chain `MaturityStrategy` string: a fixed lag
+/// (e.g. `"EvmFinalized"` → 64 blocks, `"FixedDelay: 5"` → 5) or an RPC block tag
+/// (`"RpcSafe"` / `"RpcFinalized"`), resolved exactly as the attestors resolve it.
+fn on_chain_maturity(maturity_strategy: &str) -> Result<eth::Maturity> {
+    let strategy: supported_chains_primitives::MaturityStrategy = maturity_strategy
+        .try_into()
+        .map_err(|e| anyhow!("Invalid maturity strategy: {e:?}"))?;
+
+    stream_eth::maturity_from_strategy(&strategy).ok_or_else(|| {
+        anyhow!("Unsupported maturity strategy (no fixed delay and no RPC block tag): {strategy:?}")
+    })
+}
+
+/// How the tip-following stream bounds what it fetches.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum TipMode {
+    /// Follow the latest attested height for `chain_key` on Creditcoin.
+    Attested { chain_key: u64 },
+    /// Resolve maturity against the source node: explicit ranges, or no `CHAIN_KEY` to follow.
+    Source,
+}
+
+/// Following the tip with a chain key follows the attestations; everything else resolves
+/// maturity locally. A `FINALIZATION_LAG` in attested mode has nothing to apply to and is
+/// reported rather than silently dropped.
+fn tip_mode(chain_key: Option<u64>, end_height: Option<u64>, override_lag: Option<u64>) -> TipMode {
+    match (chain_key, end_height) {
+        (Some(chain_key), None) => {
+            if let Some(lag) = override_lag {
+                tracing::warn!(
+                    lag,
+                    chain_key,
+                    "FINALIZATION_LAG is ignored while following the tip: the archiver follows \
+                     the latest attested height for this chain key. It still applies to explicit \
+                     ranges (END_HEIGHT) and gap backfill."
+                );
+            }
+            TipMode::Attested { chain_key }
+        }
+        _ => TipMode::Source,
+    }
+}
+
+/// Publish the latest attested height for `chain_key` as a high-water mark, re-read every
+/// `poll`. The height is read from Creditcoin's best block, not its finalized one: an attestation
+/// is only included once it has passed validation, so the roots it covers are mature and valid
+/// even if that block is later re-orged out, and following inclusion saves the Creditcoin
+/// finality delay before those roots can be archived. A read failure keeps the last value and repairs the Creditcoin connection before the
+/// next read: the client is a value clone whose dead socket never heals on its own, so retrying
+/// the same connection would freeze the bound until the process restarted. The bound can only
+/// stall, never go backwards or invent progress.
+fn follow_attested_height(
+    cc3_client: CcClient,
+    chain_key: u64,
+    poll: Duration,
+) -> tokio::sync::watch::Receiver<Option<u64>> {
+    let (tx, rx) = tokio::sync::watch::channel(None);
+    tokio::spawn(async move {
+        loop {
+            match cc3_client.fetch_last_included(chain_key).await {
+                Ok(Some((height, _digest))) => {
+                    tx.send_if_modified(|current| {
+                        let advanced = advance_bound(current, height);
+                        if advanced {
+                            tracing::debug!(chain_key, height, "latest attested height");
+                        } else if current.is_some_and(|c| height < c) {
+                            // A lower reading is a revert, a best-block fork switch that dropped
+                            // the including block, or a lagging Creditcoin node. None of them
+                            // may shrink the bound: roots for the higher range are already
+                            // released, and stall detection and flush-at-tip both read this
+                            // value. Reconciling roots that a revert orphaned is deliberately
+                            // not this poller's job; it is surfaced here, and the archiver
+                            // liveness stack's canonical-anchor check (#1347) drops an
+                            // abandoned tail on the next start.
+                            tracing::warn!(
+                                chain_key,
+                                height,
+                                bound = ?current,
+                                "attested height read below the published bound; keeping the bound"
+                            );
+                        }
+                        advanced
+                    });
+                }
+                Ok(None) => tracing::debug!(chain_key, "no attestation published yet"),
+                Err(err) => {
+                    tracing::warn!(
+                        chain_key,
+                        %err,
+                        "could not read the latest attested height; keeping the last one and \
+                         repairing the Creditcoin connection"
+                    );
+                    // `reconnect` swaps the shared connection atomically and carries its own
+                    // backoff, so a Creditcoin outage costs one dial per poll, not a hot loop.
+                    if let Err(err) = cc3_client.reconnect().await {
+                        tracing::warn!(chain_key, %err, "Creditcoin reconnect failed");
+                    }
+                }
+            }
+            if tx.is_closed() {
+                break;
+            }
+            tokio::time::sleep(poll).await;
+        }
+    });
+    rx
+}
+
+/// A head older than this many `--head-poll-interval-secs` polls is treated as unknown rather
+/// than trusted.
+const HEAD_STALE_AFTER_POLLS: u32 = 3;
+
+fn now_secs() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0)
+}
+
+/// The HTTP head tracker's value, if it can be trusted: read at least once and refreshed within
+/// `max_age`. `None` otherwise, so callers fall back to not clamping.
+fn known_head(head: &AtomicU64, seen_at: &AtomicU64, max_age: Duration) -> Option<u64> {
+    head_if_fresh(
+        head.load(Ordering::Acquire),
+        seen_at.load(Ordering::Acquire),
+        now_secs(),
+        max_age,
+    )
+}
+
+fn head_if_fresh(head: u64, seen_at: u64, now: u64, max_age: Duration) -> Option<u64> {
+    (head > 0 && now.saturating_sub(seen_at) <= max_age.as_secs()).then_some(head)
+}
+
+/// What `/ready` measures the archive against: the bound the tip stream fetches up to.
+#[derive(Clone)]
+enum ReadyTarget {
+    /// The attested height, clamped to the source head exactly as `fetchable_bound` does.
+    Attested(tokio::sync::watch::Receiver<Option<u64>>),
+    /// The source-resolved mature height for the sampled head.
+    Source(eth::Maturity),
+}
+
+impl ReadyTarget {
+    /// Resolves when the target's input moved: a new attested height. Never resolves for a
+    /// source-resolved target (the head poll is its only input), nor once the attested poller
+    /// has gone away.
+    async fn changed(&mut self) {
+        if let Self::Attested(rx) = self {
+            if rx.changed().await.is_ok() {
+                return;
+            }
+        }
+        std::future::pending().await
+    }
+
+    /// Read the source head and derive the mature target from it in one go, so the two never
+    /// describe different moments. The whole sample is bounded by `timeout`: a tag-resolved
+    /// maturity costs a second RPC call. Under an attested bound an attested height that has
+    /// not been read yet is [`MatureTarget::Unknown`], never "nothing mature": the poller may
+    /// simply not have reached Creditcoin, and the archive could be far behind a published one.
+    async fn sample(&self, client: &eth::Client, timeout: Duration) -> Result<(u64, MatureTarget)> {
+        tokio::time::timeout(timeout, async {
+            let head = client.get_last_block().await?;
+            let target = match self {
+                Self::Attested(rx) => match *rx.borrow() {
+                    None => MatureTarget::Unknown,
+                    published => fetchable_bound(published, Some(head))
+                        .map_or(MatureTarget::NothingMature, MatureTarget::Height),
+                },
+                Self::Source(maturity) => maturity
+                    .mature_height(client, head)
+                    .await?
+                    .map_or(MatureTarget::NothingMature, MatureTarget::Height),
+            };
+            Ok::<_, anyhow::Error>((head, target))
+        })
+        .await
+        .map_err(|_| anyhow!("timed out after {timeout:?}"))?
+    }
+}
+
+impl std::fmt::Display for ReadyTarget {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Attested(_) => f.write_str("attested height, clamped to the source head"),
+            Self::Source(maturity) => write!(f, "source-resolved {maturity}"),
+        }
+    }
+}
+
+/// What the stream can fetch up to: the published bound, clamped to the source head when one is
+/// known. An unknown head does not clamp, so the judgement errs towards "the stream should have
+/// progressed" (a reconnect) rather than towards hiding a stall.
+fn fetchable_bound(published: Option<u64>, head: Option<u64>) -> Option<u64> {
+    published.map(|bound| head.map_or(bound, |h| bound.min(h)))
+}
+
+/// Raise the published bound to `height` if that is an advance. Returns whether it moved. A
+/// high-water mark by construction: equal and lower readings leave it untouched.
+fn advance_bound(current: &mut Option<u64>, height: u64) -> bool {
+    if current.is_none_or(|c| height > c) {
+        *current = Some(height);
+        true
+    } else {
+        false
+    }
+}
+
+/// Pick a source-resolved maturity for the paths that still walk against the source node
+/// (explicit ranges, gap backfill, tip-following without `CHAIN_KEY`). An explicit
+/// `FINALIZATION_LAG` wins so operators keep an escape hatch there, but a value that disagrees
+/// with the on-chain registration is logged loudly: a lag below the attestors' (or a fixed lag
+/// where they follow a block tag) means roots for blocks they do not yet consider mature.
+fn resolve_maturity(
+    override_lag: Option<u64>,
+    on_chain: Option<eth::Maturity>,
+) -> Result<eth::Maturity> {
+    match (override_lag, on_chain) {
+        (Some(lag), Some(on_chain)) if on_chain != eth::Maturity::FixedLag(lag) => {
+            tracing::warn!(
+                lag,
+                %on_chain,
+                "FINALIZATION_LAG differs from the on-chain MaturityStrategy the attestors use"
+            );
+            Ok(eth::Maturity::FixedLag(lag))
+        }
+        (Some(lag), _) => {
+            tracing::info!(lag, "Using cfg.finalization_lag_override");
+            Ok(eth::Maturity::FixedLag(lag))
+        }
+        (None, Some(maturity)) => {
+            tracing::info!(%maturity, "Using on-chain MaturityStrategy");
+            Ok(maturity)
+        }
+        (None, None) => Err(anyhow!(
+            "Either FINALIZATION_LAG or CHAIN_KEY (with CC3_RPC_URL) must be set to resolve \
+             maturity for an explicit range, a gap backfill, or tip-following without a chain key"
+        )),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn at_tip_within_the_tip_window_of_the_head() {
+        let window = std::num::NonZeroU64::new(256).unwrap();
+        // Deep catch-up keeps batching, including the last FLUSH_EVERY-sized stretch.
+        assert!(!at_tip(45_000_000, window));
+        assert!(!at_tip(9_999, window));
+        assert!(!at_tip(256, window));
+        // Inside the window, and at the head itself (remaining == finalization lag).
+        assert!(at_tip(255, window));
+        assert!(at_tip(10, window));
+        assert!(at_tip(0, window));
+    }
+
+    #[test]
+    fn tip_flushes_are_throttled_and_catch_up_flushes_are_periodic() {
+        let every = std::num::NonZeroU64::new(10_000).unwrap();
+        // At the tip: only once the interval has elapsed since the last flush.
+        assert!(should_request_flush(true, 7, every, TIP_FLUSH_INTERVAL));
+        assert!(!should_request_flush(
+            true,
+            7,
+            every,
+            TIP_FLUSH_INTERVAL / 2
+        ));
+        // Catching up: every `flush_every` blocks regardless of timing.
+        assert!(should_request_flush(false, 20_000, every, Duration::ZERO));
+        assert!(!should_request_flush(
+            false,
+            20_001,
+            every,
+            Duration::from_secs(60)
+        ));
+        // A periodic boundary at the tip still flushes even inside the throttle window.
+        assert!(should_request_flush(true, 30_000, every, Duration::ZERO));
+    }
+
+    #[test]
+    fn missing_head_tracker_value_flushes_conservatively() {
+        // chain_head defaults to 0 when the HTTP head fetch fails; remaining saturates to 0.
+        let remaining = 0u64.saturating_sub(123_456);
+        assert!(at_tip(
+            remaining,
+            std::num::NonZeroU64::new(10_000).unwrap()
+        ));
+    }
+
+    use super::*;
+    use eth::{BlockTag, Maturity};
+
+    fn store_with(heights: impl IntoIterator<Item = u64>) -> (tempfile::TempDir, RootStore) {
+        let dir = tempfile::tempdir().unwrap();
+        let store = RootStore::open(dir.path().join("test.sled")).unwrap();
+        let entries: Vec<_> = heights
+            .into_iter()
+            .map(|h| (h, sp_core::H256::random(), sp_core::H256::random()))
+            .collect();
+        store.put_roots(&entries).unwrap();
+        (dir, store)
+    }
+
+    #[test]
+    fn a_range_shard_interrupted_mid_range_exits_non_zero() {
+        // SIGTERM after 100..=149 of a 100..=199 shard: the supervisor must see a failure.
+        let (_dir, store) = store_with(100..=149);
+        let err = backfill_shutdown(&store, 100, Some(199)).unwrap_err();
+        assert!(
+            format!("{err:#}").contains("50 of 100 blocks missing"),
+            "{err:#}"
+        );
+    }
+
+    #[test]
+    fn a_range_shard_interrupted_before_any_block_exits_non_zero() {
+        // Shutdown before the first dial: nothing stored at all.
+        let (_dir, store) = store_with([]);
+        assert!(backfill_shutdown(&store, 100, Some(199)).is_err());
+    }
+
+    #[test]
+    fn a_range_shard_stopped_after_its_last_block_exits_cleanly() {
+        // SIGTERM landing after the final batch was written: the shard is complete.
+        let (_dir, store) = store_with(100..=199);
+        backfill_shutdown(&store, 100, Some(199)).unwrap();
+    }
+
+    #[test]
+    fn a_tip_following_backfill_stopped_by_shutdown_exits_cleanly() {
+        // No range end: there is no "done", so an interrupted backfill is a clean exit.
+        let (_dir, store) = store_with(100..=149);
+        backfill_shutdown(&store, 100, None).unwrap();
+    }
+
+    #[test]
+    fn an_unread_or_stale_head_is_unknown_and_does_not_clamp() {
+        let max = Duration::from_secs(36);
+        assert_eq!(head_if_fresh(0, 0, 1_000, max), None, "never read");
+        assert_eq!(head_if_fresh(500, 1_000, 1_000, max), Some(500));
+        assert_eq!(
+            head_if_fresh(500, 964, 1_000, max),
+            Some(500),
+            "at the edge"
+        );
+        assert_eq!(head_if_fresh(500, 963, 1_000, max), None, "stale");
+
+        assert_eq!(fetchable_bound(None, Some(500)), None);
+        assert_eq!(
+            fetchable_bound(Some(600), Some(500)),
+            Some(500),
+            "lagging node clamps"
+        );
+        assert_eq!(fetchable_bound(Some(400), Some(500)), Some(400));
+        assert_eq!(
+            fetchable_bound(Some(600), None),
+            Some(600),
+            "unknown head must not hide a stall"
+        );
+    }
+
+    #[test]
+    fn the_attested_bound_only_ever_advances() {
+        let mut bound = None;
+        assert!(advance_bound(&mut bound, 100));
+        assert_eq!(bound, Some(100));
+        assert!(
+            !advance_bound(&mut bound, 100),
+            "equal reading is not a change"
+        );
+        assert!(
+            !advance_bound(&mut bound, 90),
+            "a lower reading must not shrink the bound"
+        );
+        assert_eq!(bound, Some(100));
+        assert!(advance_bound(&mut bound, 130));
+        assert_eq!(bound, Some(130));
+    }
+
+    #[test]
+    fn following_the_tip_with_a_chain_key_follows_attestations() {
+        assert_eq!(
+            tip_mode(Some(8), None, None),
+            TipMode::Attested { chain_key: 8 }
+        );
+        // A lag override has nothing to apply to here; it is warned about, not obeyed.
+        assert_eq!(
+            tip_mode(Some(8), None, Some(12)),
+            TipMode::Attested { chain_key: 8 }
+        );
+    }
+
+    #[test]
+    fn explicit_ranges_and_keyless_runs_resolve_maturity_locally() {
+        assert_eq!(tip_mode(Some(8), Some(1_000_000), None), TipMode::Source);
+        assert_eq!(tip_mode(None, None, Some(12)), TipMode::Source);
+        assert_eq!(tip_mode(None, Some(5), None), TipMode::Source);
+    }
+
+    #[test]
+    fn on_chain_maturity_follows_maturity_strategy() {
+        assert_eq!(
+            on_chain_maturity("EvmFinalized").unwrap(),
+            Maturity::FixedLag(64)
+        );
+        assert_eq!(
+            on_chain_maturity("EvmSafe").unwrap(),
+            Maturity::FixedLag(32)
+        );
+        assert_eq!(
+            on_chain_maturity("FixedDelay: 5").unwrap(),
+            Maturity::FixedLag(5)
+        );
+        assert_eq!(
+            on_chain_maturity("RpcSafe").unwrap(),
+            Maturity::Tag(BlockTag::Safe)
+        );
+        assert_eq!(
+            on_chain_maturity("RpcFinalized").unwrap(),
+            Maturity::Tag(BlockTag::Finalized)
+        );
+    }
+
+    #[test]
+    fn on_chain_maturity_rejects_unknown_strategy() {
+        assert!(on_chain_maturity("Bogus").is_err());
+    }
+
+    #[test]
+    fn override_wins_even_when_it_disagrees_with_chain() {
+        assert_eq!(
+            resolve_maturity(Some(64), Some(Maturity::FixedLag(64))).unwrap(),
+            Maturity::FixedLag(64)
+        );
+        assert_eq!(
+            resolve_maturity(Some(10), Some(Maturity::FixedLag(64))).unwrap(),
+            Maturity::FixedLag(10)
+        );
+        // A fixed override over a tag-following chain stays an escape hatch, but is warned.
+        assert_eq!(
+            resolve_maturity(Some(10), Some(Maturity::Tag(BlockTag::Safe))).unwrap(),
+            Maturity::FixedLag(10)
+        );
+        assert_eq!(
+            resolve_maturity(Some(0), None).unwrap(),
+            Maturity::FixedLag(0)
+        );
+    }
+
+    #[test]
+    fn on_chain_maturity_used_without_override() {
+        assert_eq!(
+            resolve_maturity(None, Some(Maturity::FixedLag(5))).unwrap(),
+            Maturity::FixedLag(5)
+        );
+        assert_eq!(
+            resolve_maturity(None, Some(Maturity::Tag(BlockTag::Finalized))).unwrap(),
+            Maturity::Tag(BlockTag::Finalized)
+        );
+    }
+
+    #[test]
+    fn neither_source_is_an_error() {
+        assert!(resolve_maturity(None, None).is_err());
+    }
+}

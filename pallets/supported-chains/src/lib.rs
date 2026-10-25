@@ -1,0 +1,480 @@
+#![cfg_attr(not(feature = "std"), no_std)]
+
+pub use pallet::*;
+use supported_chains_primitives::{
+    MATURITY_EVM_FINALIZED, MATURITY_EVM_LATEST, MATURITY_EVM_SAFE, MATURITY_FIXED_DELAY,
+    MATURITY_RPC_FINALIZED, MATURITY_RPC_SAFE,
+};
+
+#[cfg(test)]
+mod mock;
+
+#[cfg(test)]
+mod tests;
+
+#[cfg(feature = "runtime-benchmarks")]
+mod benchmarking;
+pub mod weights;
+
+#[frame_support::pallet]
+pub mod pallet {
+    use super::*;
+    pub use attestor_primitives::ChainId;
+    use attestor_primitives::{ChainEncodingVersion, ChainKey};
+    use frame_support::{
+        pallet_prelude::*,
+        traits::{BuildGenesisConfig, ConstU64},
+        Blake2_128Concat,
+    };
+    use frame_system::pallet_prelude::*;
+    use scale_info::prelude::string::String;
+    use sp_std::vec::Vec;
+    use supported_chains_primitives::{
+        chain_removal_listener::{ChainRemovalListener, ChainRemovalListenerWeight},
+        provider::{OnRegisterChainProvider as OnChainRegisteredProvider, SupportedChainsProvider},
+        SupportedChain,
+    };
+
+    /// The in-code storage version.
+    const STORAGE_VERSION: StorageVersion = StorageVersion::new(0);
+
+    #[pallet::pallet]
+    #[pallet::storage_version(STORAGE_VERSION)]
+    #[pallet::without_storage_info]
+    pub struct Pallet<T>(_);
+
+    #[pallet::config]
+    pub trait Config: frame_system::Config {
+        #[allow(deprecated)]
+        type RuntimeEvent: From<Event<Self>> + IsType<<Self as frame_system::Config>::RuntimeEvent>;
+        /// A type representing the weights required by the dispatchables of this pallet.
+        type WeightInfo: WeightInfo;
+        /// Informs other pallets if a supported chain is removed
+        type EventListeners: ChainRemovalListener + ChainRemovalListenerWeight;
+        type ChainRegistrationHandler: OnChainRegisteredProvider;
+        /// Determines which maturity strategy attestors will use when fetching source chain
+        /// blocks and building attestations. Strict strategies such as EvmFinalized delay
+        /// longer before building attestations, ensuring that attestations won't be created
+        /// from blocks which could be re-orged.
+        ///
+        /// Maturity strategies use the String type for extensability.
+        ///
+        /// Expected strategies:
+        /// - "EvmFinalized" Gets blocks once they are finalized
+        /// - "EvmSafe" Gets blocks once they are confirmed
+        /// - "EvmLatest" Gets blocks as soon as available
+        /// - "FixedDelay: X" Gets blocks after they are X blocks old
+        #[pallet::constant]
+        type DefaultMaturityStrategy: Get<String>;
+        /// Origin that can perform Operator-only calls
+        type OperatorsOrigin: EnsureOrigin<Self::RuntimeOrigin>;
+    }
+
+    pub trait WeightInfo {
+        fn register_chain() -> Weight;
+        fn remove_chain() -> Weight;
+        fn set_maturity_strategy() -> Weight;
+        fn set_chain_name() -> Weight;
+    }
+
+    #[pallet::storage]
+    #[pallet::getter(fn supported_chain)]
+    pub type SupportedChains<T: Config> = StorageMap<
+        Hasher = Blake2_128Concat,
+        Key = ChainKey,
+        Value = SupportedChain,
+        QueryKind = OptionQuery,
+    >;
+
+    #[pallet::storage]
+    #[pallet::getter(fn chain_id_and_name_to_uniq_key)]
+    pub type ChainIdAndNameToUniqKey<T: Config> = StorageDoubleMap<
+        _,
+        Blake2_128Concat,
+        ChainId,
+        Blake2_128Concat,
+        Vec<u8>,
+        ChainKey,
+        OptionQuery,
+    >;
+
+    pub const GENESIS_CHAIN_KEY: ChainKey = 1;
+
+    #[pallet::storage]
+    #[pallet::getter(fn chain_key_value)]
+    pub type ChainKeyValue<T> = StorageValue<_, ChainKey, ValueQuery, ConstU64<GENESIS_CHAIN_KEY>>;
+
+    #[pallet::genesis_config]
+    #[derive(frame_support::DefaultNoBound)]
+    pub struct GenesisConfig<T> {
+        pub supported_chains: Vec<(ChainId, Vec<u8>, ChainEncodingVersion, String)>,
+        pub _phantom: PhantomData<T>,
+    }
+
+    #[pallet::genesis_build]
+    impl<T: Config> BuildGenesisConfig for GenesisConfig<T> {
+        fn build(&self) {
+            let mut chain_key = 1;
+            for (chain_id, chain_name, encoding, maturity_strategy) in &self.supported_chains {
+                SupportedChains::<T>::insert(
+                    chain_key,
+                    SupportedChain {
+                        chain_id: *chain_id,
+                        chain_name: chain_name.clone(),
+                        chain_encoding: *encoding,
+                        maturity_strategy: maturity_strategy.clone(),
+                    },
+                );
+                //check that no dublicate chain name is added
+                if ChainIdAndNameToUniqKey::<T>::contains_key(*chain_id, chain_name.clone()) {
+                    panic!("Duplicate chain name found in genesis config. Chain ID: {chain_id:?}, Chain Name: {chain_name:?}");
+                }
+                ChainIdAndNameToUniqKey::<T>::insert(*chain_id, chain_name.clone(), chain_key);
+                chain_key = chain_key
+                    .checked_add(1)
+                    .ok_or(Error::<T>::Arithmetic)
+                    .expect("Error incrementing index");
+            }
+            ChainKeyValue::<T>::put(chain_key);
+        }
+    }
+
+    #[pallet::event]
+    #[pallet::generate_deposit(pub (super) fn deposit_event)]
+    pub enum Event<T: Config> {
+        ///  A chain has been registered with a given ID
+        ChainRegistered {
+            chain_key: ChainKey,
+            chain_id: ChainId,
+            chain_name: Vec<u8>,
+            chain_encoding: ChainEncodingVersion,
+            maturity_strategy: String,
+        },
+
+        /// A chain has been removed with a given ID
+        ChainRemoved {
+            chain_key: ChainKey,
+            chain_id: ChainId,
+            chain_name: Vec<u8>,
+            chain_encoding: ChainEncodingVersion,
+            maturity_strategy: String,
+        },
+
+        /// The maturity strategy of a registered chain has been changed. Off-chain consumers
+        /// (attestors, archivers) read the strategy once at startup and do not react to this
+        /// event, so it is a record of the change for indexers and operators rather than a
+        /// signal any node acts on. See `set_maturity_strategy` for what operators must do.
+        MaturityStrategySet {
+            chain_key: ChainKey,
+            chain_id: ChainId,
+            maturity_strategy: String,
+        },
+
+        /// The display name of a registered chain has been changed. The name is informational
+        /// only (nothing attested or hashed depends on it), so this is a record for indexers and
+        /// operators; no node acts on it.
+        ChainNameSet {
+            chain_key: ChainKey,
+            chain_id: ChainId,
+            old_chain_name: Vec<u8>,
+            chain_name: Vec<u8>,
+        },
+    }
+
+    #[pallet::error]
+    pub enum Error<T> {
+        /// The chain is already registered
+        ChainAlreadyRegistered,
+
+        /// The chain is not supported
+        ChainNotSupported,
+
+        /// Math overflow/underflow
+        Arithmetic,
+
+        /// Maturity strategy doesn't match one in the expected set
+        InvalidMaturityStrategy,
+
+        /// The chain already uses the requested maturity strategy. Rejected rather than applied
+        /// as a no-op so that every `MaturityStrategySet` event stands for a real change: the
+        /// event is the operator-facing record that a restart of the chain's attestors and
+        /// archivers is due, and a no-op write would call for a restart that is not needed.
+        MaturityStrategyUnchanged,
+
+        /// The chain already carries the requested name. Rejected rather than applied as a
+        /// no-op so that every `ChainNameSet` event stands for a real change.
+        ChainNameUnchanged,
+    }
+
+    #[pallet::call]
+    impl<T: Config> Pallet<T> {
+        /// Registers a supported chain with the given parameters. The chain key is automatically generated and returned in the ChainRegistered event.
+        /// Only accounts in the Operators membership can call this extrinsic.
+        #[pallet::call_index(0)]
+        #[pallet::weight(T::WeightInfo::register_chain())]
+        pub fn register_chain(
+            origin: OriginFor<T>,
+            chain_id: ChainId,
+            chain_name: String,
+            target_sample_size: Option<u32>,
+            chain_attestation_interval: Option<u64>,
+            attestation_checkpoint_interval: Option<u32>,
+            max_attestors: Option<u32>,
+            max_invulnerables: Option<u32>,
+            attestation_chain_genesis_block_number: Option<u64>,
+            encoding: ChainEncodingVersion,
+            maturity_strategy: Option<String>,
+        ) -> DispatchResult {
+            T::OperatorsOrigin::ensure_origin(origin)?;
+
+            ensure!(
+                !ChainIdAndNameToUniqKey::<T>::contains_key(chain_id, chain_name.as_bytes()),
+                Error::<T>::ChainAlreadyRegistered
+            );
+
+            let maturity_strategy = if let Some(strategy) = maturity_strategy {
+                ensure!(
+                    is_valid_maturity_strategy(&strategy),
+                    Error::<T>::InvalidMaturityStrategy
+                );
+                strategy
+            } else {
+                T::DefaultMaturityStrategy::get()
+            };
+
+            let chain_key = ChainKeyValue::<T>::get();
+            SupportedChains::<T>::insert(
+                chain_key,
+                SupportedChain {
+                    chain_id,
+                    chain_name: chain_name.as_bytes().to_vec(),
+                    chain_encoding: encoding,
+                    maturity_strategy: maturity_strategy.clone(),
+                },
+            );
+            ChainIdAndNameToUniqKey::<T>::insert(
+                chain_id,
+                chain_name.as_bytes().to_vec(),
+                chain_key,
+            );
+
+            ChainKeyValue::<T>::put(chain_key.checked_add(1).ok_or(Error::<T>::Arithmetic)?);
+
+            // Propagate registration-handler rejection. `DispatchError: From<&'static str>` lets
+            // `?` flow the error straight out of the extrinsic. Dispatchables are transactional
+            // by default in this FRAME version, so the chain-insert and key-bump writes above
+            // are rolled back when an Err lands here — no orphaned SupportedChains entry.
+            T::ChainRegistrationHandler::on_register_chain(
+                chain_key,
+                chain_id,
+                chain_name.as_bytes().to_vec(),
+                target_sample_size,
+                chain_attestation_interval,
+                attestation_checkpoint_interval,
+                max_attestors,
+                max_invulnerables,
+                attestation_chain_genesis_block_number,
+                encoding,
+            )?;
+
+            Self::deposit_event(Event::ChainRegistered {
+                chain_key,
+                chain_id,
+                chain_name: chain_name.as_bytes().to_vec(),
+                chain_encoding: encoding,
+                maturity_strategy,
+            });
+
+            Ok(())
+        }
+
+        /// Removes a supported chain by its chain key. Only accounts in the Operators membership can call this extrinsic.
+        #[pallet::call_index(1)]
+        // The listener bounds its work per call and defers the rest to `on_initialize`, so it
+        // reports a fixed worst case. That can overlap the benchmark's empty-state listener cost;
+        // we remove chains rarely, so over-charging is fine.
+        #[pallet::weight(T::WeightInfo::remove_chain().saturating_add(T::EventListeners::on_supported_chain_removed_weight()))]
+        pub fn remove_chain(
+            origin: OriginFor<T>,
+            chain_key: ChainId,
+            remove_checkpoints: bool,
+        ) -> DispatchResult {
+            T::OperatorsOrigin::ensure_origin(origin)?;
+
+            let item = SupportedChains::<T>::get(chain_key).ok_or(Error::<T>::ChainNotSupported)?;
+
+            ChainIdAndNameToUniqKey::<T>::remove(item.chain_id, item.chain_name.clone());
+
+            SupportedChains::<T>::remove(chain_key);
+
+            // Notify event listeners
+            T::EventListeners::on_supported_chain_removed(chain_key, remove_checkpoints);
+
+            Self::deposit_event(Event::ChainRemoved {
+                chain_key,
+                chain_id: item.chain_id,
+                chain_name: item.chain_name.clone(),
+                chain_encoding: item.chain_encoding,
+                maturity_strategy: item.maturity_strategy,
+            });
+
+            Ok(())
+        }
+
+        /// Replaces the maturity strategy of an already-registered chain.
+        ///
+        /// **This is a rare, coordinated operation, not a runtime knob.** Attestors and
+        /// archivers resolve the maturity strategy once, at startup, and hold it for the life of
+        /// the process; none of them watch for `MaturityStrategySet`. Calling this leaves every
+        /// already-running attestor and archiver on the *old* strategy, so the change only takes
+        /// effect once **all** of them have been restarted.
+        ///
+        /// Roll the change out in this order:
+        ///
+        /// 1. **Deploy an attestor/archiver image that understands the new strategy string.**
+        ///    A binary that cannot parse it refuses to boot — the attestor fails startup with
+        ///    `InvalidMaturityStrategy`, and an archiver resolving maturity against the source
+        ///    node (an explicit `END_HEIGHT` range, a gap backfill, or no `CHAIN_KEY`) exits the
+        ///    same way. Doing this first is what keeps step 3 from crash-looping the fleet.
+        ///    Deploying the image alone changes nothing: the running processes keep serving the
+        ///    strategy they booted with.
+        /// 2. **Call this extrinsic.** Nothing reacts to it. Every attestor and archiver keeps
+        ///    running under the old strategy, which is fine and expected — they stay in
+        ///    agreement with each other, so quorum is unaffected. The emitted
+        ///    `MaturityStrategySet` is the operator-facing record that a restart is now due.
+        /// 3. **Restart the attestors (and any source-resolved archivers).** Each one re-reads
+        ///    the strategy from chain on startup and comes back on the new policy.
+        ///
+        /// Step 3 is the only window where the network is split across two maturity policies,
+        /// so keep it short: attestors on different policies derive different mature heights and
+        /// stop agreeing, which stalls quorum until the rollout completes. Restarts should be
+        /// planned and executed together rather than left to trickle in.
+        ///
+        /// Attestations already committed on chain stay valid under the new strategy and are
+        /// never revisited; a restarted node resumes from the latest attested height.
+        ///
+        /// Only accounts in the Operators membership can call this extrinsic.
+        #[pallet::call_index(2)]
+        #[pallet::weight(T::WeightInfo::set_maturity_strategy())]
+        pub fn set_maturity_strategy(
+            origin: OriginFor<T>,
+            chain_key: ChainKey,
+            maturity_strategy: String,
+        ) -> DispatchResult {
+            T::OperatorsOrigin::ensure_origin(origin)?;
+
+            ensure!(
+                is_valid_maturity_strategy(&maturity_strategy),
+                Error::<T>::InvalidMaturityStrategy
+            );
+
+            let mut chain =
+                SupportedChains::<T>::get(chain_key).ok_or(Error::<T>::ChainNotSupported)?;
+
+            ensure!(
+                chain.maturity_strategy != maturity_strategy,
+                Error::<T>::MaturityStrategyUnchanged
+            );
+
+            let chain_id = chain.chain_id;
+            chain.maturity_strategy = maturity_strategy.clone();
+            SupportedChains::<T>::insert(chain_key, chain);
+
+            Self::deposit_event(Event::MaturityStrategySet {
+                chain_key,
+                chain_id,
+                maturity_strategy,
+            });
+
+            Ok(())
+        }
+
+        /// Renames an already-registered chain.
+        ///
+        /// The name is a label: it is exposed by the chain-info precompile and logged by the
+        /// archiver, but no attestation, digest or checkpoint depends on it, so a rename has no
+        /// effect on running attestors or archivers and needs no restart. The only thing keyed
+        /// on the name is the `(chain_id, chain_name)` lookup, which is moved to the new name
+        /// atomically. The new name must be unique for the chain's `chain_id`, exactly as on
+        /// registration.
+        ///
+        /// Only accounts in the Operators membership can call this extrinsic.
+        #[pallet::call_index(3)]
+        #[pallet::weight(T::WeightInfo::set_chain_name())]
+        pub fn set_chain_name(
+            origin: OriginFor<T>,
+            chain_key: ChainKey,
+            chain_name: String,
+        ) -> DispatchResult {
+            T::OperatorsOrigin::ensure_origin(origin)?;
+
+            let mut chain =
+                SupportedChains::<T>::get(chain_key).ok_or(Error::<T>::ChainNotSupported)?;
+
+            let new_name = chain_name.as_bytes().to_vec();
+            ensure!(chain.chain_name != new_name, Error::<T>::ChainNameUnchanged);
+            ensure!(
+                !ChainIdAndNameToUniqKey::<T>::contains_key(chain.chain_id, &new_name),
+                Error::<T>::ChainAlreadyRegistered
+            );
+
+            let chain_id = chain.chain_id;
+            let old_chain_name = core::mem::replace(&mut chain.chain_name, new_name.clone());
+
+            ChainIdAndNameToUniqKey::<T>::remove(chain_id, &old_chain_name);
+            ChainIdAndNameToUniqKey::<T>::insert(chain_id, &new_name, chain_key);
+            SupportedChains::<T>::insert(chain_key, chain);
+
+            Self::deposit_event(Event::ChainNameSet {
+                chain_key,
+                chain_id,
+                old_chain_name,
+                chain_name: new_name,
+            });
+
+            Ok(())
+        }
+    }
+
+    impl<T: Config> SupportedChainsProvider for Pallet<T> {
+        fn is_chain_supported(chain_key: ChainKey) -> bool {
+            SupportedChains::<T>::contains_key(chain_key)
+        }
+
+        fn supported_chains() -> Vec<ChainKey> {
+            SupportedChains::<T>::iter()
+                .map(|(chain_key, _)| chain_key)
+                .collect::<Vec<ChainKey>>()
+        }
+
+        fn chain_key_by_chain_id_and_name(
+            chain_id: ChainId,
+            chain_name: Vec<u8>,
+        ) -> Option<ChainId> {
+            ChainIdAndNameToUniqKey::<T>::get(chain_id, chain_name)
+        }
+
+        fn get_supported_chain(chain_key: ChainKey) -> Option<SupportedChain> {
+            SupportedChains::<T>::get(chain_key)
+        }
+    }
+}
+
+fn is_valid_maturity_strategy(strategy: &str) -> bool {
+    match strategy {
+        MATURITY_EVM_FINALIZED
+        | MATURITY_EVM_SAFE
+        | MATURITY_EVM_LATEST
+        | MATURITY_RPC_SAFE
+        | MATURITY_RPC_FINALIZED => true,
+        s if s.starts_with(MATURITY_FIXED_DELAY) => {
+            // Split off the number part and trim whitespace
+            if let Some(num_str) = s.strip_prefix(MATURITY_FIXED_DELAY) {
+                num_str.trim().parse::<u64>().is_ok()
+            } else {
+                false
+            }
+        }
+        _ => false,
+    }
+}

@@ -1,0 +1,283 @@
+---
+name: BENCHMARKS
+
+"on":
+  pull_request:
+    branches: [main, usc-testnet, usc-dev, dev]
+    # Only the benchmarks and weights themselves: our pallets', and pallet_ethereum's, which
+    # lives in Frontier and is benchmarked from the runtime (see should-run). A change to this
+    # workflow or its scripts is tested with workflow_dispatch, rather than a Linode VM and a
+    # full benchmark run on every CI-only PR that happens to touch them.
+    paths:
+      - "pallets/**/weights.rs"
+      - "pallets/**/benchmarking.rs"
+      - "node/src/benchmarking.rs"
+      - "runtime/src/ethereum_finalize_benchmarking.rs"
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.ref }}-${{ github.workflow }}
+  cancel-in-progress: true
+
+permissions: read-all
+
+# Ubuntu 26.04 ships GCC 15, whose libstdc++ no longer transitively includes
+# <cstdint>. The bundled RocksDB 8.1.1 headers (librocksdb-sys 0.11.0+8.1.1)
+# use uint64_t without including it, so force-include cstdint when compiling C/C++.
+env:
+  CXXFLAGS: "-include cstdint"
+
+# A workflow run is made up of one or more jobs that can run sequentially or in parallel
+jobs:
+  # Break the self-trigger loop: exercise-benchmarks commits "Auto-update pallet weights", that
+  # commit touches **weights.rs, which matches this workflow's own `paths` filter and re-triggers
+  # it — and because weight measurement is timing, a re-run on a fresh runner ALWAYS produces a
+  # diff, so the bot re-committed after its own commit indefinitely (pairs/strings of
+  # "Auto-update pallet weights" commits on PRs, two Linode VMs + a full runtime-benchmarks build
+  # per iteration). When the PR head commit IS the bot's own weights commit there is nothing left
+  # to do: the weights were just regenerated and validated by the run that produced them.
+  should-run:
+    runs-on: ubuntu-26.04
+    outputs:
+      skip: ${{ steps.head.outputs.skip }}
+      ethereum: ${{ steps.ethereum.outputs.ethereum }}
+    steps:
+      - name: Check whether the head commit is the weights bot's own
+        id: head
+        env:
+          GH_TOKEN: ${{ github.token }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          # workflow_dispatch has no PR head — always run.
+          if [ -z "$HEAD_SHA" ]; then
+              echo "skip=false" >> "$GITHUB_OUTPUT"
+              exit 0
+          fi
+          COMMIT_JSON=$(gh api "repos/${{ github.repository }}/commits/$HEAD_SHA")
+          AUTHOR=$(echo "$COMMIT_JSON" | jq -r '.commit.author.name')
+          SUBJECT=$(echo "$COMMIT_JSON" | jq -r '.commit.message' | head -n1)
+          if [ "$AUTHOR" = "gluwa-bot" ] && [ "$SUBJECT" = "Auto-update pallet weights" ]; then
+              echo "INFO: head commit is the weights bot's own ($HEAD_SHA); skipping benchmarks"
+              echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+              echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      # The pallet_ethereum benchmarks add about an hour, so they only run when dispatched or
+      # when their own benchmark code or this workflow changes.
+      - name: Check whether the pallet_ethereum benchmarks changed
+        id: ethereum
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          if [ -z "$PR_NUMBER" ]; then
+              echo "ethereum=true" >> "$GITHUB_OUTPUT"
+              exit 0
+          fi
+          # Fetch first so a failed API call fails the step instead of reading as "no match".
+          FILES=$(gh api --paginate "repos/${{ github.repository }}/pulls/$PR_NUMBER/files" --jq '.[].filename')
+          if grep -qxE 'runtime/src/ethereum_finalize_benchmarking\.rs|\.github/workflows/benchmarks\.yml' <<< "$FILES"; then
+              echo "ethereum=true" >> "$GITHUB_OUTPUT"
+          else
+              echo "ethereum=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  deploy-runner-build-creditcoin-for-testing-benchmarks:
+    needs:
+      - should-run
+    if: ${{ needs.should-run.outputs.skip != 'true' }}
+    uses: ./.github/workflows/deploy-runner.yml
+    with:
+      RUNNER_VM_NAME: "${{ github.event.repository.name }}-${{ github.run_id }}-attempt-${{ github.run_attempt }}"
+      LINODE_REGION: "nl-ams"
+      LINODE_VM_SIZE: "g6-standard-6"
+      proxy: "build-creditcoin-node-for-testing-benchmarks"
+    secrets: inherit
+
+  build-creditcoin-node-for-testing-benchmarks:
+    needs:
+      - deploy-runner-build-creditcoin-for-testing-benchmarks
+    uses: ./.github/workflows/build-native.yml
+    with:
+      build-options: "--release --features=runtime-benchmarks"
+      git-lfs-checkout: false
+      version-string: testing-benchmarks
+      cache-key-name: build-creditcoin-node
+      runs-on: "['self-hosted', 'workflow-${{ github.run_id }}', 'proxy-build-creditcoin-node-for-testing-benchmarks']"
+    secrets: inherit
+
+  rm-gh-runner-build-creditcoin-node-for-testing-benchmarks:
+    needs:
+      - should-run
+      - build-creditcoin-node-for-testing-benchmarks
+    # always() so a failed build still gets its runner removed — but not when the whole
+    # workflow was skipped as the bot's own commit (no VM was ever deployed).
+    if: ${{ always() && needs.should-run.outputs.skip != 'true' }}
+    uses: ./.github/workflows/remove-runner.yml
+    with:
+      RUNNER_VM_NAME: "${{ github.event.repository.name }}-${{ github.run_id }}-attempt-${{ github.run_attempt }}"
+      proxy: "build-creditcoin-node-for-testing-benchmarks"
+    secrets: inherit
+
+  deploy-runner-benchmark:
+    needs:
+      - build-creditcoin-node-for-testing-benchmarks
+    uses: ./.github/workflows/deploy-runner.yml
+    with:
+      RUNNER_VM_NAME: "${{ github.event.repository.name }}-${{ github.run_id }}-attempt-${{ github.run_attempt }}"
+      LINODE_REGION: "nl-ams"
+      LINODE_VM_SIZE: "g6-standard-6"
+      proxy: "benchmark"
+    secrets: inherit
+
+  exercise-benchmarks:
+    needs:
+      - should-run
+      - build-creditcoin-node-for-testing-benchmarks
+      - deploy-runner-benchmark
+    runs-on: [self-hosted, "workflow-${{ github.run_id }}", "proxy-benchmark"]
+    # checkov:skip=CKV2_GHA_1:We need this for weights auto-update
+    permissions: write-all
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          repository: ${{ github.event.pull_request.head.repo.full_name }}
+          ref: ${{ github.event.pull_request.head.ref }}
+
+      - name: Inspect benchmark CI config
+        run: |
+          # WARNING: Command below may differ depending on which workflow config file
+          # your job is defined in !!! Don't copy&paste it blindly !!!
+          PALLETS_IN_CI_CONFIG=$(grep " .github/bench.sh -p" .github/workflows/benchmarks.yml | grep -v PALLETS_IN_CI_CONFIG | tr -s ' ' | cut -d' ' -f4 | sort | xargs)
+
+          PALLETS_IN_SOURCE=$(.github/check-parity-bw-extrinsics-benchmarks-weights.sh --show-pallets)
+          if [ "$PALLETS_IN_CI_CONFIG" != "$PALLETS_IN_SOURCE" ]; then
+              echo "FAIL: Pallet mismatch between source code and benchmark CI config"
+              echo "INFO: in source: '$PALLETS_IN_SOURCE'"
+              echo "INFO: CI config: '$PALLETS_IN_CI_CONFIG'"
+              exit 1
+          fi
+
+      - name: Set-Up
+        run: |
+          sudo apt-get update
+          sudo apt install -y curl
+
+      - name: Install protobuf
+        uses: arduino/setup-protoc@v3
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Configure rustc version
+        run: |
+          RUSTC_VERSION=$(grep channel rust-toolchain.toml | tail -n1 | tr -d " " | cut -f2 -d'"')
+          echo "RUSTC_VERSION=$RUSTC_VERSION" >> "$GITHUB_ENV"
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: ${{ env.RUSTC_VERSION }}
+          targets: wasm32v1-none
+          components: rust-src
+
+      # Swatinem/rust-cache keys on every installed toolchain, so the runner image's own
+      # stable, which changes whenever GitHub updates the image, would rotate the key.
+      - name: Remove the runner image's Rust toolchains
+        run: rustup toolchain list | cut -d' ' -f1 | grep -v "^${RUSTC_VERSION:?}-" | xargs -r -n1 rustup toolchain uninstall
+
+      # use cache from previous build jobs
+      # WARNING: always before actions/download-artifact
+      # Same id as build-native.yml's "Identify runner family", whose warmers save the
+      # build-creditcoin-node-<id> entries on dev (cache-warm.yml, hosted and Linode).
+      - name: Identify runner family
+        id: runner-family
+        env:
+          RUNNER_FAMILY: ${{ runner.environment }}
+        run: |
+          ID=$(printf '%s\n' "${RUNNER_FAMILY:-unknown}" "$HOME" | sha256sum | cut -c1-8)
+          echo "id=$ID" >> "$GITHUB_OUTPUT"
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          # Restores the warmer's dependencies. This workflow runs on PRs only and builds other
+          # features, so it never saves: nothing would read a PR-scoped entry, and the warmer's
+          # key is for its own build.
+          shared-key: build-creditcoin-node-${{ steps.runner-family.outputs.id }}
+          save-if: false
+
+      # WARNING: always after Swatinem/rust-cache
+      - name: Download creditcoin-node binary
+        uses: actions/download-artifact@v8
+        with:
+          name: binary-for-testing-benchmarks
+          path: target/release
+
+      - name: Check if runner machine meets chain's requirements
+        continue-on-error: true
+        run: |
+          chmod a+x ./target/release/creditcoin3-node
+          .github/check-hardware.sh
+
+      - name: Run benchmarks to generate weights
+        run: |
+          .github/bench.sh -p attestation -b -s 2 -r 2
+          .github/bench.sh -p randomness -b
+          .github/bench.sh -p supported_chains -b
+
+      # pallet_ethereum lives in Frontier, so it has no weights.rs here and isn't run via bench.sh.
+      # Its output goes to an artifact, outside the tree, so the weights bot doesn't commit it.
+      # The five-component full-block benchmark gets fewer steps, or it would run for hours.
+      - name: Benchmark pallet_ethereum on_finalize
+        if: ${{ needs.should-run.outputs.ethereum == 'true' }}
+        run: |
+          OUT="$RUNNER_TEMP/pallet-ethereum-weights"
+          mkdir -p "$OUT"
+          ./target/release/creditcoin3-node benchmark pallet --chain dev --steps=50 --repeat=20 \
+            --pallet pallet_ethereum --wasm-execution=compiled --heap-pages=10000 \
+            --extrinsic=on_finalize_transactions,on_finalize_logs,on_finalize_topics,on_finalize_log_data,on_finalize_transaction_size,on_finalize_state_root \
+            --output "$OUT/single_component.rs"
+          ./target/release/creditcoin3-node benchmark pallet --chain dev --steps=10 --repeat=5 \
+            --pallet pallet_ethereum --wasm-execution=compiled --heap-pages=10000 \
+            --extrinsic=on_finalize_full_block \
+            --output "$OUT/full_block.rs"
+          cat "$OUT"/*.rs
+
+      - name: Upload pallet_ethereum weights
+        if: ${{ needs.should-run.outputs.ethereum == 'true' }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: pallet-ethereum-weights
+          path: ${{ runner.temp }}/pallet-ethereum-weights/
+
+      - name: git diff
+        run: |
+          sudo apt-get install colordiff
+          git diff | colordiff
+
+      # check if automatically generated weights compile
+      - name: Rebuild SUT with newly generated weights
+        uses: gluwa/cargo@dev
+        with:
+          command: build
+          args: --release
+
+      - name: Commit changes to current branch
+        if: contains(fromJSON('["usc-dev", "dev"]'), github.base_ref)
+        uses: EndBug/add-and-commit@v11
+        with:
+          author_name: gluwa-bot
+          author_email: creditcoin@gluwa.com
+          message: "Auto-update pallet weights"
+
+  rm-gh-runner-benchmark:
+    needs:
+      - should-run
+      - exercise-benchmarks
+    # See rm-gh-runner-build-...: cleanup must survive a failed run, not a skipped one.
+    if: ${{ always() && needs.should-run.outputs.skip != 'true' }}
+    uses: ./.github/workflows/remove-runner.yml
+    with:
+      RUNNER_VM_NAME: "${{ github.event.repository.name }}-${{ github.run_id }}-attempt-${{ github.run_attempt }}"
+      proxy: "benchmark"
+    secrets: inherit

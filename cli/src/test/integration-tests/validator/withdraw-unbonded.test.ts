@@ -1,0 +1,304 @@
+import { testIf, try_catch_else_finally, sleep, isManualSealing, sealBlock } from '../../utils';
+import {
+    initAliceKeyring,
+    setUpProxy,
+    tearDownProxy,
+    waitEras,
+    ALICE_NODE_URL,
+    CLIBuilder,
+    fundedAccountPool,
+} from '../helpers';
+import { newApi, ApiPromise, BN, KeyringPair } from '../../../lib';
+import { getBalance } from '../../../lib/balance';
+import { getValidatorStatus, validatorStatusTable } from '../../../lib/staking/validatorStatus';
+import { parseAmount } from '../../../commands/options';
+
+async function nextUnbondingInMs(validatorAddress: string, api: ApiPromise) {
+    const status = await validatorStatusTable(await getValidatorStatus(validatorAddress, api), api, false);
+    const unbondingData = (status.at(-1) as string[]).at(-1) as string;
+
+    if (unbondingData === 'None') {
+        return BigInt(0);
+    }
+
+    // returns data in milliseconds
+    return BigInt((unbondingData.split(' CTC in ').at(-1) as string).split(';').at(0) as string);
+}
+
+describe('withdraw-unbonded', () => {
+    let api: ApiPromise;
+    let proxy: any;
+    let sudoSigner: KeyringPair;
+    let accounts: ReturnType<typeof fundedAccountPool>;
+    let CLI: any;
+    let nonProxiedCli: any;
+
+    beforeAll(async () => {
+        ({ api } = await newApi(ALICE_NODE_URL));
+
+        // Create a reference to sudo for funding accounts
+        sudoSigner = initAliceKeyring();
+        accounts = fundedAccountPool(api, sudoSigner);
+    });
+
+    afterAll(async () => {
+        await api.disconnect();
+    });
+
+    describe('when there are NO unlocked funds', () => {
+        let caller: any;
+
+        beforeEach(async () => {
+            // Create and fund the test and proxy account
+            caller = await accounts.next();
+            nonProxiedCli = CLIBuilder({ CC_SECRET: caller.secret });
+        }, 90_000);
+
+        testIf(
+            process.env.PROXY_ENABLED === undefined || process.env.PROXY_ENABLED === 'no',
+            'should error with no unlocked funds message',
+            () => {
+                try_catch_else_finally(
+                    () => {
+                        // note that we're not even bonded
+                        nonProxiedCli('withdraw-unbonded');
+                    },
+                    (error: any) => {
+                        expect(error.exitCode).toEqual(1);
+                        expect(error.stderr).toContain(
+                            'Cannot perform action, there are no unlocked funds to withdraw',
+                        );
+                    },
+                    () => {
+                        throw new Error('cli was expected to fail but it did not');
+                    },
+                );
+            },
+        );
+    });
+
+    describe('when funds have been unlocked', () => {
+        let callerFullUnbond: any;
+        let callerPartialUnbond: any;
+        let nonProxiedCliFullUnbond: any;
+        let nonProxiedCliPartialUnbond: any;
+
+        // WARNING: caller is a local variable in each describe() block
+        // b/c for some scenarios in the block above it changes beforeEach()
+        // while here the entire setup is inside beforeAll() (b/c it takes a long time)
+        beforeAll(async () => {
+            // Create and fund the test and proxy account
+            callerFullUnbond = await accounts.next();
+            nonProxiedCliFullUnbond = CLIBuilder({ CC_SECRET: callerFullUnbond.secret });
+
+            // bond before calling unbond
+            let result = nonProxiedCliFullUnbond(`bond --amount 123`);
+            expect(result.exitCode).toEqual(0);
+            expect(result.stdout).toContain('Transaction included at block');
+
+            callerPartialUnbond = await accounts.next();
+            nonProxiedCliPartialUnbond = CLIBuilder({ CC_SECRET: callerPartialUnbond.secret });
+
+            // bond before calling unbond
+            result = nonProxiedCliPartialUnbond(`bond --amount 500`);
+            expect(result.exitCode).toEqual(0);
+            expect(result.stdout).toContain('Transaction included at block');
+
+            // wait 1 era before unbonding to simulate a running chain
+            // b/c unbonding in era 0 seems to give different results
+            await waitEras(1, api);
+
+            // Full Unbond
+            result = nonProxiedCliFullUnbond(`unbond --amount 123`);
+            expect(result.exitCode).toEqual(0);
+            expect(result.stdout).toContain('Transaction included at block');
+
+            // Partial Unbond
+            result = nonProxiedCliPartialUnbond(`unbond --amount 123`);
+            expect(result.exitCode).toEqual(0);
+            expect(result.stdout).toContain('Transaction included at block');
+
+            // begin unbonding era count-down
+            const unbondingPeriod: number = api.consts.staking.bondingDuration.toNumber();
+            // Under `--sealing manual` waitEras seals ahead as fast as it can, so the countdown
+            // below is checked first, one sealed block at a time, and the eras run out after it.
+            const manualSealing = await isManualSealing(api);
+            const erasCountdownPromise = manualSealing ? undefined : waitEras(unbondingPeriod, api);
+
+            // before the unbonding period has expired check that reported remaining time (in ms) is decreasing.
+            // WARNING: ONLY execute without a proxy b/c we're using `caller.address` directly
+            if (process.env.PROXY_ENABLED === undefined || process.env.PROXY_ENABLED === 'no') {
+                const blockTime = api.consts.babe.expectedBlockTime.toNumber();
+                let oldUnbonding = await nextUnbondingInMs(callerFullUnbond.address, api);
+
+                if (manualSealing) {
+                    // Every block moves chain time by whole slots: one for ours, more if the
+                    // background ticker sealed one in between. The countdown is polkadot.js's
+                    // estimate from era progress, which can stand still for the block on an era
+                    // boundary, so a single step may be 0 but the three together must not be.
+                    const startUnbonding = oldUnbonding;
+                    for (let i = 0; i < 3; i++) {
+                        const errMsg = `Failed on sealed block #${i}`;
+                        await sealBlock(api);
+                        const newUnbonding = await nextUnbondingInMs(callerFullUnbond.address, api);
+                        const difference = oldUnbonding - newUnbonding;
+                        expect(difference, errMsg).toBeGreaterThanOrEqual(0n);
+                        expect(difference % BigInt(blockTime), errMsg).toEqual(0n);
+                        oldUnbonding = newUnbonding;
+                    }
+                    expect(startUnbonding - oldUnbonding).toBeGreaterThanOrEqual(BigInt(2 * blockTime));
+                }
+
+                // This loop must finish *before* the unbonding period expires, because once
+                // the funds unlock there is no countdown left to watch decrease. It used to
+                // hardcode 200 against a hand-computed 210 ("15 blocks * 2 epochs * 7 eras"),
+                // which silently assumed a 7-era bonding duration. Derive it instead, so the
+                // loop tracks whatever the runtime is built with: the fast-runtime build now
+                // uses 2 eras, where a fixed 200 would run four times longer than the wait it
+                // is supposed to fit inside and become the thing the suite waits on.
+                const epochBlocks = api.consts.babe.epochDuration.toNumber();
+                const sessionsPerEra = api.consts.staking.sessionsPerEra.toNumber();
+                const blocksInUnbondingPeriod = epochBlocks * sessionsPerEra * unbondingPeriod;
+
+                // Same 10-block margin the old constant left (200 against 210).
+                const maxIterations = manualSealing ? 0 : Math.max(1, blocksInUnbondingPeriod - 10);
+                for (let i = 0; i < maxIterations; i++) {
+                    const errMsg = `Failed on iteration #${i}/${maxIterations}`;
+
+                    // note: we sleep exactly blockTime but the other calls still take some time
+                    // and it's possible that at some iterations the query spans 2 blocks
+                    await sleep(blockTime);
+                    const newUnbonding = await nextUnbondingInMs(callerFullUnbond.address, api);
+
+                    // time always decreases towards zero
+                    expect(oldUnbonding, errMsg).toBeGreaterThanOrEqual(newUnbonding);
+
+                    const difference = oldUnbonding - newUnbonding;
+
+                    // diff between 2 consequtive queries is [5, 10] seconds
+                    // the upper range to account for race condition b/c when block is stored
+                    //  on chain and when we actually query for this information
+                    expect(difference, errMsg).toBeGreaterThanOrEqual(blockTime);
+                    expect(difference, errMsg).toBeLessThanOrEqual(blockTime * 2);
+
+                    oldUnbonding = newUnbonding;
+                }
+            }
+
+            // configure proxy - used only for Full Unbond scenarios
+            proxy = await accounts.next();
+            const wrongProxy = await accounts.next();
+            CLI = await setUpProxy(api, nonProxiedCliFullUnbond, callerFullUnbond, proxy, wrongProxy);
+
+            // wait for funds to become unlocked
+            await (erasCountdownPromise ?? waitEras(unbondingPeriod, api));
+        }, 1_500_000);
+
+        afterAll(() => {
+            tearDownProxy(nonProxiedCliFullUnbond, proxy);
+        });
+
+        // NOTE: the `no-funds` and `not-a-proxy` proxy error paths are deliberately NOT
+        // asserted here, although every other proxy-aware command asserts them.
+        //
+        // They cannot be cheap in this suite. `withdrawUnbondedAction` checks
+        // `requireStatus(status, 'canWithdraw', ...)` (commands/staking/withdraw.ts:22)
+        // *before* the fee check on :29 and before it submits anything, so reaching
+        // either error at all requires a matured unlocking chunk -- which means bonding,
+        // unbonding and then waiting `bondingDuration` eras. That beforeAll measured
+        // 1161.9s and 1163.7s on the two legs that ran only these tests, to assert 1.4s
+        // and 4.2s worth of behaviour.
+        //
+        // What they assert is not specific to withdraw-unbonded either: the messages come
+        // from the shared `requireKeyringHasSufficientFunds` and `api.tx.proxy.proxy`
+        // paths, and bond, chill, distribute-rewards, send, set-keys, unbond, validate and
+        // wizard each assert the identical pair on the identical legs, for a couple of
+        // minutes rather than twenty.
+        //
+        // Removing them leaves this describe() with no test that runs on the `no-funds` or
+        // `not-a-proxy` legs. Jest does not execute beforeAll/beforeEach/afterAll for a
+        // block whose every test is skipped (verified against the pinned jest 29.7.0), so
+        // those legs now skip the era wait entirely instead of paying it for one assertion.
+        // Keep that in mind before adding a test here that runs on every leg.
+        testIf(
+            process.env.PROXY_ENABLED === undefined ||
+                process.env.PROXY_ENABLED === 'no' ||
+                (process.env.PROXY_ENABLED === 'yes' && process.env.PROXY_SECRET_VARIANT === 'valid-proxy'),
+            'should be able to withdraw fully unbonded amount',
+            async () => {
+                const zero = new BN(0);
+                const hundred23 = parseAmount('123');
+
+                const oldBalance = await getBalance(callerFullUnbond.address, api);
+                expect(oldBalance.locked.toString()).toBe(hundred23.toString());
+
+                const result = CLI('withdraw-unbonded');
+                expect(result.exitCode).toEqual(0);
+                expect(result.stdout).toContain('Transaction included at block');
+
+                // wait 2 seconds for nodes to sync
+                await sleep(2000);
+                const newBalance = await getBalance(callerFullUnbond.address, api);
+                expect(newBalance.locked.toString()).toBe(zero.toString());
+
+                try_catch_else_finally(
+                    () => {
+                        // try to withdraw again - should fail
+                        CLI('withdraw-unbonded');
+                    },
+                    (error: any) => {
+                        expect(error.exitCode).toEqual(1);
+                        expect(error.stderr).toContain(
+                            'Cannot perform action, there are no unlocked funds to withdraw',
+                        );
+                    },
+                    () => {
+                        throw new Error('cli was expected to fail but it did not');
+                    },
+                );
+            },
+            90_000,
+        );
+
+        testIf(
+            process.env.PROXY_ENABLED === undefined || process.env.PROXY_ENABLED === 'no',
+            'should be able to withdraw partially unbonded amount',
+            async () => {
+                const five00 = parseAmount('500');
+                const three77 = parseAmount('377'); // 500 - 123
+
+                const oldBalance = await getBalance(callerPartialUnbond.address, api);
+                expect(oldBalance.bonded.toString()).toBe(three77.toString());
+                expect(oldBalance.locked.toString()).toBe(five00.toString());
+
+                const result = nonProxiedCliPartialUnbond('withdraw-unbonded');
+                expect(result.exitCode).toEqual(0);
+                expect(result.stdout).toContain('Transaction included at block');
+
+                // wait 2 seconds for nodes to sync
+                await sleep(2000);
+                const newBalance = await getBalance(callerPartialUnbond.address, api);
+                expect(newBalance.transferable > oldBalance.transferable).toBe(true);
+                expect(newBalance.bonded.toString()).toBe(three77.toString());
+                expect(newBalance.locked.toString()).toBe(three77.toString());
+
+                try_catch_else_finally(
+                    () => {
+                        // try to withdraw again - should fail
+                        nonProxiedCliPartialUnbond('withdraw-unbonded');
+                    },
+                    (error: any) => {
+                        expect(error.exitCode).toEqual(1);
+                        expect(error.stderr).toContain(
+                            'Cannot perform action, there are no unlocked funds to withdraw',
+                        );
+                    },
+                    () => {
+                        throw new Error('cli was expected to fail but it did not');
+                    },
+                );
+            },
+            90_000,
+        );
+    });
+});

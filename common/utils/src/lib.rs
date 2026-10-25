@@ -1,0 +1,53 @@
+#![cfg_attr(not(feature = "std"), no_std)]
+
+//! # Creditcoin3 Utils
+//!
+//! This crate provides common utilities for Creditcoin3, including:
+//!
+//! - **Block Item Traits**: Interfaces for blockchain items with unique identifiers
+//! - **Keccak Merkle Trees**: Keccak256 hash implementation for Merkle structures
+//! - **Type Conversions**: Utilities for converting between types and parsing
+//! - **JSON Serialization**: File-based JSON serialization traits (std only)
+//!
+//! ## Features
+//!
+//! - `std`: Enables standard library features including file I/O and JSON serialization
+//! - Default features include `std`
+//!
+//! ## Usage
+//!
+//! ```rust
+//! use utils::BlockItem;
+//!
+//! // Implement BlockItem for your types
+//! #[derive(Debug)]
+//! struct MyBlockItem {
+//!     data: Vec<u8>,
+//! }
+//!
+//! impl BlockItem for MyBlockItem {
+//!     fn payload_bytes(&self) -> Vec<u8> {
+//!         self.data.clone()
+//!     }
+//! }
+//! ```
+
+// =============================================================================
+// Module Declarations
+// =============================================================================
+
+pub mod block_item_traits;
+
+#[cfg(feature = "std")]
+pub mod json_serializable;
+
+// =============================================================================
+// Re-exports
+// =============================================================================
+
+// Core traits and types
+pub use block_item_traits::BlockItem;
+
+// JSON serialization (std only)
+#[cfg(feature = "std")]
+pub use json_serializable::JsonSerializable;

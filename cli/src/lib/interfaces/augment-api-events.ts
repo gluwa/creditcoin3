@@ -1,0 +1,1433 @@
+// Auto-generated via `yarn polkadot-types-from-chain`, do not edit
+/* eslint-disable */
+
+// import type lookup before we augment - in some environments
+// this is required to allow for ambient/previous definitions
+import '@polkadot/api-base/types/events';
+
+import type { ApiTypes, AugmentedEvent } from '@polkadot/api-base/types';
+import type {
+    Bytes,
+    Null,
+    Option,
+    Result,
+    Text,
+    U256,
+    U8aFixed,
+    Vec,
+    bool,
+    u128,
+    u16,
+    u32,
+    u64,
+} from '@polkadot/types-codec';
+import type { ITuple } from '@polkadot/types-codec/types';
+import type { AccountId32, H160, H256, Perbill, Permill } from '@polkadot/types/interfaces/runtime';
+import type {
+    AttestorPrimitivesAttestationCheckpoint,
+    AttestorPrimitivesChainEncodingVersion,
+    Creditcoin3RuntimeProxyFilter,
+    Creditcoin3RuntimeRuntimeHoldReason,
+    EthereumLog,
+    EvmCoreErrorExitReason,
+    FrameSupportTokensMiscBalanceStatus,
+    FrameSystemDispatchEventInfo,
+    PalletAttestationAttestorElectionPolicy,
+    PalletBalancesUnexpectedKind,
+    PalletImOnlineSr25519AppSr25519Public,
+    PalletNominationPoolsClaimPermission,
+    PalletNominationPoolsCommissionChangeRate,
+    PalletNominationPoolsCommissionClaimPermission,
+    PalletNominationPoolsPoolState,
+    PalletProxyDepositKind,
+    PalletStakingForcing,
+    PalletStakingRewardDestination,
+    PalletStakingValidatorPrefs,
+    SpConsensusGrandpaAppPublic,
+    SpRuntimeDispatchError,
+    SpStakingExposure,
+} from '@polkadot/types/lookup';
+
+export type __AugmentedEvent<ApiType extends ApiTypes> = AugmentedEvent<ApiType>;
+
+declare module '@polkadot/api-base/types/events' {
+    interface AugmentedEvents<ApiType extends ApiTypes> {
+        attestation: {
+            /**
+             * Attestation chain genesis block number was set for a chain.
+             **/
+            AttestationChainGenesisBlockNumberSet: AugmentedEvent<ApiType, [u64, u64]>;
+            /**
+             * Note a change in the attestation interval for a source chain. Also notes the
+             * block number of the latest attestation for that source chain at the time of
+             * the interval change.
+             **/
+            AttestationIntervalChanged: AugmentedEvent<ApiType, [u64, u64]>;
+            AttestorActivated: AugmentedEvent<ApiType, [u64, AccountId32, U8aFixed]>;
+            AttestorChilled: AugmentedEvent<ApiType, [u64, AccountId32]>;
+            /**
+             * Emitted when an attestor is properly registered with the attestation system
+             **/
+            AttestorRegistered: AugmentedEvent<ApiType, [u64, AccountId32]>;
+            AttestorsElected: AugmentedEvent<
+                ApiType,
+                [epoch: u64, chainKey: u64, attestors: Vec<AccountId32>],
+                { epoch: u64; chainKey: u64; attestors: Vec<AccountId32> }
+            >;
+            AttestorUnregistered: AugmentedEvent<ApiType, [u64, AccountId32]>;
+            /**
+             * An attestor was authorized for a specific chain.
+             **/
+            AuthorizedAttestorAdded: AugmentedEvent<ApiType, [u64, AccountId32]>;
+            /**
+             * An attestor was unauthorized for a specific chain.
+             **/
+            AuthorizedAttestorRemoved: AugmentedEvent<ApiType, [u64, AccountId32]>;
+            BlockAttested: AugmentedEvent<ApiType, [u64, u64, H256]>;
+            Bonded: AugmentedEvent<ApiType, [stash: AccountId32, amount: u128], { stash: AccountId32; amount: u128 }>;
+            /**
+             * Note a change in the attestor election policy.
+             **/
+            ChangedElectionPolicy: AugmentedEvent<ApiType, [u64, PalletAttestationAttestorElectionPolicy]>;
+            CheckpointIntervalChanged: AugmentedEvent<ApiType, [u64, u32]>;
+            CheckpointReached: AugmentedEvent<ApiType, [u64, AttestorPrimitivesAttestationCheckpoint]>;
+            /**
+             * Signals that checkpoints were cleared for a chain that is no longer supported.
+             * A fixed number of checkpoints will be cleared per block until none remain.
+             **/
+            CheckpointsCleared: AugmentedEvent<ApiType, [u64]>;
+            /**
+             * A source chain was removed via pallet supported chains. Associated storage
+             * in pallet attestation was cleaned up.
+             **/
+            ClearedStorageForRemovedChain: AugmentedEvent<ApiType, [u64]>;
+            /**
+             * An operator forced an election for a single chain's attestor set. `epoch` is the
+             * epoch index the election was labelled with (the same value a scheduled election at
+             * that time would carry).
+             **/
+            ForcedElection: AugmentedEvent<ApiType, [chainKey: u64, epoch: u64], { chainKey: u64; epoch: u64 }>;
+            /**
+             * Pending updates were force-applied via operator call.
+             **/
+            ForcedUpdatesApplied: AugmentedEvent<ApiType, []>;
+            /**
+             * Operator forward-patched checkpoints (overwrite / optional suffix wipe).
+             **/
+            ForwardCheckpointPatchApplied: AugmentedEvent<
+                ApiType,
+                [chainKey: u64, wipedSuffix: bool, tipBlockNumber: u64],
+                { chainKey: u64; wipedSuffix: bool; tipBlockNumber: u64 }
+            >;
+            /**
+             * Emitted when an invulnerable is properly registered with the attestation system
+             **/
+            InvulnerableRegistered: AugmentedEvent<ApiType, [u64, AccountId32]>;
+            InvulnerableUnregistered: AugmentedEvent<ApiType, [u64, AccountId32]>;
+            /**
+             * Max attestors changed for a chain
+             **/
+            MaxAttestorsChanged: AugmentedEvent<ApiType, [u64, u32]>;
+            MaxCatchupChanged: AugmentedEvent<ApiType, [u64, u32]>;
+            MinBondRequirementUpdated: AugmentedEvent<ApiType, [u64, u128]>;
+            PendingAttestationIntervalSet: AugmentedEvent<ApiType, [u64, u64]>;
+            PendingMaxCatchupSet: AugmentedEvent<ApiType, [u64, u32]>;
+            PendingTargetSampleSizeSet: AugmentedEvent<ApiType, [u64, u32]>;
+            /**
+             * A chain reversion was triggered
+             **/
+            RevertedAttestationChainTo: AugmentedEvent<
+                ApiType,
+                [chainKey: u64, checkpointHeight: u64, checkpointDigest: H256],
+                { chainKey: u64; checkpointHeight: u64; checkpointDigest: H256 }
+            >;
+            TargetSampleSizeChanged: AugmentedEvent<ApiType, [u64, u32]>;
+            Unbonded: AugmentedEvent<ApiType, [stash: AccountId32, amount: u128], { stash: AccountId32; amount: u128 }>;
+            Withdrawn: AugmentedEvent<
+                ApiType,
+                [stash: AccountId32, amount: u128],
+                { stash: AccountId32; amount: u128 }
+            >;
+            /**
+             * Generic event
+             **/
+            [key: string]: AugmentedEvent<ApiType>;
+        };
+        balances: {
+            /**
+             * A balance was set by root.
+             **/
+            BalanceSet: AugmentedEvent<ApiType, [who: AccountId32, free: u128], { who: AccountId32; free: u128 }>;
+            /**
+             * Some amount was burned from an account.
+             **/
+            Burned: AugmentedEvent<ApiType, [who: AccountId32, amount: u128], { who: AccountId32; amount: u128 }>;
+            /**
+             * Some debt has been dropped from the Total Issuance.
+             **/
+            BurnedDebt: AugmentedEvent<ApiType, [amount: u128], { amount: u128 }>;
+            /**
+             * Held balance was burned from an account.
+             **/
+            BurnedHeld: AugmentedEvent<
+                ApiType,
+                [reason: Creditcoin3RuntimeRuntimeHoldReason, who: AccountId32, amount: u128],
+                { reason: Creditcoin3RuntimeRuntimeHoldReason; who: AccountId32; amount: u128 }
+            >;
+            /**
+             * Some amount was deposited (e.g. for transaction fees).
+             **/
+            Deposit: AugmentedEvent<ApiType, [who: AccountId32, amount: u128], { who: AccountId32; amount: u128 }>;
+            /**
+             * An account was removed whose balance was non-zero but below ExistentialDeposit,
+             * resulting in an outright loss.
+             **/
+            DustLost: AugmentedEvent<
+                ApiType,
+                [account: AccountId32, amount: u128],
+                { account: AccountId32; amount: u128 }
+            >;
+            /**
+             * An account was created with some free balance.
+             **/
+            Endowed: AugmentedEvent<
+                ApiType,
+                [account: AccountId32, freeBalance: u128],
+                { account: AccountId32; freeBalance: u128 }
+            >;
+            /**
+             * Some balance was frozen.
+             **/
+            Frozen: AugmentedEvent<ApiType, [who: AccountId32, amount: u128], { who: AccountId32; amount: u128 }>;
+            /**
+             * Some balance was placed on hold.
+             **/
+            Held: AugmentedEvent<
+                ApiType,
+                [reason: Creditcoin3RuntimeRuntimeHoldReason, who: AccountId32, amount: u128],
+                { reason: Creditcoin3RuntimeRuntimeHoldReason; who: AccountId32; amount: u128 }
+            >;
+            /**
+             * Total issuance was increased by `amount`, creating a credit to be balanced.
+             **/
+            Issued: AugmentedEvent<ApiType, [amount: u128], { amount: u128 }>;
+            /**
+             * Some balance was locked.
+             **/
+            Locked: AugmentedEvent<ApiType, [who: AccountId32, amount: u128], { who: AccountId32; amount: u128 }>;
+            /**
+             * Some amount was minted into an account.
+             **/
+            Minted: AugmentedEvent<ApiType, [who: AccountId32, amount: u128], { who: AccountId32; amount: u128 }>;
+            /**
+             * Some credit was balanced and added to the TotalIssuance.
+             **/
+            MintedCredit: AugmentedEvent<ApiType, [amount: u128], { amount: u128 }>;
+            /**
+             * Some balance was released from hold.
+             **/
+            Released: AugmentedEvent<
+                ApiType,
+                [reason: Creditcoin3RuntimeRuntimeHoldReason, who: AccountId32, amount: u128],
+                { reason: Creditcoin3RuntimeRuntimeHoldReason; who: AccountId32; amount: u128 }
+            >;
+            /**
+             * Total issuance was decreased by `amount`, creating a debt to be balanced.
+             **/
+            Rescinded: AugmentedEvent<ApiType, [amount: u128], { amount: u128 }>;
+            /**
+             * Some balance was reserved (moved from free to reserved).
+             **/
+            Reserved: AugmentedEvent<ApiType, [who: AccountId32, amount: u128], { who: AccountId32; amount: u128 }>;
+            /**
+             * Some balance was moved from the reserve of the first account to the second account.
+             * Final argument indicates the destination balance type.
+             **/
+            ReserveRepatriated: AugmentedEvent<
+                ApiType,
+                [
+                    from: AccountId32,
+                    to: AccountId32,
+                    amount: u128,
+                    destinationStatus: FrameSupportTokensMiscBalanceStatus,
+                ],
+                {
+                    from: AccountId32;
+                    to: AccountId32;
+                    amount: u128;
+                    destinationStatus: FrameSupportTokensMiscBalanceStatus;
+                }
+            >;
+            /**
+             * Some amount was restored into an account.
+             **/
+            Restored: AugmentedEvent<ApiType, [who: AccountId32, amount: u128], { who: AccountId32; amount: u128 }>;
+            /**
+             * Some amount was removed from the account (e.g. for misbehavior).
+             **/
+            Slashed: AugmentedEvent<ApiType, [who: AccountId32, amount: u128], { who: AccountId32; amount: u128 }>;
+            /**
+             * Some amount was suspended from an account (it can be restored later).
+             **/
+            Suspended: AugmentedEvent<ApiType, [who: AccountId32, amount: u128], { who: AccountId32; amount: u128 }>;
+            /**
+             * Some balance was thawed.
+             **/
+            Thawed: AugmentedEvent<ApiType, [who: AccountId32, amount: u128], { who: AccountId32; amount: u128 }>;
+            /**
+             * The `TotalIssuance` was forcefully changed.
+             **/
+            TotalIssuanceForced: AugmentedEvent<ApiType, [old: u128, new_: u128], { old: u128; new_: u128 }>;
+            /**
+             * Transfer succeeded.
+             **/
+            Transfer: AugmentedEvent<
+                ApiType,
+                [from: AccountId32, to: AccountId32, amount: u128],
+                { from: AccountId32; to: AccountId32; amount: u128 }
+            >;
+            /**
+             * The `transferred` balance is placed on hold at the `dest` account.
+             **/
+            TransferAndHold: AugmentedEvent<
+                ApiType,
+                [
+                    reason: Creditcoin3RuntimeRuntimeHoldReason,
+                    source: AccountId32,
+                    dest: AccountId32,
+                    transferred: u128,
+                ],
+                {
+                    reason: Creditcoin3RuntimeRuntimeHoldReason;
+                    source: AccountId32;
+                    dest: AccountId32;
+                    transferred: u128;
+                }
+            >;
+            /**
+             * A transfer of `amount` on hold from `source` to `dest` was initiated.
+             **/
+            TransferOnHold: AugmentedEvent<
+                ApiType,
+                [reason: Creditcoin3RuntimeRuntimeHoldReason, source: AccountId32, dest: AccountId32, amount: u128],
+                { reason: Creditcoin3RuntimeRuntimeHoldReason; source: AccountId32; dest: AccountId32; amount: u128 }
+            >;
+            /**
+             * An unexpected/defensive event was triggered.
+             **/
+            Unexpected: AugmentedEvent<ApiType, [PalletBalancesUnexpectedKind]>;
+            /**
+             * Some balance was unlocked.
+             **/
+            Unlocked: AugmentedEvent<ApiType, [who: AccountId32, amount: u128], { who: AccountId32; amount: u128 }>;
+            /**
+             * Some balance was unreserved (moved from reserved to free).
+             **/
+            Unreserved: AugmentedEvent<ApiType, [who: AccountId32, amount: u128], { who: AccountId32; amount: u128 }>;
+            /**
+             * An account was upgraded.
+             **/
+            Upgraded: AugmentedEvent<ApiType, [who: AccountId32], { who: AccountId32 }>;
+            /**
+             * Some amount was withdrawn from the account (e.g. for transaction fees).
+             **/
+            Withdraw: AugmentedEvent<ApiType, [who: AccountId32, amount: u128], { who: AccountId32; amount: u128 }>;
+            /**
+             * Generic event
+             **/
+            [key: string]: AugmentedEvent<ApiType>;
+        };
+        baseFee: {
+            BaseFeeOverflow: AugmentedEvent<ApiType, []>;
+            NewBaseFeePerGas: AugmentedEvent<ApiType, [fee: U256], { fee: U256 }>;
+            NewElasticity: AugmentedEvent<ApiType, [elasticity: Permill], { elasticity: Permill }>;
+            /**
+             * Generic event
+             **/
+            [key: string]: AugmentedEvent<ApiType>;
+        };
+        ethereum: {
+            /**
+             * An ethereum transaction was successfully executed.
+             **/
+            Executed: AugmentedEvent<
+                ApiType,
+                [from: H160, to: H160, transactionHash: H256, exitReason: EvmCoreErrorExitReason, extraData: Bytes],
+                { from: H160; to: H160; transactionHash: H256; exitReason: EvmCoreErrorExitReason; extraData: Bytes }
+            >;
+            /**
+             * Generic event
+             **/
+            [key: string]: AugmentedEvent<ApiType>;
+        };
+        evm: {
+            /**
+             * A contract has been created at given address.
+             **/
+            Created: AugmentedEvent<ApiType, [address: H160], { address: H160 }>;
+            /**
+             * A contract was attempted to be created, but the execution failed.
+             **/
+            CreatedFailed: AugmentedEvent<ApiType, [address: H160], { address: H160 }>;
+            /**
+             * A contract has been executed successfully with states applied.
+             **/
+            Executed: AugmentedEvent<ApiType, [address: H160], { address: H160 }>;
+            /**
+             * A contract has been executed with errors. States are reverted with only gas fees applied.
+             **/
+            ExecutedFailed: AugmentedEvent<ApiType, [address: H160], { address: H160 }>;
+            /**
+             * Ethereum events from contracts.
+             **/
+            Log: AugmentedEvent<ApiType, [log: EthereumLog], { log: EthereumLog }>;
+            /**
+             * Generic event
+             **/
+            [key: string]: AugmentedEvent<ApiType>;
+        };
+        fastUnstake: {
+            /**
+             * A batch was partially checked for the given eras, but the process did not finish.
+             **/
+            BatchChecked: AugmentedEvent<ApiType, [eras: Vec<u32>], { eras: Vec<u32> }>;
+            /**
+             * A batch of a given size was terminated.
+             *
+             * This is always follows by a number of `Unstaked` or `Slashed` events, marking the end
+             * of the batch. A new batch will be created upon next block.
+             **/
+            BatchFinished: AugmentedEvent<ApiType, [size_: u32], { size_: u32 }>;
+            /**
+             * An internal error happened. Operations will be paused now.
+             **/
+            InternalError: AugmentedEvent<ApiType, []>;
+            /**
+             * A staker was slashed for requesting fast-unstake whilst being exposed.
+             **/
+            Slashed: AugmentedEvent<ApiType, [stash: AccountId32, amount: u128], { stash: AccountId32; amount: u128 }>;
+            /**
+             * A staker was unstaked.
+             **/
+            Unstaked: AugmentedEvent<
+                ApiType,
+                [stash: AccountId32, result: Result<Null, SpRuntimeDispatchError>],
+                { stash: AccountId32; result: Result<Null, SpRuntimeDispatchError> }
+            >;
+            /**
+             * Generic event
+             **/
+            [key: string]: AugmentedEvent<ApiType>;
+        };
+        grandpa: {
+            /**
+             * New authority set has been applied.
+             **/
+            NewAuthorities: AugmentedEvent<
+                ApiType,
+                [authoritySet: Vec<ITuple<[SpConsensusGrandpaAppPublic, u64]>>],
+                { authoritySet: Vec<ITuple<[SpConsensusGrandpaAppPublic, u64]>> }
+            >;
+            /**
+             * Current authority set has been paused.
+             **/
+            Paused: AugmentedEvent<ApiType, []>;
+            /**
+             * Current authority set has been resumed.
+             **/
+            Resumed: AugmentedEvent<ApiType, []>;
+            /**
+             * Generic event
+             **/
+            [key: string]: AugmentedEvent<ApiType>;
+        };
+        historical: {
+            /**
+             * The merkle roots of up to this session index were pruned
+             **/
+            RootsPruned: AugmentedEvent<ApiType, [upTo: u32], { upTo: u32 }>;
+            /**
+             * The merkle root of the validators of the said session were stored
+             **/
+            RootStored: AugmentedEvent<ApiType, [index: u32], { index: u32 }>;
+            /**
+             * Generic event
+             **/
+            [key: string]: AugmentedEvent<ApiType>;
+        };
+        identity: {
+            /**
+             * A username authority was added.
+             **/
+            AuthorityAdded: AugmentedEvent<ApiType, [authority: AccountId32], { authority: AccountId32 }>;
+            /**
+             * A username authority was removed.
+             **/
+            AuthorityRemoved: AugmentedEvent<ApiType, [authority: AccountId32], { authority: AccountId32 }>;
+            /**
+             * A dangling username (as in, a username corresponding to an account that has removed its
+             * identity) has been removed.
+             **/
+            DanglingUsernameRemoved: AugmentedEvent<
+                ApiType,
+                [who: AccountId32, username: Bytes],
+                { who: AccountId32; username: Bytes }
+            >;
+            /**
+             * A name was cleared, and the given balance returned.
+             **/
+            IdentityCleared: AugmentedEvent<
+                ApiType,
+                [who: AccountId32, deposit: u128],
+                { who: AccountId32; deposit: u128 }
+            >;
+            /**
+             * A name was removed and the given balance slashed.
+             **/
+            IdentityKilled: AugmentedEvent<
+                ApiType,
+                [who: AccountId32, deposit: u128],
+                { who: AccountId32; deposit: u128 }
+            >;
+            /**
+             * A name was set or reset (which will remove all judgements).
+             **/
+            IdentitySet: AugmentedEvent<ApiType, [who: AccountId32], { who: AccountId32 }>;
+            /**
+             * A judgement was given by a registrar.
+             **/
+            JudgementGiven: AugmentedEvent<
+                ApiType,
+                [target: AccountId32, registrarIndex: u32],
+                { target: AccountId32; registrarIndex: u32 }
+            >;
+            /**
+             * A judgement was asked from a registrar.
+             **/
+            JudgementRequested: AugmentedEvent<
+                ApiType,
+                [who: AccountId32, registrarIndex: u32],
+                { who: AccountId32; registrarIndex: u32 }
+            >;
+            /**
+             * A judgement request was retracted.
+             **/
+            JudgementUnrequested: AugmentedEvent<
+                ApiType,
+                [who: AccountId32, registrarIndex: u32],
+                { who: AccountId32; registrarIndex: u32 }
+            >;
+            /**
+             * A queued username passed its expiration without being claimed and was removed.
+             **/
+            PreapprovalExpired: AugmentedEvent<ApiType, [whose: AccountId32], { whose: AccountId32 }>;
+            /**
+             * A username was set as a primary and can be looked up from `who`.
+             **/
+            PrimaryUsernameSet: AugmentedEvent<
+                ApiType,
+                [who: AccountId32, username: Bytes],
+                { who: AccountId32; username: Bytes }
+            >;
+            /**
+             * A registrar was added.
+             **/
+            RegistrarAdded: AugmentedEvent<ApiType, [registrarIndex: u32], { registrarIndex: u32 }>;
+            /**
+             * An account's sub-identities were set (in bulk).
+             **/
+            SubIdentitiesSet: AugmentedEvent<
+                ApiType,
+                [main: AccountId32, numberOfSubs: u32, newDeposit: u128],
+                { main: AccountId32; numberOfSubs: u32; newDeposit: u128 }
+            >;
+            /**
+             * A sub-identity was added to an identity and the deposit paid.
+             **/
+            SubIdentityAdded: AugmentedEvent<
+                ApiType,
+                [sub: AccountId32, main: AccountId32, deposit: u128],
+                { sub: AccountId32; main: AccountId32; deposit: u128 }
+            >;
+            /**
+             * A sub-identity was removed from an identity and the deposit freed.
+             **/
+            SubIdentityRemoved: AugmentedEvent<
+                ApiType,
+                [sub: AccountId32, main: AccountId32, deposit: u128],
+                { sub: AccountId32; main: AccountId32; deposit: u128 }
+            >;
+            /**
+             * A given sub-account's associated name was changed by its super-identity.
+             **/
+            SubIdentityRenamed: AugmentedEvent<
+                ApiType,
+                [sub: AccountId32, main: AccountId32],
+                { sub: AccountId32; main: AccountId32 }
+            >;
+            /**
+             * A sub-identity was cleared, and the given deposit repatriated from the
+             * main identity account to the sub-identity account.
+             **/
+            SubIdentityRevoked: AugmentedEvent<
+                ApiType,
+                [sub: AccountId32, main: AccountId32, deposit: u128],
+                { sub: AccountId32; main: AccountId32; deposit: u128 }
+            >;
+            /**
+             * A username has been killed.
+             **/
+            UsernameKilled: AugmentedEvent<ApiType, [username: Bytes], { username: Bytes }>;
+            /**
+             * A username was queued, but `who` must accept it prior to `expiration`.
+             **/
+            UsernameQueued: AugmentedEvent<
+                ApiType,
+                [who: AccountId32, username: Bytes, expiration: u32],
+                { who: AccountId32; username: Bytes; expiration: u32 }
+            >;
+            /**
+             * A username has been removed.
+             **/
+            UsernameRemoved: AugmentedEvent<ApiType, [username: Bytes], { username: Bytes }>;
+            /**
+             * A username was set for `who`.
+             **/
+            UsernameSet: AugmentedEvent<
+                ApiType,
+                [who: AccountId32, username: Bytes],
+                { who: AccountId32; username: Bytes }
+            >;
+            /**
+             * A username has been unbound.
+             **/
+            UsernameUnbound: AugmentedEvent<ApiType, [username: Bytes], { username: Bytes }>;
+            /**
+             * Generic event
+             **/
+            [key: string]: AugmentedEvent<ApiType>;
+        };
+        imOnline: {
+            /**
+             * At the end of the session, no offence was committed.
+             **/
+            AllGood: AugmentedEvent<ApiType, []>;
+            /**
+             * A new heartbeat was received from `AuthorityId`.
+             **/
+            HeartbeatReceived: AugmentedEvent<
+                ApiType,
+                [authorityId: PalletImOnlineSr25519AppSr25519Public],
+                { authorityId: PalletImOnlineSr25519AppSr25519Public }
+            >;
+            /**
+             * At the end of the session, at least one validator was found to be offline.
+             **/
+            SomeOffline: AugmentedEvent<
+                ApiType,
+                [offline: Vec<ITuple<[AccountId32, SpStakingExposure]>>],
+                { offline: Vec<ITuple<[AccountId32, SpStakingExposure]>> }
+            >;
+            /**
+             * Generic event
+             **/
+            [key: string]: AugmentedEvent<ApiType>;
+        };
+        multiBlockMigrations: {
+            /**
+             * The set of historical migrations has been cleared.
+             **/
+            HistoricCleared: AugmentedEvent<ApiType, [nextCursor: Option<Bytes>], { nextCursor: Option<Bytes> }>;
+            /**
+             * A migration progressed.
+             **/
+            MigrationAdvanced: AugmentedEvent<ApiType, [index: u32, took: u32], { index: u32; took: u32 }>;
+            /**
+             * A Migration completed.
+             **/
+            MigrationCompleted: AugmentedEvent<ApiType, [index: u32, took: u32], { index: u32; took: u32 }>;
+            /**
+             * A Migration failed.
+             *
+             * This implies that the whole upgrade failed and governance intervention is required.
+             **/
+            MigrationFailed: AugmentedEvent<ApiType, [index: u32, took: u32], { index: u32; took: u32 }>;
+            /**
+             * A migration was skipped since it was already executed in the past.
+             **/
+            MigrationSkipped: AugmentedEvent<ApiType, [index: u32], { index: u32 }>;
+            /**
+             * The current runtime upgrade completed.
+             *
+             * This implies that all of its migrations completed successfully as well.
+             **/
+            UpgradeCompleted: AugmentedEvent<ApiType, []>;
+            /**
+             * Runtime upgrade failed.
+             *
+             * This is very bad and will require governance intervention.
+             **/
+            UpgradeFailed: AugmentedEvent<ApiType, []>;
+            /**
+             * A Runtime upgrade started.
+             *
+             * Its end is indicated by `UpgradeCompleted` or `UpgradeFailed`.
+             **/
+            UpgradeStarted: AugmentedEvent<ApiType, [migrations: u32], { migrations: u32 }>;
+            /**
+             * Generic event
+             **/
+            [key: string]: AugmentedEvent<ApiType>;
+        };
+        nominationPools: {
+            /**
+             * A member has became bonded in a pool.
+             **/
+            Bonded: AugmentedEvent<
+                ApiType,
+                [member: AccountId32, poolId: u32, bonded: u128, joined: bool],
+                { member: AccountId32; poolId: u32; bonded: u128; joined: bool }
+            >;
+            /**
+             * A pool has been created.
+             **/
+            Created: AugmentedEvent<
+                ApiType,
+                [depositor: AccountId32, poolId: u32],
+                { depositor: AccountId32; poolId: u32 }
+            >;
+            /**
+             * A pool has been destroyed.
+             **/
+            Destroyed: AugmentedEvent<ApiType, [poolId: u32], { poolId: u32 }>;
+            /**
+             * Global parameters regulating nomination pools have been updated.
+             **/
+            GlobalParamsUpdated: AugmentedEvent<
+                ApiType,
+                [
+                    minJoinBond: u128,
+                    minCreateBond: u128,
+                    maxPools: Option<u32>,
+                    maxMembers: Option<u32>,
+                    maxMembersPerPool: Option<u32>,
+                    globalMaxCommission: Option<Perbill>,
+                ],
+                {
+                    minJoinBond: u128;
+                    minCreateBond: u128;
+                    maxPools: Option<u32>;
+                    maxMembers: Option<u32>;
+                    maxMembersPerPool: Option<u32>;
+                    globalMaxCommission: Option<Perbill>;
+                }
+            >;
+            /**
+             * A pool member's claim permission has been updated.
+             **/
+            MemberClaimPermissionUpdated: AugmentedEvent<
+                ApiType,
+                [member: AccountId32, permission: PalletNominationPoolsClaimPermission],
+                { member: AccountId32; permission: PalletNominationPoolsClaimPermission }
+            >;
+            /**
+             * A member has been removed from a pool.
+             *
+             * The removal can be voluntary (withdrawn all unbonded funds) or involuntary (kicked).
+             * Any funds that are still delegated (i.e. dangling delegation) are released and are
+             * represented by `released_balance`.
+             **/
+            MemberRemoved: AugmentedEvent<
+                ApiType,
+                [poolId: u32, member: AccountId32, releasedBalance: u128],
+                { poolId: u32; member: AccountId32; releasedBalance: u128 }
+            >;
+            /**
+             * A pool's metadata was updated.
+             **/
+            MetadataUpdated: AugmentedEvent<
+                ApiType,
+                [poolId: u32, caller: AccountId32],
+                { poolId: u32; caller: AccountId32 }
+            >;
+            /**
+             * Topped up deficit in frozen ED of the reward pool.
+             **/
+            MinBalanceDeficitAdjusted: AugmentedEvent<
+                ApiType,
+                [poolId: u32, amount: u128],
+                { poolId: u32; amount: u128 }
+            >;
+            /**
+             * Claimed excess frozen ED of af the reward pool.
+             **/
+            MinBalanceExcessAdjusted: AugmentedEvent<
+                ApiType,
+                [poolId: u32, amount: u128],
+                { poolId: u32; amount: u128 }
+            >;
+            /**
+             * A payout has been made to a member.
+             **/
+            PaidOut: AugmentedEvent<
+                ApiType,
+                [member: AccountId32, poolId: u32, payout: u128],
+                { member: AccountId32; poolId: u32; payout: u128 }
+            >;
+            /**
+             * A pool's commission `change_rate` has been changed.
+             **/
+            PoolCommissionChangeRateUpdated: AugmentedEvent<
+                ApiType,
+                [poolId: u32, changeRate: PalletNominationPoolsCommissionChangeRate],
+                { poolId: u32; changeRate: PalletNominationPoolsCommissionChangeRate }
+            >;
+            /**
+             * Pool commission has been claimed.
+             **/
+            PoolCommissionClaimed: AugmentedEvent<
+                ApiType,
+                [poolId: u32, commission: u128],
+                { poolId: u32; commission: u128 }
+            >;
+            /**
+             * Pool commission claim permission has been updated.
+             **/
+            PoolCommissionClaimPermissionUpdated: AugmentedEvent<
+                ApiType,
+                [poolId: u32, permission: Option<PalletNominationPoolsCommissionClaimPermission>],
+                { poolId: u32; permission: Option<PalletNominationPoolsCommissionClaimPermission> }
+            >;
+            /**
+             * A pool's commission setting has been changed.
+             **/
+            PoolCommissionUpdated: AugmentedEvent<
+                ApiType,
+                [poolId: u32, current: Option<ITuple<[Perbill, AccountId32]>>],
+                { poolId: u32; current: Option<ITuple<[Perbill, AccountId32]>> }
+            >;
+            /**
+             * A pool's maximum commission setting has been changed.
+             **/
+            PoolMaxCommissionUpdated: AugmentedEvent<
+                ApiType,
+                [poolId: u32, maxCommission: Perbill],
+                { poolId: u32; maxCommission: Perbill }
+            >;
+            /**
+             * A pool's nominating account (or the pool's root account) has nominated a validator set
+             * on behalf of the pool.
+             **/
+            PoolNominationMade: AugmentedEvent<
+                ApiType,
+                [poolId: u32, caller: AccountId32],
+                { poolId: u32; caller: AccountId32 }
+            >;
+            /**
+             * The pool is chilled i.e. no longer nominating.
+             **/
+            PoolNominatorChilled: AugmentedEvent<
+                ApiType,
+                [poolId: u32, caller: AccountId32],
+                { poolId: u32; caller: AccountId32 }
+            >;
+            /**
+             * The active balance of pool `pool_id` has been slashed to `balance`.
+             **/
+            PoolSlashed: AugmentedEvent<ApiType, [poolId: u32, balance: u128], { poolId: u32; balance: u128 }>;
+            /**
+             * The roles of a pool have been updated to the given new roles. Note that the depositor
+             * can never change.
+             **/
+            RolesUpdated: AugmentedEvent<
+                ApiType,
+                [root: Option<AccountId32>, bouncer: Option<AccountId32>, nominator: Option<AccountId32>],
+                { root: Option<AccountId32>; bouncer: Option<AccountId32>; nominator: Option<AccountId32> }
+            >;
+            /**
+             * The state of a pool has changed
+             **/
+            StateChanged: AugmentedEvent<
+                ApiType,
+                [poolId: u32, newState: PalletNominationPoolsPoolState],
+                { poolId: u32; newState: PalletNominationPoolsPoolState }
+            >;
+            /**
+             * A member has unbonded from their pool.
+             *
+             * - `balance` is the corresponding balance of the number of points that has been
+             * requested to be unbonded (the argument of the `unbond` transaction) from the bonded
+             * pool.
+             * - `points` is the number of points that are issued as a result of `balance` being
+             * dissolved into the corresponding unbonding pool.
+             * - `era` is the era in which the balance will be unbonded.
+             * In the absence of slashing, these values will match. In the presence of slashing, the
+             * number of points that are issued in the unbonding pool will be less than the amount
+             * requested to be unbonded.
+             **/
+            Unbonded: AugmentedEvent<
+                ApiType,
+                [member: AccountId32, poolId: u32, balance: u128, points: u128, era: u32],
+                { member: AccountId32; poolId: u32; balance: u128; points: u128; era: u32 }
+            >;
+            /**
+             * The unbond pool at `era` of pool `pool_id` has been slashed to `balance`.
+             **/
+            UnbondingPoolSlashed: AugmentedEvent<
+                ApiType,
+                [poolId: u32, era: u32, balance: u128],
+                { poolId: u32; era: u32; balance: u128 }
+            >;
+            /**
+             * A member has withdrawn from their pool.
+             *
+             * The given number of `points` have been dissolved in return of `balance`.
+             *
+             * Similar to `Unbonded` event, in the absence of slashing, the ratio of point to balance
+             * will be 1.
+             **/
+            Withdrawn: AugmentedEvent<
+                ApiType,
+                [member: AccountId32, poolId: u32, balance: u128, points: u128],
+                { member: AccountId32; poolId: u32; balance: u128; points: u128 }
+            >;
+            /**
+             * Generic event
+             **/
+            [key: string]: AugmentedEvent<ApiType>;
+        };
+        offences: {
+            /**
+             * There is an offence reported of the given `kind` happened at the `session_index` and
+             * (kind-specific) time slot. This event is not deposited for duplicate slashes.
+             * \[kind, timeslot\].
+             **/
+            Offence: AugmentedEvent<ApiType, [kind: U8aFixed, timeslot: Bytes], { kind: U8aFixed; timeslot: Bytes }>;
+            /**
+             * Generic event
+             **/
+            [key: string]: AugmentedEvent<ApiType>;
+        };
+        operators: {
+            /**
+             * Phantom member, never used.
+             **/
+            Dummy: AugmentedEvent<ApiType, []>;
+            /**
+             * One of the members' keys changed.
+             **/
+            KeyChanged: AugmentedEvent<ApiType, []>;
+            /**
+             * The given member was added; see the transaction for who.
+             **/
+            MemberAdded: AugmentedEvent<ApiType, []>;
+            /**
+             * The given member was removed; see the transaction for who.
+             **/
+            MemberRemoved: AugmentedEvent<ApiType, []>;
+            /**
+             * The membership was reset; see the transaction for who the new set is.
+             **/
+            MembersReset: AugmentedEvent<ApiType, []>;
+            /**
+             * Two members were swapped; see the transaction for who.
+             **/
+            MembersSwapped: AugmentedEvent<ApiType, []>;
+            /**
+             * Generic event
+             **/
+            [key: string]: AugmentedEvent<ApiType>;
+        };
+        proxy: {
+            /**
+             * An announcement was placed to make a call in the future.
+             **/
+            Announced: AugmentedEvent<
+                ApiType,
+                [real: AccountId32, proxy: AccountId32, callHash: H256],
+                { real: AccountId32; proxy: AccountId32; callHash: H256 }
+            >;
+            /**
+             * A deposit stored for proxies or announcements was poked / updated.
+             **/
+            DepositPoked: AugmentedEvent<
+                ApiType,
+                [who: AccountId32, kind: PalletProxyDepositKind, oldDeposit: u128, newDeposit: u128],
+                { who: AccountId32; kind: PalletProxyDepositKind; oldDeposit: u128; newDeposit: u128 }
+            >;
+            /**
+             * A proxy was added.
+             **/
+            ProxyAdded: AugmentedEvent<
+                ApiType,
+                [delegator: AccountId32, delegatee: AccountId32, proxyType: Creditcoin3RuntimeProxyFilter, delay: u32],
+                { delegator: AccountId32; delegatee: AccountId32; proxyType: Creditcoin3RuntimeProxyFilter; delay: u32 }
+            >;
+            /**
+             * A proxy was executed correctly, with the given.
+             **/
+            ProxyExecuted: AugmentedEvent<
+                ApiType,
+                [result: Result<Null, SpRuntimeDispatchError>],
+                { result: Result<Null, SpRuntimeDispatchError> }
+            >;
+            /**
+             * A proxy was removed.
+             **/
+            ProxyRemoved: AugmentedEvent<
+                ApiType,
+                [delegator: AccountId32, delegatee: AccountId32, proxyType: Creditcoin3RuntimeProxyFilter, delay: u32],
+                { delegator: AccountId32; delegatee: AccountId32; proxyType: Creditcoin3RuntimeProxyFilter; delay: u32 }
+            >;
+            /**
+             * A pure account has been created by new proxy with given
+             * disambiguation index and proxy type.
+             **/
+            PureCreated: AugmentedEvent<
+                ApiType,
+                [
+                    pure: AccountId32,
+                    who: AccountId32,
+                    proxyType: Creditcoin3RuntimeProxyFilter,
+                    disambiguationIndex: u16,
+                    at: u32,
+                    extrinsicIndex: u32,
+                ],
+                {
+                    pure: AccountId32;
+                    who: AccountId32;
+                    proxyType: Creditcoin3RuntimeProxyFilter;
+                    disambiguationIndex: u16;
+                    at: u32;
+                    extrinsicIndex: u32;
+                }
+            >;
+            /**
+             * A pure proxy was killed by its spawner.
+             **/
+            PureKilled: AugmentedEvent<
+                ApiType,
+                [
+                    pure: AccountId32,
+                    spawner: AccountId32,
+                    proxyType: Creditcoin3RuntimeProxyFilter,
+                    disambiguationIndex: u16,
+                ],
+                {
+                    pure: AccountId32;
+                    spawner: AccountId32;
+                    proxyType: Creditcoin3RuntimeProxyFilter;
+                    disambiguationIndex: u16;
+                }
+            >;
+            /**
+             * Generic event
+             **/
+            [key: string]: AugmentedEvent<ApiType>;
+        };
+        randomness: {
+            StoreRandomnessForEpoch: AugmentedEvent<
+                ApiType,
+                [epochIndex: u64, randomness: U8aFixed],
+                { epochIndex: u64; randomness: U8aFixed }
+            >;
+            /**
+             * Generic event
+             **/
+            [key: string]: AugmentedEvent<ApiType>;
+        };
+        session: {
+            /**
+             * The `NewSession` event in the current block also implies a new validator set to be
+             * queued.
+             **/
+            NewQueued: AugmentedEvent<ApiType, []>;
+            /**
+             * New session has happened. Note that the argument is the session index, not the
+             * block number as the type might suggest.
+             **/
+            NewSession: AugmentedEvent<ApiType, [sessionIndex: u32], { sessionIndex: u32 }>;
+            /**
+             * Validator has been disabled.
+             **/
+            ValidatorDisabled: AugmentedEvent<ApiType, [validator: AccountId32], { validator: AccountId32 }>;
+            /**
+             * Validator has been re-enabled.
+             **/
+            ValidatorReenabled: AugmentedEvent<ApiType, [validator: AccountId32], { validator: AccountId32 }>;
+            /**
+             * Generic event
+             **/
+            [key: string]: AugmentedEvent<ApiType>;
+        };
+        staking: {
+            /**
+             * An account has bonded this amount. \[stash, amount\]
+             *
+             * NOTE: This event is only emitted when funds are bonded via a dispatchable. Notably,
+             * it will not be emitted for staking rewards when they are added to stake.
+             **/
+            Bonded: AugmentedEvent<ApiType, [stash: AccountId32, amount: u128], { stash: AccountId32; amount: u128 }>;
+            /**
+             * An account has stopped participating as either a validator or nominator.
+             **/
+            Chilled: AugmentedEvent<ApiType, [stash: AccountId32], { stash: AccountId32 }>;
+            /**
+             * Report of a controller batch deprecation.
+             **/
+            ControllerBatchDeprecated: AugmentedEvent<ApiType, [failures: u32], { failures: u32 }>;
+            /**
+             * Staking balance migrated from locks to holds, with any balance that could not be held
+             * is force withdrawn.
+             **/
+            CurrencyMigrated: AugmentedEvent<
+                ApiType,
+                [stash: AccountId32, forceWithdraw: u128],
+                { stash: AccountId32; forceWithdraw: u128 }
+            >;
+            /**
+             * The era payout has been set; the first balance is the validator-payout; the second is
+             * the remainder from the maximum amount of reward.
+             **/
+            EraPaid: AugmentedEvent<
+                ApiType,
+                [eraIndex: u32, validatorPayout: u128, remainder: u128],
+                { eraIndex: u32; validatorPayout: u128; remainder: u128 }
+            >;
+            /**
+             * A new force era mode was set.
+             **/
+            ForceEra: AugmentedEvent<ApiType, [mode: PalletStakingForcing], { mode: PalletStakingForcing }>;
+            /**
+             * A nominator has been kicked from a validator.
+             **/
+            Kicked: AugmentedEvent<
+                ApiType,
+                [nominator: AccountId32, stash: AccountId32],
+                { nominator: AccountId32; stash: AccountId32 }
+            >;
+            /**
+             * An old slashing report from a prior era was discarded because it could
+             * not be processed.
+             **/
+            OldSlashingReportDiscarded: AugmentedEvent<ApiType, [sessionIndex: u32], { sessionIndex: u32 }>;
+            /**
+             * A Page of stakers rewards are getting paid. `next` is `None` if all pages are claimed.
+             **/
+            PayoutStarted: AugmentedEvent<
+                ApiType,
+                [eraIndex: u32, validatorStash: AccountId32, page: u32, next: Option<u32>],
+                { eraIndex: u32; validatorStash: AccountId32; page: u32; next: Option<u32> }
+            >;
+            /**
+             * The nominator has been rewarded by this amount to this destination.
+             **/
+            Rewarded: AugmentedEvent<
+                ApiType,
+                [stash: AccountId32, dest: PalletStakingRewardDestination, amount: u128],
+                { stash: AccountId32; dest: PalletStakingRewardDestination; amount: u128 }
+            >;
+            /**
+             * A staker (validator or nominator) has been slashed by the given amount.
+             **/
+            Slashed: AugmentedEvent<
+                ApiType,
+                [staker: AccountId32, amount: u128],
+                { staker: AccountId32; amount: u128 }
+            >;
+            /**
+             * A slash for the given validator, for the given percentage of their stake, at the given
+             * era as been reported.
+             **/
+            SlashReported: AugmentedEvent<
+                ApiType,
+                [validator: AccountId32, fraction: Perbill, slashEra: u32],
+                { validator: AccountId32; fraction: Perbill; slashEra: u32 }
+            >;
+            /**
+             * Targets size limit reached.
+             **/
+            SnapshotTargetsSizeExceeded: AugmentedEvent<ApiType, [size_: u32], { size_: u32 }>;
+            /**
+             * Voters size limit reached.
+             **/
+            SnapshotVotersSizeExceeded: AugmentedEvent<ApiType, [size_: u32], { size_: u32 }>;
+            /**
+             * A new set of stakers was elected.
+             **/
+            StakersElected: AugmentedEvent<ApiType, []>;
+            /**
+             * The election failed. No new era is planned.
+             **/
+            StakingElectionFailed: AugmentedEvent<ApiType, []>;
+            /**
+             * An account has unbonded this amount.
+             **/
+            Unbonded: AugmentedEvent<ApiType, [stash: AccountId32, amount: u128], { stash: AccountId32; amount: u128 }>;
+            /**
+             * A validator has set their preferences.
+             **/
+            ValidatorPrefsSet: AugmentedEvent<
+                ApiType,
+                [stash: AccountId32, prefs: PalletStakingValidatorPrefs],
+                { stash: AccountId32; prefs: PalletStakingValidatorPrefs }
+            >;
+            /**
+             * An account has called `withdraw_unbonded` and removed unbonding chunks worth `Balance`
+             * from the unlocking queue.
+             **/
+            Withdrawn: AugmentedEvent<
+                ApiType,
+                [stash: AccountId32, amount: u128],
+                { stash: AccountId32; amount: u128 }
+            >;
+            /**
+             * Generic event
+             **/
+            [key: string]: AugmentedEvent<ApiType>;
+        };
+        sudo: {
+            /**
+             * The sudo key has been updated.
+             **/
+            KeyChanged: AugmentedEvent<
+                ApiType,
+                [old: Option<AccountId32>, new_: AccountId32],
+                { old: Option<AccountId32>; new_: AccountId32 }
+            >;
+            /**
+             * The key was permanently removed.
+             **/
+            KeyRemoved: AugmentedEvent<ApiType, []>;
+            /**
+             * A sudo call just took place.
+             **/
+            Sudid: AugmentedEvent<
+                ApiType,
+                [sudoResult: Result<Null, SpRuntimeDispatchError>],
+                { sudoResult: Result<Null, SpRuntimeDispatchError> }
+            >;
+            /**
+             * A [sudo_as](Pallet::sudo_as) call just took place.
+             **/
+            SudoAsDone: AugmentedEvent<
+                ApiType,
+                [sudoResult: Result<Null, SpRuntimeDispatchError>],
+                { sudoResult: Result<Null, SpRuntimeDispatchError> }
+            >;
+            /**
+             * Generic event
+             **/
+            [key: string]: AugmentedEvent<ApiType>;
+        };
+        supportedChains: {
+            /**
+             * The display name of a registered chain has been changed. The name is informational
+             * only (nothing attested or hashed depends on it), so this is a record for indexers and
+             * operators; no node acts on it.
+             **/
+            ChainNameSet: AugmentedEvent<
+                ApiType,
+                [chainKey: u64, chainId: u64, oldChainName: Bytes, chainName: Bytes],
+                { chainKey: u64; chainId: u64; oldChainName: Bytes; chainName: Bytes }
+            >;
+            /**
+             * A chain has been registered with a given ID
+             **/
+            ChainRegistered: AugmentedEvent<
+                ApiType,
+                [
+                    chainKey: u64,
+                    chainId: u64,
+                    chainName: Bytes,
+                    chainEncoding: AttestorPrimitivesChainEncodingVersion,
+                    maturityStrategy: Text,
+                ],
+                {
+                    chainKey: u64;
+                    chainId: u64;
+                    chainName: Bytes;
+                    chainEncoding: AttestorPrimitivesChainEncodingVersion;
+                    maturityStrategy: Text;
+                }
+            >;
+            /**
+             * A chain has been removed with a given ID
+             **/
+            ChainRemoved: AugmentedEvent<
+                ApiType,
+                [
+                    chainKey: u64,
+                    chainId: u64,
+                    chainName: Bytes,
+                    chainEncoding: AttestorPrimitivesChainEncodingVersion,
+                    maturityStrategy: Text,
+                ],
+                {
+                    chainKey: u64;
+                    chainId: u64;
+                    chainName: Bytes;
+                    chainEncoding: AttestorPrimitivesChainEncodingVersion;
+                    maturityStrategy: Text;
+                }
+            >;
+            /**
+             * The maturity strategy of a registered chain has been changed. Off-chain consumers
+             * (attestors, archivers) read the strategy once at startup and do not react to this
+             * event, so it is a record of the change for indexers and operators rather than a
+             * signal any node acts on. See `set_maturity_strategy` for what operators must do.
+             **/
+            MaturityStrategySet: AugmentedEvent<
+                ApiType,
+                [chainKey: u64, chainId: u64, maturityStrategy: Text],
+                { chainKey: u64; chainId: u64; maturityStrategy: Text }
+            >;
+            /**
+             * Generic event
+             **/
+            [key: string]: AugmentedEvent<ApiType>;
+        };
+        system: {
+            /**
+             * `:code` was updated.
+             **/
+            CodeUpdated: AugmentedEvent<ApiType, []>;
+            /**
+             * An extrinsic failed.
+             **/
+            ExtrinsicFailed: AugmentedEvent<
+                ApiType,
+                [dispatchError: SpRuntimeDispatchError, dispatchInfo: FrameSystemDispatchEventInfo],
+                { dispatchError: SpRuntimeDispatchError; dispatchInfo: FrameSystemDispatchEventInfo }
+            >;
+            /**
+             * An extrinsic completed successfully.
+             **/
+            ExtrinsicSuccess: AugmentedEvent<
+                ApiType,
+                [dispatchInfo: FrameSystemDispatchEventInfo],
+                { dispatchInfo: FrameSystemDispatchEventInfo }
+            >;
+            /**
+             * An account was reaped.
+             **/
+            KilledAccount: AugmentedEvent<ApiType, [account: AccountId32], { account: AccountId32 }>;
+            /**
+             * A new account was created.
+             **/
+            NewAccount: AugmentedEvent<ApiType, [account: AccountId32], { account: AccountId32 }>;
+            /**
+             * An invalid authorized upgrade was rejected while trying to apply it.
+             **/
+            RejectedInvalidAuthorizedUpgrade: AugmentedEvent<
+                ApiType,
+                [codeHash: H256, error: SpRuntimeDispatchError],
+                { codeHash: H256; error: SpRuntimeDispatchError }
+            >;
+            /**
+             * On on-chain remark happened.
+             **/
+            Remarked: AugmentedEvent<ApiType, [sender: AccountId32, hash_: H256], { sender: AccountId32; hash_: H256 }>;
+            /**
+             * An upgrade was authorized.
+             **/
+            UpgradeAuthorized: AugmentedEvent<
+                ApiType,
+                [codeHash: H256, checkVersion: bool],
+                { codeHash: H256; checkVersion: bool }
+            >;
+            /**
+             * Generic event
+             **/
+            [key: string]: AugmentedEvent<ApiType>;
+        };
+        transactionPayment: {
+            /**
+             * A transaction fee `actual_fee`, of which `tip` was added to the minimum inclusion fee,
+             * has been paid by `who`.
+             **/
+            TransactionFeePaid: AugmentedEvent<
+                ApiType,
+                [who: AccountId32, actualFee: u128, tip: u128],
+                { who: AccountId32; actualFee: u128; tip: u128 }
+            >;
+            /**
+             * Generic event
+             **/
+            [key: string]: AugmentedEvent<ApiType>;
+        };
+        utility: {
+            /**
+             * Batch of dispatches completed fully with no error.
+             **/
+            BatchCompleted: AugmentedEvent<ApiType, []>;
+            /**
+             * Batch of dispatches completed but has errors.
+             **/
+            BatchCompletedWithErrors: AugmentedEvent<ApiType, []>;
+            /**
+             * Batch of dispatches did not complete fully. Index of first failing dispatch given, as
+             * well as the error.
+             **/
+            BatchInterrupted: AugmentedEvent<
+                ApiType,
+                [index: u32, error: SpRuntimeDispatchError],
+                { index: u32; error: SpRuntimeDispatchError }
+            >;
+            /**
+             * A call was dispatched.
+             **/
+            DispatchedAs: AugmentedEvent<
+                ApiType,
+                [result: Result<Null, SpRuntimeDispatchError>],
+                { result: Result<Null, SpRuntimeDispatchError> }
+            >;
+            /**
+             * The fallback call was dispatched.
+             **/
+            IfElseFallbackCalled: AugmentedEvent<
+                ApiType,
+                [mainError: SpRuntimeDispatchError],
+                { mainError: SpRuntimeDispatchError }
+            >;
+            /**
+             * Main call was dispatched.
+             **/
+            IfElseMainSuccess: AugmentedEvent<ApiType, []>;
+            /**
+             * A single item within a Batch of dispatches has completed with no error.
+             **/
+            ItemCompleted: AugmentedEvent<ApiType, []>;
+            /**
+             * A single item within a Batch of dispatches has completed with error.
+             **/
+            ItemFailed: AugmentedEvent<ApiType, [error: SpRuntimeDispatchError], { error: SpRuntimeDispatchError }>;
+            /**
+             * Generic event
+             **/
+            [key: string]: AugmentedEvent<ApiType>;
+        };
+        voterList: {
+            /**
+             * Moved an account from one bag to another.
+             **/
+            Rebagged: AugmentedEvent<
+                ApiType,
+                [who: AccountId32, from: u64, to: u64],
+                { who: AccountId32; from: u64; to: u64 }
+            >;
+            /**
+             * Updated the score of some account to the given amount.
+             **/
+            ScoreUpdated: AugmentedEvent<
+                ApiType,
+                [who: AccountId32, newScore: u64],
+                { who: AccountId32; newScore: u64 }
+            >;
+            /**
+             * Generic event
+             **/
+            [key: string]: AugmentedEvent<ApiType>;
+        };
+    } // AugmentedEvents
+} // declare module

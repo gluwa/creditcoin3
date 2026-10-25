@@ -1,0 +1,242 @@
+---
+name: Reusable workflow to build docker image
+
+"on":
+  workflow_call:
+    inputs:
+      build-options:
+        required: true
+        type: string
+      version-string:
+        required: true
+        type: string
+      runs-on:
+        required: true
+        type: string
+      # Lets a caller build only the auxiliary images (indexer, stress-test) and skip
+      # the node image, whose Rust compile is ~27 of this job's ~29 minutes. Defaults
+      # to true, so release.yml and any other caller that omits it are unaffected.
+      build-node-image:
+        required: false
+        type: boolean
+        default: true
+    secrets:
+      GLUWA_BOT_PR:
+        description: gluwa-bot PAT (pull-requests:write only) so Docker Scout can post PR comments — GITHUB_TOKEN's own permissions couldn't be elevated (see DO-2338)
+        required: false
+      # gluwabot DockerHub token, read-only scope — lets Scout authenticate to the Scout
+      # backend even for a local:// image scan. Deliberately separate from
+      # DOCKER_PUSH_USERNAME/PASSWORD below: those are push-capable, and PR builds run
+      # untrusted Dockerfile/build-script content from the PR, so they must never see a
+      # credential that can push to the real image (see DO-2338).
+      DOCKERHUB_SCOUT_USERNAME:
+        required: false
+      DOCKERHUB_SCOUT_TOKEN:
+        required: false
+      # Pre-existing secrets this workflow already consumed before DO-2338 — now need
+      # explicit declaration since adding any `secrets:` block switches this workflow_call
+      # into strict mode. Empty/unset on PR-triggered docker.yml (which never inherits
+      # them, deliberately); populated on release.yml via secrets: inherit.
+      DOCKER_PUSH_USERNAME:
+        required: false
+      DOCKER_PUSH_PASSWORD:
+        required: false
+
+# DO-2336/DO-2338: a workflow-level granular permissions map here caused a hard
+# startup_failure every time (confirmed live across several attempts, cause not
+# identified) — reverted to the proven-working shorthand. docker/scout-action's PR
+# comment instead uses the gluwa-bot PAT above as its own github-token.
+permissions: read-all
+
+jobs:
+  docker-build:
+    runs-on: ${{ fromJSON(inputs.runs-on) }}
+    # A cold build on a hosted runner is the slow case; well above it, far below the 6 h default.
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          lfs: true
+
+      - name: Start resource monitor
+        run: |
+          .github/resource-monitor.sh start docker-build
+
+      - name: Build ${{ github.repository }} docker image
+        if: ${{ inputs.build-node-image }}
+        run: |
+          docker build -t ${{ github.repository }}:${{ inputs.version-string }} --build-arg="${{ inputs.build-options }}" --sbom=true --provenance=mode=max .
+          docker images
+
+      - name: Build ${{ github.repository }}:indexer-for-${{ inputs.version-string }} docker image
+        run: |
+          tar --create --dereference --exclude-from=.dockerignore --exclude-from=cc3-indexer/.dockerignore . | docker build -f cc3-indexer/Dockerfile -t ${{ github.repository }}:indexer-for-${{ inputs.version-string }} --sbom=true --provenance=mode=max -
+          docker images
+
+      - name: Build ${{ github.repository }}:proof-gen-stress-test-for-${{ inputs.version-string }} docker image
+        run: |
+          docker build -f scripts/stress-test/Dockerfile -t ${{ github.repository }}:proof-gen-stress-test-for-${{ inputs.version-string }} --sbom=true --provenance=mode=max .
+          docker images
+
+      # Compare the freshly built node image against the *published* `:latest` so the report
+      # shows only what this build changes (packages and CVEs added or removed relative to what
+      # is deployed). NOTE: on PR runs `version-string` is literally "latest", so both sides of
+      # the compare print as `gluwa/creditcoin3:latest` — the `local://` / `registry://` schemes
+      # are what distinguish the PR's local build from the published Docker Hub image.
+      #
+      # Two steps on purpose. The first always runs and writes the full report to the job
+      # summary, and it *fails* (exit-on: vulnerability) only when the vulnerability set of this
+      # build differs from the published image's. The second step re-runs the same compare with
+      # the PR comment enabled, and only when the first one failed. So a PR gets a Scout comment
+      # when it changes the image's vulnerabilities and never otherwise: the previous
+      # unconditional comment landed on every PR that built the node image (41 PRs in the last
+      # 30 days), almost always to report "0 vulnerability changes" and a base-image label
+      # timestamp, which trained everyone to ignore it. The weekly report
+      # (docker-scout-weekly-report.yml) covers the standing inventory of the published images.
+      - name: Docker Scout - compare ${{ github.repository }} against published :latest
+        id: scout-compare
+        if: ${{ inputs.build-node-image }}
+        continue-on-error: true
+        uses: docker/scout-action@v1.26.0
+        with:
+          command: compare
+          image: local://${{ github.repository }}:${{ inputs.version-string }}
+          to: registry://${{ github.repository }}:latest
+          # Keep the report to the actual delta — unchanged packages are exactly the
+          # inventory noise this step exists to eliminate.
+          ignore-unchanged: true
+          dockerhub-user: ${{ secrets.DOCKERHUB_SCOUT_USERNAME }}
+          dockerhub-password: ${{ secrets.DOCKERHUB_SCOUT_TOKEN }}
+          # Fail the step only on a vulnerability change (package and label churn does not
+          # count); that failure is the signal the comment step below keys off.
+          # `continue-on-error` keeps it from failing the job.
+          exit-on: vulnerability
+          summary: true
+          write-comment: false
+
+      - name: Docker Scout - comment on the PR about the vulnerability change
+        if: ${{ inputs.build-node-image && steps.scout-compare.outcome == 'failure' && github.event_name == 'pull_request' }}
+        continue-on-error: true
+        uses: docker/scout-action@v1.26.0
+        with:
+          command: compare
+          image: local://${{ github.repository }}:${{ inputs.version-string }}
+          to: registry://${{ github.repository }}:latest
+          ignore-unchanged: true
+          dockerhub-user: ${{ secrets.DOCKERHUB_SCOUT_USERNAME }}
+          dockerhub-password: ${{ secrets.DOCKERHUB_SCOUT_TOKEN }}
+          exit-code: false
+          summary: false
+          write-comment: true
+          # One live comment per PR, updated in place, rather than a pile-up (DO-2336).
+          keep-previous-comments: false
+          # gluwa-bot PAT (pull-requests:write only) — GITHUB_TOKEN's own permissions
+          # couldn't be elevated without a hard startup_failure (see comment above).
+          github-token: ${{ secrets.GLUWA_BOT_PR }}
+
+      # The comment above is only ever *added*; if a later push takes the CVE change back out,
+      # the first step passes and nothing would touch the stale report. So on a passing compare,
+      # rewrite any earlier Scout comment on this PR into a one-line "resolved" note (the action
+      # marks its comments with an HTML marker, which is how they are found). Edited rather than
+      # deleted so the history of what was reported stays visible.
+      - name: Docker Scout - mark an earlier vulnerability comment on the PR as resolved
+        if: ${{ inputs.build-node-image && steps.scout-compare.outcome == 'success' && github.event_name == 'pull_request' }}
+        continue-on-error: true
+        uses: actions/github-script@v9
+        with:
+          github-token: ${{ secrets.GLUWA_BOT_PR }}
+          script: |
+            const marker = '<!-- Docker Scout | compare | Docker -- __docker_scout-action -->';
+            const resolved = 'Docker Scout: resolved.';
+            const { owner, repo } = context.repo;
+            const issue_number = context.payload.pull_request.number;
+            const comments = await github.paginate(github.rest.issues.listComments, {
+              owner, repo, issue_number, per_page: 100,
+            });
+            for (const c of comments) {
+              if (!c.body || !c.body.includes(marker) || c.body.includes(resolved)) continue;
+              const sha = context.payload.pull_request.head.sha.slice(0, 9);
+              await github.rest.issues.updateComment({
+                owner, repo, comment_id: c.id,
+                body: `${marker}\n\n**${resolved}** A later push (${sha}) restored the published image's vulnerability set, so the CVE delta reported here earlier no longer applies. The current compare is in the job summary of run ${context.runId}.`,
+              });
+              core.info(`marked Scout comment ${c.id} as resolved`);
+            }
+
+      # Summary-only (write-comment: false): no published moving tag exists for this image
+      # (only versioned indexer-for-<x.y.z>-<net> tags), so there is no stable baseline to compare
+      # against — and its base layers are shared with the node image, whose compare above
+      # already surfaces PR-introduced CVEs as the PR comment. Full inventory stays visible in
+      # the job summary and in the weekly Scout report.
+      - name: Docker Scout - CVE scan (${{ github.repository }}:indexer-for-${{ inputs.version-string }})
+        continue-on-error: true
+        uses: docker/scout-action@v1.26.0
+        with:
+          command: cves
+          image: local://${{ github.repository }}:indexer-for-${{ inputs.version-string }}
+          dockerhub-user: ${{ secrets.DOCKERHUB_SCOUT_USERNAME }}
+          dockerhub-password: ${{ secrets.DOCKERHUB_SCOUT_TOKEN }}
+          exit-code: false
+          write-comment: false
+
+      # Summary-only (write-comment: false): no published moving tag exists for this image
+      # (only versioned proof-gen-stress-test-for-<x.y.z>-<net> tags), so there is no stable baseline to compare
+      # against — and its base layers are shared with the node image, whose compare above
+      # already surfaces PR-introduced CVEs as the PR comment. Full inventory stays visible in
+      # the job summary and in the weekly Scout report.
+      - name: Docker Scout - CVE scan (${{ github.repository }}:proof-gen-stress-test-for-${{ inputs.version-string }})
+        continue-on-error: true
+        uses: docker/scout-action@v1.26.0
+        with:
+          command: cves
+          image: local://${{ github.repository }}:proof-gen-stress-test-for-${{ inputs.version-string }}
+          dockerhub-user: ${{ secrets.DOCKERHUB_SCOUT_USERNAME }}
+          dockerhub-password: ${{ secrets.DOCKERHUB_SCOUT_TOKEN }}
+          exit-code: false
+          write-comment: false
+
+      - name: Export docker image into a file
+        if: ${{ inputs.build-node-image }}
+        run: |
+          mkdir -p "${{ runner.temp }}/gluwa/"
+          docker image save ${{ github.repository }}:${{ inputs.version-string }} > ${{ runner.temp }}/${{ github.repository }}.tar
+
+      - name: Upload exported image for use by other CI jobs
+        if: ${{ always() && inputs.build-node-image }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: locally-built-docker-image
+          path: ${{ runner.temp }}/${{ github.repository }}.tar
+
+      - name: Report resource usage
+        if: always()
+        continue-on-error: true
+        run: |
+          .github/resource-monitor.sh report docker-build
+
+      - name: Push docker images
+        # executes only when credentials are specified in the caller workflow.
+        # Safe alongside build-node-image: only PR builds ever pass it as false, and
+        # those deliberately have no DOCKER_PUSH_* secrets (see docker.yml), so this
+        # step never runs in a build where the node image was skipped.
+        if: env.DOCKER_PUSH_USERNAME
+        env:
+          DOCKER_PUSH_USERNAME: ${{ secrets.DOCKER_PUSH_USERNAME }}
+        run: |
+          echo "${{ secrets.DOCKER_PUSH_PASSWORD }}" | docker login -u="${{ secrets.DOCKER_PUSH_USERNAME }}" --password-stdin
+          docker push ${{ github.repository }}:${{ inputs.version-string }}
+
+          # NOTE: not tagging indexer as `:latest` b/c it is not the primary image in this repository!
+          docker push ${{ github.repository }}:indexer-for-${{ inputs.version-string }}
+
+          # NOTE: not tagging proof-gen-stress-test as `:latest` b/c it is not the primary image in this repository!
+          docker push ${{ github.repository }}:proof-gen-stress-test-for-${{ inputs.version-string }}
+
+          # only -mainnet images are tagged as :latest
+          # shellcheck disable=SC2046,SC2143
+          if [ $(echo "${{ inputs.version-string }}" | grep "mainnet") ]; then
+              docker tag  ${{ github.repository }}:${{ inputs.version-string  }} ${{ github.repository }}:latest
+              docker push ${{ github.repository }}:latest
+          fi
+
+          docker logout

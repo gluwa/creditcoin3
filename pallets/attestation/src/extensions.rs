@@ -1,0 +1,232 @@
+//! Transaction-pool prevalidation for `commit_attestation`.
+//!
+//! Attestor wallets were being drained because every attestor in the active set races to submit
+//!`commit_attestation` for the same digest. The transaction pool admitted every submission (the
+//! call is `Pays::Yes` up front so it is not free, but the pool itself does not enforce the
+//! pallet's domain checks). All race losers then paid the inclusion fee even though the on-chain
+//! extrinsic returned `AttestationExists` or `AttestorNotActive`.
+//!
+//! `Pays::No` only runs on the success post-dispatch path, so failed extrinsics still pay the fee.
+//! To stop the drain we reject the obvious losing cases at txpool admission time using a
+//! `TransactionExtension`, before any fee is charged.
+
+use core::{fmt::Debug, marker::PhantomData};
+
+use frame_support::{
+    pallet_prelude::TypeInfo,
+    traits::{IsSubType, OriginTrait},
+};
+use parity_scale_codec::{Decode, DecodeWithMemTracking, Encode};
+use sp_runtime::{
+    impl_tx_ext_default,
+    traits::{DispatchInfoOf, TransactionExtension, ValidateResult},
+    transaction_validity::{
+        InvalidTransaction, TransactionSource, TransactionValidityError, ValidTransaction,
+    },
+};
+
+use crate::pallet::{Call, Config, MaxCatchup, Pallet};
+
+/// `TransactionExtension` that pre-validates `commit_attestation` calls in the transaction pool,
+/// rejecting:
+///
+/// * calls signed by accounts that are not in the active attestor set for the target chain, and
+/// * calls for an attestation digest that is already stored on chain (or has been superseded by a
+///   later checkpoint).
+///
+/// These rejections happen *before* fees are charged, eliminating the drain vector where
+/// attestors lose a race and still pay the inclusion fee.
+///
+/// Calls signed by accounts that are **not** in the active attestor set are deliberately let
+/// through: they fail in dispatch (`AttestorNotActive`) and pay fees, so a deregistered or
+/// misconfigured node cannot spam free prevalidation-rejected submissions. An *active* attestor's
+/// submission that fails full validation is let through on the same terms, and for the same
+/// reason.
+///
+/// The `provides` tag is only granted to a submission that passes the runtime's full
+/// `validate_attestation` — quorum, aggregate signature, chain support and continuity proof — not
+/// merely the cheap structural checks. See the comment at the call site for why the cheap checks
+/// alone were not enough to safely reserve it.
+///
+/// `commit_attestation` transactions from *active attestors* carry a `provides` tag keyed by
+/// `(chain_key, digest)` so the pool holds at most one pending submission per attestation —
+/// racing duplicates from other attestors are deduplicated at admission instead of all being
+/// broadcast and racing to dispatch. Submissions from non-active signers are admitted **without**
+/// that tag, so they cannot reserve or evict the pool slot belonging to a legitimate attestation
+/// (ATTESTOR-V2-008).
+///
+/// Other calls are passed through untouched. The extension carries no implicit payload and no
+/// state between `validate` and dispatch, so `Implicit`, `Val` and `Pre` are all `()` and all the
+/// logic lives in `validate`.
+#[derive(Encode, Decode, DecodeWithMemTracking, Clone, Eq, PartialEq, TypeInfo)]
+#[scale_info(skip_type_params(T))]
+pub struct PrevalidateAttestationCommit<T>(PhantomData<fn(T)>);
+
+const EXTENSION_IDENTIFIER: &str = "PrevalidateAttestationCommit";
+
+impl<T> Default for PrevalidateAttestationCommit<T> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl<T> PrevalidateAttestationCommit<T> {
+    pub fn new() -> Self {
+        Self(PhantomData)
+    }
+}
+
+impl<T: Config + Send + Sync> Debug for PrevalidateAttestationCommit<T> {
+    fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+        core::write!(f, "{EXTENSION_IDENTIFIER}")
+    }
+}
+
+impl<T: Config + Send + Sync> TransactionExtension<<T as frame_system::Config>::RuntimeCall>
+    for PrevalidateAttestationCommit<T>
+where
+    <T as frame_system::Config>::RuntimeCall: IsSubType<Call<T>>,
+{
+    const IDENTIFIER: &'static str = EXTENSION_IDENTIFIER;
+    type Implicit = ();
+    type Val = ();
+    type Pre = ();
+
+    fn validate(
+        &self,
+        origin: <T as frame_system::Config>::RuntimeOrigin,
+        call: &<T as frame_system::Config>::RuntimeCall,
+        _info: &DispatchInfoOf<<T as frame_system::Config>::RuntimeCall>,
+        _len: usize,
+        _self_implicit: Self::Implicit,
+        _inherited_implication: &impl Encode,
+        source: TransactionSource,
+    ) -> ValidateResult<Self::Val, <T as frame_system::Config>::RuntimeCall> {
+        // Only signed origins carry an attestor account; everything else passes through.
+        if let Some(who) = origin.as_signer() {
+            if let Some(Call::commit_attestation { attestation }) = call.is_sub_type() {
+                let chain_key = attestation.chain_key();
+
+                // Mirrors `validate_attestation`'s `AttestationCleanupInProgress` check: every
+                // commit for this chain fails while its cleanup drains, regardless of signer,
+                // so reject here before fees are charged.
+                if Pallet::<T>::commit_blocked_by_cleanup(chain_key) {
+                    return Err(TransactionValidityError::Invalid(
+                        InvalidTransaction::Custom(ATTESTATION_CLEANUP_IN_PROGRESS_CODE),
+                    ));
+                }
+
+                // Reject over-long attestor lists at admission time (mirrors the on-chain
+                // `validate_attestation` `TooManyAttestors` check) so a malformed/oversized payload
+                // never pays the inclusion fee. This check is signer-independent: an over-long list
+                // is invalid regardless of who submitted it.
+                if !Pallet::<T>::attestors_within_bound(chain_key, attestation) {
+                    return Err(TransactionValidityError::Invalid(
+                        InvalidTransaction::ExhaustsResources,
+                    ));
+                }
+
+                // Reject oversized continuity proofs at txpool admission so a malicious or buggy
+                // active attestor cannot force the runtime to run an unbounded keccak chain (over
+                // attacker-chosen `roots: Vec<H256>`) inside dispatch. `MaxCatchup` is a *block*
+                // bound (see its storage docs): each continuity proof spans at most that many
+                // blocks. `max(attestation_interval)` keeps steady-state attestations (whose
+                // proofs span `attestation_interval - 1` roots) admissible if `MaxCatchup` is ever
+                // configured below the interval. Anything beyond is structurally non-finalizable.
+                let max_catchup = MaxCatchup::<T>::get(chain_key) as u64;
+                let attestation_interval = Pallet::<T>::chain_attestation_interval(chain_key);
+                let max_roots = max_catchup.max(attestation_interval) as usize;
+                if attestation.continuity_proof.len() > max_roots {
+                    return Err(TransactionValidityError::Invalid(
+                        InvalidTransaction::Custom(OVERSIZED_PROOF_CODE),
+                    ));
+                }
+
+                // Linear scan over the bounded set: this runs for every signer, including inactive
+                // ones, and the extension is unmetered, so don't rebuild a `BTreeSet` here.
+                let is_active = Pallet::<T>::is_attestor(chain_key, who);
+                // `check_duplicate` now also enforces the strictly-monotonic per-chain height
+                // (via `LastDigest`), so a race loser resubmitting an already-attested height — or
+                // a quorum trying a competing digest for that height — is rejected here before fees.
+                if is_active && Pallet::<T>::check_duplicate(attestation) {
+                    return Err(TransactionValidityError::Invalid(InvalidTransaction::Stale));
+                }
+
+                // Submissions from non-active signers are still admitted — they fail in dispatch
+                // (`AttestorNotActive`) and pay the fee, which is what deters spam — but they get
+                // *no* `provides` tag.
+                //
+                // The tag below is derived only from public chain data, so anyone can predict the
+                // digest honest attestors will produce next. Handing a tag to an unauthorized
+                // submitter would let any funded account reserve (or, with higher priority, evict)
+                // the single pool slot for that digest with a transaction guaranteed to fail,
+                // repeatedly delaying attestation progress (ATTESTOR-V2-008). Authorization is only
+                // checked in dispatch, so it must gate the tag here.
+                if !is_active {
+                    return Ok((ValidTransaction::default(), (), origin));
+                }
+
+                // Full domain validation before the tag is granted.
+                //
+                // `digest()` is `keccak(header_number, root, prev_digest)` — it commits to the
+                // attestation *data* only, not to the aggregate signature, the attestor set or the
+                // continuity proof. All three inputs are derivable from public chain state, so the
+                // digest honest attestors will produce next is predictable. Granting the exclusive
+                // tag on the strength of the cheap checks above therefore let an active attestor
+                // submit a correctly-addressed but otherwise invalid variant, occupy the single pool
+                // slot for that digest, and crowd out the real quorum submission — repeatedly, for
+                // the price of the inclusion fees its own doomed transactions pay.
+                //
+                // This is deliberately the *same* `validate_attestation` the extrinsic runs in
+                // dispatch, called rather than reimplemented, so the pool's notion of a valid
+                // attestation cannot drift from the runtime's as either side changes.
+                //
+                // A failure is not a rejection: the transaction is still admitted, exactly like a
+                // non-active signer's above, so it pays its inclusion fee in dispatch. It simply
+                // does not get the tag, which is the thing that let it block the honest submission.
+                //
+                // Skipped for `InBlock` because the tag is meaningless once the transaction is in a
+                // block, and dispatch re-validates regardless — so running the aggregate signature
+                // check here as well would double the cost of every attestation during block
+                // execution, which this extension declares zero weight for.
+                if source != TransactionSource::InBlock
+                    && Pallet::<T>::validate_attestation(chain_key, attestation).is_err()
+                {
+                    return Ok((ValidTransaction::default(), (), origin));
+                }
+
+                // Tag the transaction with what it provides: the attestation itself. Two pending
+                // `commit_attestation` submissions for the same `(chain_key, digest)` then conflict
+                // in the pool and only one is kept, deduplicating the every-attestor-submits race at
+                // admission time instead of letting all copies broadcast and race to dispatch.
+                return Ok((
+                    ValidTransaction {
+                        provides: sp_std::vec![
+                            (Self::IDENTIFIER, chain_key, attestation.digest()).encode()
+                        ],
+                        ..Default::default()
+                    },
+                    (),
+                    origin,
+                ));
+            }
+        }
+
+        Ok((ValidTransaction::default(), (), origin))
+    }
+
+    // No implicit weight cost beyond a couple of reads that also happen at dispatch, and nothing to
+    // prepare: `weight` defaults to `Weight::zero()` and `prepare` to `Ok(())`.
+    impl_tx_ext_default!(<T as frame_system::Config>::RuntimeCall; weight prepare);
+}
+
+/// `InvalidTransaction::Custom` code returned when `commit_attestation` carries a continuity
+/// proof exceeding `max(max_catchup, attestation_interval)` roots. Distinct from
+/// `Stale`/`BadProof` so downstream tooling can disambiguate resource-exhaustion attempts from
+/// race-loser duplicates.
+pub const OVERSIZED_PROOF_CODE: u8 = 1;
+
+/// `InvalidTransaction::Custom` code returned while a chain's `AttestationClearingCursors` or
+/// `CheckpointPruningStates` entry is still draining, so downstream tooling can disambiguate from
+/// other rejection reasons.
+pub const ATTESTATION_CLEANUP_IN_PROGRESS_CODE: u8 = 2;

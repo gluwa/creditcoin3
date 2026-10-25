@@ -1,0 +1,2524 @@
+---
+name: CI
+
+# Controls when the action will run.
+"on":
+  pull_request:
+
+  # Nightly soak: on the default branch, runs only the attestor-network suite, with
+  # sanity.test.ts over its full 250-block window instead of stopping as soon as its
+  # conditions are met (see ATTESTATION_SOAK below). Posts to Slack when it fails.
+  schedule:
+    - cron: "0 1 * * *"
+
+  # Allows you to run this workflow manually from the Actions tab. `soak` runs the nightly
+  # soak on the chosen branch, e.g. to try a change to it before it reaches dev.
+  workflow_dispatch:
+    inputs:
+      soak:
+        # checkov:skip=CKV_GHA_7:Only picks which suites run; the source is still the dispatched ref
+        description: Run the nightly attestor-network soak instead of the PR suites
+        type: boolean
+        default: false
+
+concurrency:
+  group: ${{ github.ref }}-${{ github.workflow }}
+  cancel-in-progress: true
+
+permissions: read-all
+
+# A workflow run is made up of one or more jobs that can run sequentially or in parallel
+jobs:
+  should-run:
+    runs-on: ubuntu-26.04
+    timeout-minutes: 10
+    outputs:
+      # The nightly or dispatched soak: one definition, which every soak check reads.
+      soak: ${{ steps.mode.outputs.soak }}
+      changes: ${{ steps.filter.outputs.changes }}
+      archiver: ${{ steps.mode.outputs.soak != 'true' && steps.filter.outputs.archiver || 'false' }}
+      attestor_cli_testing: ${{ steps.mode.outputs.soak != 'true' && steps.filter.outputs.attestor_cli_testing || 'false' }}
+      attestor_network_testing: ${{ steps.mode.outputs.soak == 'true' && 'true' || steps.filter.outputs.attestor_network_testing }}
+      cc3_indexer: ${{ steps.mode.outputs.soak != 'true' && steps.filter.outputs.cc3_indexer || 'false' }}
+      docs_smart_contract: ${{ steps.mode.outputs.soak != 'true' && steps.filter.outputs.docs_smart_contract || 'false' }}
+      integration_test_blockchain: ${{ steps.mode.outputs.soak != 'true' && steps.filter.outputs.integration_test_blockchain || 'false' }}
+      integration_test_cli: ${{ steps.mode.outputs.soak != 'true' && steps.filter.outputs.integration_test_cli || 'false' }}
+      regenerate_metadata: ${{ steps.mode.outputs.soak != 'true' && steps.filter.outputs.regenerate_metadata || 'false' }}
+      extrinsics: ${{ steps.mode.outputs.soak != 'true' && steps.filter.outputs.extrinsics || 'false' }}
+      attestor_compatibility: ${{ steps.mode.outputs.soak != 'true' && steps.filter.outputs.attestor_compatibility || 'false' }}
+      validator_compatibility: ${{ steps.mode.outputs.soak != 'true' && steps.filter.outputs.validator_compatibility || 'false' }}
+      proof_gen: ${{ steps.mode.outputs.soak != 'true' && steps.filter.outputs.proof_gen || 'false' }}
+      devnet_release_tag: ${{ steps.devnet-env.outputs.release_tag }}
+    steps:
+      - name: Is this a soak run
+        id: mode
+        env:
+          SOAK: ${{ github.event_name == 'schedule' || inputs.soak }}
+        run: echo "soak=${SOAK}" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/checkout@v7
+
+      # The nightly soak has no diff to filter; should-run's outputs pick its suite instead.
+      - name: "Examine which files have been modified by this PR"
+        if: ${{ steps.mode.outputs.soak != 'true' }}
+        uses: dorny/paths-filter@v4.0.3
+        id: filter
+        with:
+          filters: |
+            # Several suites share test infrastructure that lives *above* the per-suite
+            # directories these filters name, so it matches none of them on its own:
+            #
+            #   cli/src/test/utils.ts                        testIf / describeIf, and
+            #                                                startAliceAndBob, which starts the
+            #                                                two-node chain every suite runs on
+            #   cli/src/test/integration-tests/helpers.ts    funding, proxy setup, waitEras
+            #   cli/src/test/integrationTestSetupAfterEnv.ts the global beforeAll that launches
+            #                                                and tears down that chain
+            #
+            # Until this was added a change to any of them ran no integration suite at all:
+            # the filters were narrowed from "cli/**" to a list of subdirectories in
+            # e5cf8ec4d, which dropped everything sitting above those subdirectories.
+            # typescript-checks still compiles and lints the package on any .ts change, so
+            # the hole was specifically a behavioural change that compiles cleanly -- a
+            # changed port, sleep, funding amount or skip predicate.
+            #
+            # Each filter below lists only the shared files the suites it gates actually
+            # import. Over the six months before this was written those files changed in 2
+            # of 143 commits, so this costs close to nothing in extra runs.
+            #
+            # Every suite also runs the node and other Rust binaries, so each one lists what
+            # those are built from outside its own directories: node/**, the root manifest,
+            # the lockfile (a dependency bump can change RPC or EVM behaviour without touching
+            # a crate here) and the toolchain.
+            archiver:
+              - "archiver/**"
+              - "common/**"
+              - "**/archiver.rs"
+              - "node/**"
+              - "Cargo.lock"
+              - "Cargo.toml"
+              - "rust-toolchain.toml"
+              - ".github/workflows/ci.yml"
+              - ".github/workflows/build-native.yml"
+              - "cli/src/test/archiver-tests/**"
+              - "cli/src/test/archiver-tests.config.ts"
+              - "cli/src/test/archiverSetup.ts"
+              - "cli/src/test/junitReporters.ts"
+              - "cli/package.json"
+              - ".github/wait-for-creditcoin.sh"
+              - ".github/wait-for-attestors.sh"
+              - ".github/wait-for-ethereum.sh"
+            attestor_cli_testing:
+              - "attestor/**"
+              - "common/**"
+              - "pallets/attestation/**"
+              - "precompiles/**"
+              - "primitives/**"
+              - "runtime/**"
+              - "cli/yarn.lock"
+              - "cli/package.json"
+              - "cli/src/commands/attestor/**"
+              - "cli/src/commands/options.ts"
+              - "cli/src/lib/**"
+              - "cli/src/test/integration-tests/attestor/**"
+              - "cli/src/test/integration-tests.config.ts"
+              - "cli/src/test/utils.ts"
+              - "cli/src/test/integration-tests/helpers.ts"
+              - "cli/src/test/integrationTestSetupAfterEnv.ts"
+              - "node/**"
+              - "Cargo.lock"
+              - "Cargo.toml"
+              - "rust-toolchain.toml"
+              - ".github/workflows/ci.yml"
+              - ".github/workflows/build-native.yml"
+              - "cli/src/test/junitReporters.ts"
+              - ".github/seal-blocks.sh"
+              - ".github/wait-for-creditcoin.sh"
+            attestor_network_testing:
+              - "checkpoint-builder/**"
+              - "checkpoint-verifier/**"
+              - "archiver/**"
+              - "attestor/**"
+              - "common/**"
+              - "pallets/attestation/**"
+              - "precompiles/**"
+              - "primitives/**"
+              - "runtime/**"
+              - "cli/yarn.lock"
+              - "cli/src/test/attestation-tests/**"
+              - "cli/src/test/utils.ts"
+              - "node/**"
+              - "Cargo.lock"
+              - "Cargo.toml"
+              - "rust-toolchain.toml"
+              - ".github/workflows/ci.yml"
+              - ".github/workflows/build-native.yml"
+              - "cli/src/test/attestation-tests.config.ts"
+              - "cli/src/test/attestationSetup.ts"
+              - "cli/src/test/junitReporters.ts"
+              - "cli/package.json"
+              - ".github/wait-for-creditcoin.sh"
+              - ".github/wait-for-attestors.sh"
+              - ".github/wait-for-ethereum.sh"
+            cc3_indexer:
+              - "attestor/**"
+              - "common/**"
+              - "pallets/**"
+              - "precompiles/**"
+              - "primitives/**"
+              - "runtime/**"
+              - "cc3-indexer/**"
+              - "query-cli/**"
+              - "cli/yarn.lock"
+              - "cli/src/test/cc3-indexer-tests/**"
+              - "cli/src/test/utils.ts"
+              - "cli/src/test/integration-tests/helpers.ts"
+              - "node/**"
+              - "Cargo.lock"
+              - "Cargo.toml"
+              - "rust-toolchain.toml"
+              - ".github/workflows/ci.yml"
+              - ".github/workflows/build-native.yml"
+              - "cli/src/test/cc3-indexer-tests.config.ts"
+              - "cli/src/test/alphabeticalSequencer.js"
+              - "cli/src/test/junitReporters.ts"
+              - "cli/package.json"
+              - ".github/seal-blocks.sh"
+              - ".github/wait-for-creditcoin.sh"
+              - ".github/wait-for-attestors.sh"
+              - ".github/wait-for-ethereum.sh"
+            docs_smart_contract:
+              - "docs/smart-contract-development/**"
+              - ".github/workflows/ci.yml"
+              - ".github/workflows/build-native.yml"
+              - ".github/wait-for-creditcoin.sh"
+            integration_test_blockchain:
+              - "common/**"
+              - "pallets/**"
+              - "precompiles/**"
+              - "primitives/**"
+              - "runtime/**"
+              - "cli/yarn.lock"
+              - "cli/src/test/blockchain-tests/**"
+              - "cli/src/test/utils.ts"
+              - "cli/src/test/integration-tests/helpers.ts"
+              - "node/**"
+              - "Cargo.lock"
+              - "Cargo.toml"
+              - "rust-toolchain.toml"
+              - ".github/workflows/ci.yml"
+              - ".github/workflows/build-native.yml"
+              - "cli/src/test/blockchain-tests.config.ts"
+              - "cli/src/test/blockchainSetup.ts"
+              - "cli/src/test/junitReporters.ts"
+              - "cli/package.json"
+              - ".github/wait-for-creditcoin.sh"
+              - ".github/wait-for-attestors.sh"
+              - ".github/wait-for-ethereum.sh"
+            integration_test_cli:
+              - "common/**"
+              - "pallets/**"
+              - "precompiles/**"
+              - "primitives/**"
+              - "runtime/**"
+              - "cli/yarn.lock"
+              - "cli/package.json"
+              - "cli/src/commands/**"
+              - "cli/src/lib/**"
+              - "cli/src/test/integration-tests/**"
+              - "cli/src/test/integration-tests.config.ts"
+              - "cli/src/test/utils.ts"
+              - "cli/src/test/integrationTestSetupAfterEnv.ts"
+              - "node/**"
+              - "Cargo.lock"
+              - "Cargo.toml"
+              - "rust-toolchain.toml"
+              - ".github/workflows/ci.yml"
+              - ".github/workflows/build-native.yml"
+              - "cli/src/test/junitReporters.ts"
+              - ".github/seal-blocks.sh"
+            # Carried over verbatim from attestor-compatibility.yml's own pull_request
+            # trigger, which it no longer has now that ci.yml calls it.
+            attestor_compatibility:
+              - "attestor/**"
+              - "pallets/attestation/**"
+              - "node/**"
+              - "runtime/**"
+              - ".github/workflows/attestor-compatibility.yml"
+            # Likewise from validator-compatibility.yml.
+            validator_compatibility:
+              - "node/**"
+              - "runtime/**"
+              - "chainspecs/**"
+              - ".github/workflows/validator-compatibility.yml"
+            # Carried over from proof-gen-api-server.yml's own pull_request trigger, plus
+            # ci.yml now that it calls that workflow.
+            proof_gen:
+              - "proof-gen-api-server/**"
+              - "common/eth/**"
+              - "scripts/**"
+              - ".github/wait-for-proof-gen.sh"
+              - ".github/workflows/proof-gen-api-server.yml"
+              - "node/**"
+              - "Cargo.lock"
+              - "Cargo.toml"
+              - "rust-toolchain.toml"
+              - ".github/workflows/ci.yml"
+              - ".github/workflows/build-native.yml"
+            # What the runtime's call metadata is built from, including the FRAME pallets
+            # that come in through Cargo.lock.
+            extrinsics:
+              - "runtime/**"
+              - "pallets/**"
+              - "primitives/**"
+              - "Cargo.lock"
+              - "**/Cargo.toml"
+              - ".github/check-extrinsics.sh"
+              - ".github/workflows/ci.yml"
+              - ".github/workflows/build-native.yml"
+            regenerate_metadata:
+              - "**.rs"
+              - "**Cargo**"
+              - ".github/workflows/ci.yml"
+              - ".github/workflows/build-native.yml"
+
+      - name: Devnet ENV
+        id: devnet-env
+        run: |
+          # shellcheck disable=SC2129
+          RELEASE_TAG=$(.github/extract-release-tag.sh "devnet")
+          echo "release_tag=$RELEASE_TAG" >> "$GITHUB_OUTPUT"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+
+  build-creditcoin-node-for-testing-ci:
+    needs:
+      - should-run
+    # Any matching filter needs the binaries, the extrinsics check among them.
+    if: ${{ needs.should-run.outputs.changes != '[]' || needs.should-run.outputs.soak == 'true' }}
+    uses: ./.github/workflows/build-native.yml
+    with:
+      build-options: "--release --features=fast-runtime"
+      # Workspace crates at opt-level 1 for PRs. The nightly and dispatched soaks measure
+      # timing and catch-up, so they keep the release level.
+      workspace-opt-level: ${{ needs.should-run.outputs.soak != 'true' && '1' || '' }}
+      git-lfs-checkout: false
+      version-string: testing-ci
+      cache-key-name: build-creditcoin-node
+      runs-on: "['ubuntu-26.04']"
+      # A PR that changes no file a crate reads (CLI tests, docs, workflows) reuses the
+      # binaries build-cache.yml made from the same sources on dev. The soaks build at the
+      # release level, which build-cache.yml does not save, so they compile and save nothing.
+      reuse-binaries: ${{ needs.should-run.outputs.soak != 'true' }}
+    secrets: inherit
+
+  integration-test-check-extrinsics:
+    # The call metadata can only change with the runtime, its pallets or their dependencies.
+    # Runs on every trunk. transaction_version is bumped when a release is cut, so a call
+    # reordered or removed on a development trunk fails until then: it is reported as a
+    # warning there and blocks only promotion into usc-testnet and main.
+    if: ${{ contains(fromJSON('["dev", "usc-dev", "asc-dev", "usc-testnet", "main"]'), github.base_ref) && needs.should-run.outputs.extrinsics == 'true' }}
+    needs:
+      - build-creditcoin-node-for-testing-ci
+      - should-run
+    runs-on: ubuntu-26.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install Node Dependencies
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+      - run: npm install --ignore-scripts -g @polkadot/metadata-cmp
+
+      - name: Download creditcoin-node binary
+        uses: actions/download-artifact@v8
+        with:
+          name: binary-for-testing-ci
+          path: target/release
+
+      - name: Run Extrinsics Ordering
+        id: extrinsics
+        continue-on-error: ${{ !contains(fromJSON('["usc-testnet", "main"]'), github.base_ref) }}
+        shell: bash
+        run: |
+          chmod a+x ./target/release/creditcoin3-node
+          ./.github/check-extrinsics.sh
+        env:
+          GITHUB_TOKEN: ${{ secrets.PAT || secrets.GITHUB_TOKEN }}
+          OWNER_REPO_SLUG: ${{ github.repository }}
+
+      - name: Report extrinsics changes
+        if: ${{ steps.extrinsics.outcome == 'failure' }}
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          MSG="Extrinsics were reordered or removed without a transaction_version bump. It does not block a PR into ${BASE_REF}, but promotion into usc-testnet or main needs the bump. See the Run Extrinsics Ordering step."
+          echo "::warning title=check-extrinsics::${MSG}"
+          echo "### check-extrinsics: warning" >> "$GITHUB_STEP_SUMMARY"
+          echo "$MSG" >> "$GITHUB_STEP_SUMMARY"
+
+      # Upload logs if nodes are not connecting.
+      # head-node.log and release-node.log are created in ./scripts/check-extrinsics.sh
+      - name: Upload logs
+        uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          if-no-files-found: warn
+          name: "extrinsic-logs"
+          path: |
+            head-node.log
+            release-node.log
+            metadata-cmp-with-mainnet.txt
+            metadata-cmp-with-testnet.txt
+
+  integration-test-attestator-network:
+    needs:
+      - build-creditcoin-node-for-testing-ci
+      - should-run
+    if: ${{ needs.should-run.outputs.attestor_network_testing == 'true' }}
+    runs-on: ubuntu-26.04
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Download binaries
+        uses: actions/download-artifact@v8
+        with:
+          name: binary-for-testing-ci
+          path: target/release
+
+      - name: Start creditcoin3-node - Alice
+        env:
+          RUST_LOG: debug
+        run: |
+          mkdir -p /var/tmp/integration-test-attestor-network/
+          chmod a+x ./target/release/creditcoin3-node
+          ./target/release/creditcoin3-node \
+            --chain dev \
+            --validator --alice  --pruning archive \
+            --node-key d182d503b7dd97e7c055f33438c7717145840fd66b2a055284ee8d768241a463 \
+            --base-path ./alice-data >/var/tmp/integration-test-attestor-network/creditcoin3-node-alice.log 2>&1 &
+          echo $! >/var/tmp/integration-test-attestor-network/creditcoin3-node-alice.pid
+
+      # 10,005 blocks with two transactions each (55 MB unpacked), made by
+      # .github/generate-anvil-fixture.py. The attestors need the backlog of blocks, not
+      # traffic in them: the previous fixture's ~50 transactions per block made a 4.8 GB
+      # state that every load, dump, archive and verification step had to work through.
+      - name: Download 10k Anvil state
+        run: |
+          curl -fL -o anvil10k_blocks.json.xz "https://github.com/gluwa/creditcoin3/releases/download/3.130.0-devnet/anvil10k_blocks_2tx.json.xz"
+          echo "bb70269b8b19b6d8c27d9aba113e27177fe80050464d492e17f2e61b331dd65e  anvil10k_blocks.json.xz" | sha256sum -c -
+
+          unxz anvil10k_blocks.json.xz
+          ls -lh anvil10k_blocks.json
+
+      - name: Install Foundry
+        uses: foundry-rs/foundry-toolchain@v1
+        with:
+          # Pinned: v1.6.x changed the anvil --dump-state JSON format,
+          # which breaks --load-state on the existing anvil10k_blocks.json
+          # snapshot. Bump deliberately when we regenerate that snapshot.
+          version: v1.5.1
+
+      - name: Start Ethereum simulation with Anvil - 2 chains
+        run: |
+          # supported chain keys are hard-coded in attestor/src/cc3.rs and node/src/chain_spec.rs
+          # Anvil1 == chain_key(2), Anvil2 == chain_key(4). Ports are arbitrary
+          # The state dump is as large as the fixture (~5 GB of JSON) and only feeds the
+          # restart below, so it lives outside the log directory that gets uploaded.
+          mkdir -p /var/tmp/anvil-state
+          ~/.foundry/bin/anvil --block-time 6 --chain-id 31337 --port 8141 \
+              --load-state ./anvil10k_blocks.json \
+              --dump-state /var/tmp/anvil-state/anvil1-restart.json \
+              >/var/tmp/integration-test-attestor-network/anvil1.log 2>&1 &
+          echo $! >/var/tmp/integration-test-attestor-network/anvil1.pid
+
+          ~/.foundry/bin/anvil --block-time 6 --chain-id 31338 --port 8242 \
+              >/var/tmp/integration-test-attestor-network/anvil2.log 2>&1 &
+
+      - name: Check that creditcoin-node and anvil are running
+        run: |
+          .github/wait-for-creditcoin.sh 'http://127.0.0.1:9944'
+          .github/wait-for-ethereum.sh 'http://127.0.0.1:8141' /var/tmp/integration-test-attestor-network/anvil1.log
+          .github/wait-for-ethereum.sh 'http://127.0.0.1:8242' /var/tmp/integration-test-attestor-network/anvil2.log
+
+      - name: Start archiver against Anvil1
+        env:
+          RUST_LOG: debug
+        run: |
+          chmod a+x ./target/release/archiver
+
+          ./target/release/archiver \
+              --rpc-http http://localhost:8141 \
+              --rpc-ws ws://localhost:8141 \
+              --start-height 0 \
+              --flush-every 5 \
+              --chain-key 2 \
+              --api-bind 0.0.0.0:8080 >/var/tmp/integration-test-attestor-network/archiver.log 2>&1 &
+
+      - name: Start creditcoin3-node - Bob
+        env:
+          RUST_LOG: debug
+        run: |
+          ./target/release/creditcoin3-node \
+            --chain dev \
+            --validator --bob  --pruning archive \
+            --node-key d9cccabf274641a185bc94f9f8c3d791f50514277cb3ba8c2aa4d7d6757c661f \
+            --bootnodes /ip4/127.0.0.1/tcp/30333/p2p/12D3KooWKEKymnBDKfa8MkMWiLE6DYbC4aAUciqmYucm7xFKK3Au \
+            --port 30335 --rpc-port 9955 \
+            --base-path ./bob-data >/var/tmp/integration-test-attestor-network/creditcoin3-node-bob.log 2>&1 &
+
+      - name: Start Attestation Zombienet
+        run: |
+          chmod a+x ./target/release/attestor*
+
+          ./target/release/attestor_zombienet \
+                -n 3 \
+                --chain-key=2 \
+                --bin=./target/release/attestor \
+                --eth-url=ws://localhost:8141 \
+                --cc3-url=ws://localhost:9944 \
+                --funding-address='//Alice' \
+                --config=./attestor/config.yaml \
+                >/var/tmp/integration-test-attestor-network/zombienet-alice.log &
+
+          .github/wait-for-creditcoin.sh 'http://127.0.0.1:9955'
+
+          # Wait for first zombienet to finish registering attestors to avoid nonce conflicts:
+          # it only starts the attestor processes once funding and registration are on chain.
+          for _ in $(seq 1 180); do
+            [ "$(grep -c 'Starting attestor' /var/tmp/integration-test-attestor-network/zombienet-alice.log)" -ge 3 ] && break
+            sleep 1
+          done
+          if [ "$(grep -c 'Starting attestor' /var/tmp/integration-test-attestor-network/zombienet-alice.log)" -lt 3 ]; then
+            echo "First zombienet did not start its 3 attestors within 180s" >&2
+            exit 1
+          fi
+
+          ./target/release/attestor_zombienet \
+                -n 3 \
+                --offset=3 \
+                --chain-key=4 \
+                --bin=./target/release/attestor \
+                --eth-url=ws://localhost:8242 \
+                --cc3-url=ws://localhost:9955 \
+                --funding-address='//Alice' \
+                --config=./attestor/config.yaml \
+                >/var/tmp/integration-test-attestor-network/zombienet-bob.log &
+
+      - name: Wait for 3 attestors to be registered
+        run: |
+          # wait for Anvil_1 attestors (chain 2)
+          .github/wait-for-attestors.sh 'http://127.0.0.1:9944'
+
+          # also wait for Anvil_2 attestors (chain 4)
+          .github/wait-for-attestors.sh 'http://127.0.0.1:9955' 4
+
+      - name: Start creditcoin3-node - Charlie
+        env:
+          RUST_LOG: debug
+        run: |
+          ./target/release/creditcoin3-node \
+            --chain dev \
+            --validator --charlie  --pruning archive \
+            --node-key 0000000000000000000000000000000000000000000000000000000000000001 \
+            --bootnodes /ip4/127.0.0.1/tcp/30333/p2p/12D3KooWKEKymnBDKfa8MkMWiLE6DYbC4aAUciqmYucm7xFKK3Au \
+            --port 30336 --rpc-port 9966 \
+            --base-path ./charlie-data >/var/tmp/integration-test-attestor-network/creditcoin3-node-charlie.log 2>&1 &
+
+      - name: Install Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: 'npm'
+          cache-dependency-path: |
+            attestor/scripts/package.json
+            checkpoint-verifier/yarn.lock
+            cli/yarn.lock
+      - run: npm install -g yarn
+
+      - name: Install Solidity compiler
+        run: |
+          sudo .github/install-solidity-compiler.sh
+
+      - name: Generate precompiles ABI from source code
+        working-directory: ./precompiles/metadata
+        run: |
+          solc --version
+          ./abi-creator.sh
+
+      - name: Run attestation tests
+        env:
+          # Nightly: run sanity.test.ts over its whole block window.
+          ATTESTATION_SOAK: ${{ needs.should-run.outputs.soak == 'true' && '1' || '' }}
+        working-directory: ./cli
+        run: |
+          yarn install --immutable
+          yarn test:attestation
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: junit-attestor-network
+          path: cli/reports/junit/
+          if-no-files-found: ignore
+
+      - name: Start creditcoin3-node - Dave - stand alone chain
+        if: always()
+        env:
+          RUST_LOG: debug
+        run: |
+          # WARNING: not using --bootnode on purpose
+          ./target/release/creditcoin3-node \
+            --chain dev \
+            --validator --dave  --pruning archive \
+            --node-key 0000000000000000000000000000000000000000000000000000000000000022 \
+            --port 30777 --rpc-port 9977 \
+            --base-path ./dave-data >/var/tmp/integration-test-attestor-network/creditcoin3-node-dave.log 2>&1 &
+
+      - name: Check that creditcoin3-node Dave is running
+        if: always()
+        run: |
+          .github/wait-for-creditcoin.sh 'http://127.0.0.1:9977'
+
+      - name: Run ExportCheckpoints.js
+        if: always()
+        working-directory: ./attestor/scripts
+        run: |
+          npm ci
+
+          node ExportCheckpoints.js
+
+          mv checkpoints_2.csv checkpoints.csv.from_alice
+        env:
+          SOURCE_CHAIN: "ws://127.0.0.1:9944"
+          CHAIN_KEY_ON_SOURCE: 2
+
+      - name: Run ImportCheckpoints.js
+        if: always()
+        working-directory: ./attestor/scripts
+        run: |
+          node ImportCheckpoints.js --dev --file checkpoints.csv.from_alice
+        env:
+          MNEMONIC: "//Alice"
+          DESTINATION_CHAIN: "ws://127.0.0.1:9977"
+          CHAIN_KEY_ON_DESTINATION: 2
+
+      - name: Export the imported checkpoints and compare with origin
+        if: always()
+        working-directory: ./attestor/scripts
+        run: |
+          sudo apt-get install colordiff
+
+          node ExportCheckpoints.js
+
+          cp checkpoints_2.csv checkpoints.csv.from_dave
+
+          # The source chain keeps producing checkpoints between the two exports,
+          # so from_dave may legitimately contain NEW checkpoints beyond the last
+          # block present in from_alice. Only fail if a checkpoint that exists in
+          # the original source file (from_alice) disagrees with, or is missing
+          # from, the re-exported file (from_dave). Extra trailing checkpoints in
+          # from_dave are expected and must not trip the diff.
+          #
+          # Restrict from_dave to just the block numbers present in from_alice,
+          # then diff. Both files are sorted ascending by block_number.
+          cut -d, -f1 checkpoints.csv.from_alice | sort > from_alice.blocks
+          awk -F, 'NR==FNR { keep[$1]=1; next } ($1 in keep)' \
+            from_alice.blocks checkpoints.csv.from_dave > checkpoints.csv.from_dave.overlap
+
+          # both files should match on the overlapping (original) checkpoints
+          diff -u checkpoints.csv.from_alice checkpoints.csv.from_dave.overlap | colordiff || true
+          diff -u checkpoints.csv.from_alice checkpoints.csv.from_dave.overlap
+        env:
+          SOURCE_CHAIN: "ws://127.0.0.1:9977"
+          CHAIN_KEY_ON_SOURCE: 2
+
+      - name: Verify attestors recover after CC3 websocket restart
+        run: |
+          BEFORE=$(awk -F, 'END {print $1}' attestor/scripts/checkpoints.csv.from_alice)
+          if [ -z "$BEFORE" ]; then
+            echo "Could not determine pre-restart attestation height" >&2
+            exit 1
+          fi
+
+          ALICE_PID=$(cat /var/tmp/integration-test-attestor-network/creditcoin3-node-alice.pid)
+          # Graceful TERM + wait first so the node releases its RPC socket and RocksDB
+          # lock on ./alice-data cleanly; KILL only as a fallback. Then wait until port
+          # 9944 is actually released before restarting on the same port/base-path. A
+          # bare SIGKILL + immediate restart could hit the old socket still bound
+          # (TIME_WAIT / not yet torn down), so the new node fails to rebind 9944 and
+          # wait-for-creditcoin.sh below spins its silent ~42min loop.
+          kill -TERM "$ALICE_PID" 2>/dev/null || true
+          for _ in $(seq 1 30); do
+            if ! kill -0 "$ALICE_PID" 2>/dev/null; then
+              break
+            fi
+            sleep 1
+          done
+          if kill -0 "$ALICE_PID" 2>/dev/null; then
+            echo "creditcoin3-node did not exit on TERM — sending KILL" >&2
+            kill -KILL "$ALICE_PID" 2>/dev/null || true
+          fi
+          for _ in $(seq 1 30); do
+            if ! ss -ltn 'sport = :9944' | grep -q ':9944'; then
+              break
+            fi
+            sleep 1
+          done
+          if ss -ltn 'sport = :9944' | grep -q ':9944'; then
+            echo "Port 9944 still bound after stopping old creditcoin3-node" >&2
+            exit 1
+          fi
+
+          ./target/release/creditcoin3-node \
+            --chain dev \
+            --validator --alice --pruning archive \
+            --node-key d182d503b7dd97e7c055f33438c7717145840fd66b2a055284ee8d768241a463 \
+            --base-path ./alice-data >>/var/tmp/integration-test-attestor-network/creditcoin3-node-alice.log 2>&1 &
+          echo $! >/var/tmp/integration-test-attestor-network/creditcoin3-node-alice.pid
+
+          .github/wait-for-creditcoin.sh 'http://127.0.0.1:9944'
+          ~/.foundry/bin/cast rpc --rpc-url http://127.0.0.1:8141 anvil_mine 0xc8
+
+          for _ in $(seq 1 18); do
+            (cd attestor/scripts && node ExportCheckpoints.js)
+            AFTER=$(awk -F, 'END {print $1}' attestor/scripts/checkpoints_2.csv)
+            if [ -n "$AFTER" ] && [ "$AFTER" -gt "$BEFORE" ]; then
+              echo "Attestation advanced from $BEFORE to $AFTER after CC3 restart"
+              exit 0
+            fi
+            sleep 10
+          done
+
+          echo "Attestation did not advance after CC3 websocket restart" >&2
+          exit 1
+        env:
+          SOURCE_CHAIN: "ws://127.0.0.1:9944"
+          CHAIN_KEY_ON_SOURCE: 2
+
+      - name: Verify attestors recover after Eth websocket restart
+        run: |
+          BEFORE=$(awk -F, 'END {print $1}' attestor/scripts/checkpoints_2.csv)
+          if [ -z "$BEFORE" ]; then
+            echo "Could not determine pre-restart attestation height" >&2
+            exit 1
+          fi
+
+          ANVIL_PID=$(cat /var/tmp/integration-test-attestor-network/anvil1.pid)
+          # Anvil must shut down gracefully (TERM) so it dumps its state to
+          # anvil1-restart.json — the restart reloads that state, and the dumped-state
+          # check below hard-fails without it. So: TERM + wait for the dump, then KILL
+          # as a fallback, then wait for port 8141 to be released before restarting.
+          # The dump is the whole 10k-block fixture state (tens of MB of JSON) written
+          # while the archiver is still hammering eth_getBlockReceipts, so give it
+          # minutes, not seconds: a KILL here truncates the file and the restart fails
+          # on "failed to parse json file" instead of exercising recovery.
+          kill -TERM "$ANVIL_PID" 2>/dev/null || true
+          for _ in $(seq 1 180); do
+            if ! kill -0 "$ANVIL_PID" 2>/dev/null; then
+              break
+            fi
+            sleep 1
+          done
+          if kill -0 "$ANVIL_PID" 2>/dev/null; then
+            echo "Anvil did not exit on TERM within 180s — sending KILL (the restart will likely fail to load state)" >&2
+            kill -KILL "$ANVIL_PID" 2>/dev/null || true
+          fi
+          for _ in $(seq 1 30); do
+            if ! ss -ltn 'sport = :8141' | grep -q ':8141'; then
+              break
+            fi
+            sleep 1
+          done
+          if ss -ltn 'sport = :8141' | grep -q ':8141'; then
+            echo "Port 8141 still bound after killing old anvil" >&2
+            exit 1
+          fi
+          if [ ! -s /var/tmp/anvil-state/anvil1-restart.json ]; then
+            echo "Anvil did not dump restart state" >&2
+            exit 1
+          fi
+
+          # Nothing restarts this one, so it dumps no state.
+          ~/.foundry/bin/anvil --block-time 6 --chain-id 31337 --port 8141 \
+            --load-state /var/tmp/anvil-state/anvil1-restart.json \
+            >>/var/tmp/integration-test-attestor-network/anvil1.log 2>&1 &
+          echo $! >/var/tmp/integration-test-attestor-network/anvil1.pid
+
+          .github/wait-for-ethereum.sh 'http://127.0.0.1:8141' /var/tmp/integration-test-attestor-network/anvil1.log
+          ~/.foundry/bin/cast rpc --rpc-url http://127.0.0.1:8141 anvil_mine 0xc8
+
+          for _ in $(seq 1 18); do
+            (cd attestor/scripts && node ExportCheckpoints.js)
+            AFTER=$(awk -F, 'END {print $1}' attestor/scripts/checkpoints_2.csv)
+            if [ -n "$AFTER" ] && [ "$AFTER" -gt "$BEFORE" ]; then
+              echo "Attestation advanced from $BEFORE to $AFTER after Eth restart"
+              exit 0
+            fi
+            sleep 10
+          done
+
+          echo "Attestation did not advance after Eth websocket restart" >&2
+          exit 1
+        env:
+          SOURCE_CHAIN: "ws://127.0.0.1:9944"
+          CHAIN_KEY_ON_SOURCE: 2
+
+      - name: Wait for the archiver to reach the latest on-chain checkpoint
+        if: always()
+        run: |
+          # The archiver follows the latest attested height rather than the source head, so it
+          # starts fetching only once the first attestation lands and trails the attestors while
+          # they catch up. It is a cache: it converges, it is not required to be ahead. Give it
+          # a bounded window to reach the last checkpoint the attestors produced before reading
+          # its range, otherwise the builder CSV is compared against checkpoints it has not
+          # stored yet.
+          TARGET=$(awk -F, 'END {print $1}' attestor/scripts/checkpoints_2.csv)
+          echo "waiting for archiver to reach on-chain checkpoint $TARGET"
+          for _ in $(seq 1 90); do
+            LATEST=$(curl -sf http://127.0.0.1:8080/status | python3 -c 'import sys,json;print(json.load(sys.stdin).get("latest_archived_block") or 0)' 2>/dev/null || echo 0)
+            if [ "$LATEST" -ge "$TARGET" ]; then
+              echo "archiver at $LATEST >= $TARGET"
+              exit 0
+            fi
+            sleep 10
+          done
+          echo "archiver stuck at $LATEST, below on-chain checkpoint $TARGET" >&2
+          exit 1
+
+      - name: Discover archiver available range and compute builder range
+        if: always()
+        id: range
+        run: |
+          chmod a+x ./target/release/checkpoint-builder
+
+          ./target/release/checkpoint-builder archiver \
+              --archiver-url http://127.0.0.1:8080 \
+              --dry-run | tee /var/tmp/integration-test-attestor-network/dry-run.log
+
+          LAST=$(grep -oE 'Available range: [0-9]+ to [0-9]+' /var/tmp/integration-test-attestor-network/dry-run.log | awk '{print $NF}')
+          if [ -z "$LAST" ]; then
+            echo "Could not parse archiver available range" >&2
+            exit 1
+          fi
+
+          # Floor to the nearest multiple of 100 so the range arithmetic
+          # satisfies checkpoint-builder's divisibility rule.
+          N=$(( (LAST / 100) * 100 ))
+          if [ "$N" -lt 100 ]; then
+            echo "Archiver only has $LAST blocks - need at least 100 for interval=100" >&2
+            exit 1
+          fi
+
+          echo "Using builder range: 0;1,$N,100 (archiver last=$LAST)"
+          echo "builder_end=$N" >> "$GITHUB_OUTPUT"
+
+      - name: Run checkpoint-builder
+        if: always()
+        env:
+          RUST_LOG: info
+        run: |
+          ./target/release/checkpoint-builder archiver \
+              --archiver-url http://127.0.0.1:8080 \
+              --checkpoint-ranges "0;1,${{ steps.range.outputs.builder_end }},100" \
+              --output-file /var/tmp/integration-test-attestor-network/builder.csv \
+              2>&1 | tee /var/tmp/integration-test-attestor-network/checkpoint-builder.log
+
+          # Builder appends a timestamp, resolve the actual path for later steps.
+          BUILDER_CSV=$(find /var/tmp/integration-test-attestor-network -name 'builder_*.csv' | head -n1)
+          echo "Builder CSV: $BUILDER_CSV"
+          echo "BUILDER_CSV=$BUILDER_CSV" >> "$GITHUB_ENV"
+
+      - name: Stage on-chain checkpoints CSV
+        if: always()
+        run: |
+          cp attestor/scripts/checkpoints_2.csv /var/tmp/integration-test-attestor-network/onchain.csv
+          cat /var/tmp/integration-test-attestor-network/onchain.csv
+
+      - name: Compare builder output with on-chain checkpoints (overlap)
+        if: always()
+        run: |
+          ONCHAIN=/var/tmp/integration-test-attestor-network/onchain.csv
+          OVERLAP=/var/tmp/integration-test-attestor-network/builder.overlap.csv
+
+          if [ ! -s "$ONCHAIN" ]; then
+            echo "On-chain CSV is empty - attestors did not produce any checkpoints" >&2
+            exit 1
+          fi
+
+          # Keep only builder rows whose block number appears on-chain (drops genesis and any
+          # builder checkpoints ahead of what attestors have attested so far).
+          awk -F, 'NR==FNR{seen[$1]=1; next} seen[$1]' "$ONCHAIN" "$BUILDER_CSV" > "$OVERLAP"
+
+          if [ ! -s "$OVERLAP" ]; then
+            echo "No overlapping block numbers between builder CSV and on-chain CSV" >&2
+            exit 1
+          fi
+
+          diff -u "$ONCHAIN" "$OVERLAP"
+
+      - name: Build checkpoint-verifier
+        if: always()
+        working-directory: ./checkpoint-verifier
+        run: |
+          yarn install --immutable
+          yarn build
+
+      - name: Run checkpoint-verifier against builder CSV
+        if: always()
+        working-directory: ./checkpoint-verifier
+        # Cap verification at block 1000: the verifier replays every block
+        # sequentially from genesis (each digest depends on the previous one),
+        # so walking the full 10k-block Anvil snapshot dominates the job runtime.
+        # 1000 blocks is enough to exercise the builder/verifier contract as a
+        # smoke check while keeping the job fast.
+        run: |
+          yarn start verify-csv \
+              --rpc-url http://127.0.0.1:8141 \
+              --csv-path "$BUILDER_CSV" \
+              --max-block 1000 \
+              --verbose \
+              2>&1 | tee /var/tmp/integration-test-attestor-network/checkpoint-verifier.log
+
+      - name: Check archiver logs for errors
+        if: always()
+        run: |
+          # This test deliberately restarts the eth (anvil) WebSocket node to exercise recovery,
+          # so the archiver logs "connection reset by peer" / "connection refused" as it drops and
+          # reconnects — benign, expected transport noise. Two sources emit it during that window:
+          #   * the alloy WS consumer itself, under alloy_transport_ws / alloy_pubsub; and
+          #   * stream_eth's reconnect path, which logs "Eth connection error" wrapping the same
+          #     "IO error: Connection reset by peer (os error 104)" / "... refused (os error 111)".
+          # Killing anvil mid-connection also surfaces one step *above* the socket layer: when the
+          # peer vanishes without sending a WS close frame, tungstenite reports the protocol error
+          # "Connection reset without closing handshake" instead of a raw os error, and
+          # alloy_transport_ws logs it as "WS connection error". Same benign restart, different
+          # layer — so it is enumerated here too rather than left to fail the gate intermittently
+          # (which layer wins is a race between anvil's exit and the read syscall).
+          # The job also restarts the Creditcoin node (the "CC3 restart" step above). The archiver
+          # follows the latest attested height by polling Creditcoin and repairs that connection
+          # when a read fails, so while the node is down its one dial per poll is refused and it
+          # logs "Creditcoin reconnect failed ... Connection refused". The gate matches "error:"
+          # case-insensitively anywhere in a line, and the subxt error text inside that WARN
+          # contains it, so the same benign restart would otherwise fail the gate.
+          # Allowlist ONLY these three documented errors, and ONLY from those known reconnect
+          # sources, scoped to THIS step via ERROR_ALLOWLIST so the shared gate stays strict
+          # everywhere else (e.g. the archiver-testing job, which never restarts eth). Any other
+          # error from those sources still fails the gate; functional correctness is asserted
+          # separately (checkpoint compare).
+          export ERROR_ALLOWLIST='(alloy_transport_ws|alloy_pubsub|stream_eth|Eth connection error|Creditcoin reconnect failed).*(Connection reset by peer \(os error 104\)|Connection refused \(os error 111\)|Connection reset without closing handshake)'
+          .github/check-logs-for-error.sh /var/tmp/integration-test-attestor-network/archiver.log
+
+      - name: Check attestor logs for errors
+        if: always()
+        run: |
+          # Gate on ERROR lines from the *attestor* JSON logs. The zombienet orchestrator
+          # discards each child attestor's stdout (`Stdio::null`) and the attestors write
+          # their tracing to `./logs/attestor-<name>.json.<date>` via the JSON layer — so the
+          # old `zombienet-*.log` grep only saw the orchestrator's own output and never the
+          # attestor task failures / submission errors it claimed to cover. JSON records level
+          # as `"level":"ERROR"`, not the ` ERROR ` fmt shape. Runs BEFORE the SIGTERM/TERM
+          # teardown steps so shutdown noise can't leak in. Connection / reconnect /
+          # subscription errors are allowlisted: the outage-recovery scenarios above
+          # deliberately kill the CC3 node and Anvil, and riding those out loudly is the
+          # designed behavior — the gate is for everything else (task failures, submission
+          # errors, invalid event mappings).
+          ALLOWLIST='Failed to reconnect to CC3|Reconnected but at_latest failed|connection (error|lost)|Subscription error while fetching next block|Failed to start finalized-block subscription|ping failed'
+          shopt -s nullglob
+          LOGS=(./logs/attestor-*.json.*)
+          if [ "${#LOGS[@]}" -eq 0 ]; then
+            echo "ERROR: no attestor JSON logs found under ./logs — the error gate would be a no-op" >&2
+            exit 1
+          fi
+          FAILED=0
+          for LOG in "${LOGS[@]}"; do
+            echo "INFO: inspecting '$LOG'"
+            UNEXPECTED=$(grep -E '"level":"ERROR"' "$LOG" \
+              | grep -vE "$ALLOWLIST" || true)
+            ERRS=$(printf '%s' "$UNEXPECTED" | grep -c '"level":"ERROR"' || true)
+            if [ "$ERRS" -gt 0 ]; then
+              echo "ERROR: found $ERRS unexpected attestor ERROR line(s) in '$LOG':"
+              printf '%s\n' "$UNEXPECTED" | head -20
+              FAILED=1
+            fi
+          done
+          exit $FAILED
+
+      - name: Upload checkpoints.csv
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: checkpoints.csv
+          path: attestor/scripts/checkpoints.csv*
+
+      - name: Verify attestors exit on SIGTERM
+        if: always()
+        run: |
+          killall -TERM attestor_zombienet || true
+          killall -TERM attestor || true
+
+          for _ in $(seq 1 30); do
+            if ! pgrep -x attestor >/dev/null; then
+              echo "All attestors exited after SIGTERM"
+              exit 0
+            fi
+            sleep 1
+          done
+
+          echo "Attestor processes remained alive 30s after SIGTERM" >&2
+          ps -ef
+          exit 1
+
+      - name: TERM binaries
+        if: always()
+        continue-on-error: true
+        run: |
+          # if all went well kill the node. Otherwise GitHub Actions would exit on the
+          # previous step killing everything and we don't have to worry about
+          # dangling processes
+          killall -TERM attestor_zombienet
+          killall -TERM attestor
+          killall -TERM archiver
+          killall -TERM creditcoin3-node
+          # give them up to 60s to exit cleanly; [t] keeps pgrep from matching this shell
+          for _ in $(seq 1 60); do
+            pgrep -f '[t]arget/release/(creditcoin3-node|attestor|archiver)' >/dev/null || break
+            sleep 1
+          done
+
+      - name: KILL binaries
+        if: always()
+        continue-on-error: true
+        run: |
+          # if all went well kill the node. Otherwise GitHub Actions would exit on the
+          # previous step killing everything and we don't have to worry about
+          # dangling processes
+          killall -KILL attestor_zombienet
+          killall -KILL attestor
+          killall -KILL archiver
+          killall -KILL creditcoin3-node
+
+      # WARNING: upload logs before killing running processes b/c the created temporary directories
+      # may be removed once the program exits. Read about the implementation details at:
+      # https://docs.rs/tempfile/latest/tempfile/struct.TempDir.html
+      - name: Upload logs
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: integration-test-attestor-network
+          path: |
+            /var/tmp/integration-test-attestor-network/
+            ./logs
+          include-hidden-files: true
+
+  integration-test-cli:
+    strategy:
+      fail-fast: false
+      # The full validator suite runs once without a proxy. The proxy variants only run the
+      # files that sign extrinsics, since that is the only path a proxy changes: the error
+      # variants need just the core signing files, the valid-proxy variants add the wizard,
+      # and only Staking also runs the slow era-wait files (payouts, withdraw-unbonded),
+      # which are the staking calls that proxy type exists for.
+      #
+      # With blocks sealed every second each leg takes minutes, so neither the full suite
+      # nor Staking is split over runners any more.
+      matrix:
+        include:
+          # runs every file in integration-tests/validator
+          - proxy: "no"
+            shard: "all"
+
+          - proxy: "yes"
+            secret: no-funds
+            files: "bond send validate chill set-keys unbond validatorCycle"
+
+          - proxy: "yes"
+            secret: not-a-proxy
+            files: "bond send validate chill set-keys unbond validatorCycle"
+
+          # Staking also runs the two era-wait files (withdraw-unbonded, distribute-rewards).
+          - proxy: "yes"
+            secret: valid-proxy
+            proxy_type: Staking
+            files: "withdraw-unbonded distribute-rewards bond unbond set-keys send validate wizard chill validatorCycle"
+
+          - proxy: "yes"
+            secret: valid-proxy
+            proxy_type: NonTransfer
+            files: "bond send validate chill set-keys unbond validatorCycle wizard"
+
+          - proxy: "yes"
+            secret: valid-proxy
+            proxy_type: All
+            files: "bond send validate chill set-keys unbond validatorCycle wizard"
+
+    name: integration-test-cli / proxy=${{ matrix.proxy }} / ${{ matrix.secret || matrix.shard }} / type=${{ matrix.proxy_type }}
+    # Gated directly rather than through a separate no-op `trigger-` job, which burned a
+    # runner on a bare checkout and, because it also waited on the node build, could only
+    # report its skip decision after that build had finished.
+    if: ${{ needs.should-run.outputs.integration_test_cli == 'true' }}
+    needs:
+      - build-creditcoin-node-for-testing-ci
+      - should-run
+      - regenerate-metadata
+    runs-on: ubuntu-26.04
+    timeout-minutes: 150
+    steps:
+      # Plain checkout, i.e. the PR merge ref, like every other job here. This one
+      # used to pin the branch head, inherited from the commit that introduced the
+      # typedef auto-update; only `commit-new-metadata` needs that, because only it
+      # commits back. The pin meant this job ran CLI sources from the un-merged branch
+      # against a node binary that build-creditcoin-node-for-testing-ci compiled from
+      # the merge ref.
+      - uses: actions/checkout@v7
+
+      - name: Install Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: 'yarn'
+          cache-dependency-path: cli/yarn.lock
+      - run: npm install -g yarn
+
+      # WARNING: always after Swatinem/rust-cache
+      - name: Download creditcoin-node binary
+        uses: actions/download-artifact@v8
+        with:
+          name: binary-for-testing-ci
+          path: target/release
+
+      - name: Restore executable permissions
+        run: |
+          chmod a+x ./target/release/creditcoin3-node
+
+      - name: Install Solidity compiler
+        run: |
+          sudo .github/install-solidity-compiler.sh
+
+      - name: Generate precompiles ABI from source code
+        working-directory: ./precompiles/metadata
+        run: |
+          solc --version
+          ./abi-creator.sh
+
+      - name: Download regenerated metadata
+        uses: actions/download-artifact@v8
+        with:
+          name: new-metadata
+          path: .
+
+      - name: Show what the regenerated metadata changed
+        run: |
+          echo "========== DEBUG METADATA DIFF =========="
+          git status --short --untracked-files=no
+          git diff --binary
+          echo "======================================="
+
+      - name: Install creditcoin-cli dependencies
+        working-directory: ./cli
+        run: |
+          yarn install
+
+          # note: potentially rebuilds with newer type definitions
+          yarn build
+
+      - name: Extra ENV for PRs towards dev branch
+        if: contains(fromJSON('["usc-dev", "dev"]'), github.base_ref)
+        id: for-dev-prs
+        run: |
+          echo "========== DEBUG DEBUG DEBUG =========="
+          echo "${{ github.base_ref }}"
+          echo "======================================="
+
+          echo "validator_cycle=no" >> "$GITHUB_OUTPUT"
+
+      - name: Extra ENV for other PRs and commits
+        if: ${{ !contains(fromJSON('["usc-dev", "dev"]'), github.base_ref) }}
+        id: non-dev-prs
+        run: |
+          echo "========== DEBUG DEBUG DEBUG =========="
+          echo "${{ github.base_ref }}"
+          echo "======================================="
+
+          echo "validator_cycle=yes" >> "$GITHUB_OUTPUT"
+
+      - name: Run integration tests
+        working-directory: ./cli
+        run: |
+          # The proxy=no leg runs every file, so a new one can't drop out of CI.
+          if [ "$PROXY_ENABLED" = "no" ]; then
+            TEST_FILES=$(find src/test/integration-tests/validator -name '*.test.ts' -exec basename {} .test.ts \; | sort | tr '\n' ' ')
+          fi
+
+          read -ra NAMES <<< "$TEST_FILES"
+          if [ "${#NAMES[@]}" -eq 0 ]; then
+            echo "no test files for this leg" >&2
+            exit 1
+          fi
+          PATHS=()
+          for name in "${NAMES[@]}"; do
+            PATHS+=("src/test/integration-tests/validator/${name}.test.ts")
+          done
+          yarn test:validator-cli:files "${PATHS[@]}"
+        env:
+          TEST_FILES: ${{ matrix.files }}
+          # Blocks sealed and finalized every second instead of BABE slots and GRANDPA (see
+          # startSealTicker in cli/src/test/utils.ts): the valid-proxy All leg went from 21 to
+          # 6 min with it.
+          CREDITCOIN_SEALING: manual
+          RUST_LOG: debug
+          PROXY_ENABLED: ${{ matrix.proxy }}
+          PROXY_SECRET_VARIANT: ${{ matrix.secret }}
+          PROXY_TYPE: ${{ matrix.proxy_type }}
+          EXECUTE_VALIDATOR_CYCLE_TEST_SCENARIO: ${{ steps.for-dev-prs.outputs.validator_cycle || steps.non-dev-prs.outputs.validator_cycle }}
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: junit-validator-cli-proxy-${{ matrix.proxy }}-${{ matrix.secret || matrix.shard }}-type-${{ matrix.proxy_type }}
+          path: cli/reports/junit/
+          if-no-files-found: ignore
+
+      - name: Kill nodes
+        if: always()
+        continue-on-error: true
+        run: |
+          # if all went well kill the node. Otherwise GitHub Actions would exit on the
+          # previous step killing everything and we don't have to worry about
+          # dangling processes
+          killall -9 creditcoin3-node
+
+      - name: Upload logs from Alice and Bob
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: Alice-and-Bob-logs-for-run-proxy-${{ matrix.proxy }}-${{ matrix.secret || matrix.shard }}-type-${{ matrix.proxy_type }}
+          path: |
+            /tmp/creditcoin3-node-*.std*
+            /tmp/seal-blocks.log
+
+  integration-test-blockchain:
+    needs:
+      - build-creditcoin-node-for-testing-ci
+      - should-run
+    if: ${{ needs.should-run.outputs.integration_test_blockchain == 'true' }}
+    # Split over two runners, each with its own chain, by measured file duration (~10 min of
+    # tests each instead of ~19 in one job). The split follows directory boundaries, so the
+    # files that change attestation and supported-chains settings keep sharing one chain.
+    # Files come from BLOCKCHAIN_SHARDS in the run step.
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2]
+    name: integration-test-blockchain / shard ${{ matrix.shard }}
+    runs-on: ubuntu-26.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Download creditcoin-node binary
+        uses: actions/download-artifact@v8
+        with:
+          name: binary-for-testing-ci
+          path: target/release
+
+      - name: Install Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: 'yarn'
+          cache-dependency-path: cli/yarn.lock
+      - run: npm install -g yarn
+
+      - name: Start creditcoin3-node - Alice
+        env:
+          RUST_LOG: debug
+        run: |
+          mkdir -p /var/tmp/integration-test-blockchain/
+          chmod a+x ./target/release/creditcoin3-node
+          ./target/release/creditcoin3-node \
+            --chain dev \
+            --validator --alice  --pruning archive \
+            --node-key d182d503b7dd97e7c055f33438c7717145840fd66b2a055284ee8d768241a463 \
+            --ethapi=debug,trace,txpool \
+            --base-path ./alice-data >/var/tmp/integration-test-blockchain/creditcoin3-node.log 2>&1 &
+
+      - name: Install Foundry
+        uses: foundry-rs/foundry-toolchain@v1
+        with:
+          # Pinned: v1.6.x changed the anvil --dump-state JSON format,
+          # which breaks --load-state on the existing anvil10k_blocks.json
+          # snapshot. Bump deliberately when we regenerate that snapshot.
+          version: v1.5.1
+
+      - name: Start Ethereum simulation with Anvil
+        run: |
+          # supported chain keys are hard-coded in attestor/src/cc3.rs and node/src/chain_spec.rs
+          ~/.foundry/bin/anvil --block-time 6 --chain-id 31337 --port 8141 &
+
+      - name: Check that creditcoin3-node and anvil are running
+        run: |
+          .github/wait-for-creditcoin.sh 'http://127.0.0.1:9944'
+          .github/wait-for-ethereum.sh 'http://127.0.0.1:8141'
+
+      - name: Simulate a native token transfer on Anvil 1
+        id: native-transfer-anvil-1
+        working-directory: attestor/scripts
+        run: |
+          npm install
+
+          OUTPUT=$(ETH_RPC_URL=http://127.0.0.1:8141 node Transfer.js)
+          echo "$OUTPUT"
+
+          BLOCK_NUMBER=$(echo "$OUTPUT" | grep block: | cut -f2 -d: | tr -d ' ')
+          TXN_HASH=$(echo "$OUTPUT" | grep hash: | cut -f2 -d: | tr -d ' ')
+
+          # Provide default values if extraction failed
+          if [ -z "$BLOCK_NUMBER" ]; then
+            echo "ERROR: Could not extract block number from Transfer.js output"
+            exit 1
+          fi
+          if [ -z "$TXN_HASH" ]; then
+            echo "ERROR: Could not extract transaction hash from Transfer.js output"
+            exit 2
+          fi
+
+          echo "block_number=$BLOCK_NUMBER" >> "$GITHUB_OUTPUT"
+          echo "txn_hash=$TXN_HASH" >> "$GITHUB_OUTPUT"
+
+      - name: Start Attestation Zombienet for Alice - Anvil 1
+        run: |
+          chmod a+x ./target/release/attestor*
+
+          ./target/release/attestor_zombienet \
+                -n 3 \
+                --bin=./target/release/attestor \
+                --eth-url=ws://localhost:8141 \
+                --cc3-url=ws://localhost:9944 \
+                --funding-address='//Alice' \
+                --config=./attestor/config.yaml \
+                --chain-key=2 &
+
+      - name: Wait for 3 attestors to be registered
+        run: |
+          # note: chain_key is hard-coded in this script so waiting only on Anvil_1
+          .github/wait-for-attestors.sh 'http://127.0.0.1:9944'
+
+      - name: Install Solidity compiler
+        run: |
+          sudo .github/install-solidity-compiler.sh
+
+      - name: Generate precompiles ABI from source code
+        working-directory: ./precompiles/metadata
+        run: |
+          solc --version
+          ./abi-creator.sh
+
+      - name: Install creditcoin-cli dependencies
+        working-directory: ./cli
+        run: |
+          yarn install
+
+      - name: Run blockchain tests
+        if: always()
+        working-directory: ./cli
+        env:
+          ANVIL1_TXN_HASH: ${{ steps.native-transfer-anvil-1.outputs.txn_hash }}
+          SHARD: ${{ matrix.shard }}
+          # <shard>:<path under src/test/blockchain-tests>, split by measured file duration.
+          # Shard 1: the attestation and supported-chains pallets. Shard 2: everything else.
+          BLOCKCHAIN_SHARDS: >-
+            1:pallets/attestation/attest
+            1:pallets/attestation/authorize-attestor
+            1:pallets/attestation/chill
+            1:pallets/attestation/commit-attestation-pool-tag
+            1:pallets/attestation/force-apply-updates
+            1:pallets/attestation/force-election
+            1:pallets/attestation/interval-ceilings
+            1:pallets/attestation/kick-active-attestor
+            1:pallets/attestation/proof-of-possession
+            1:pallets/attestation/register-attestor
+            1:pallets/attestation/register-invulnerable
+            1:pallets/attestation/remove-authorized-attestor
+            1:pallets/attestation/revert-to-batched-cleanup
+            1:pallets/attestation/remove-chain-batched-cleanup
+            1:pallets/attestation/set-attestations-per-checkpoint
+            1:pallets/attestation/set-chain-attestation-interval
+            1:pallets/attestation/set-election-policy
+            1:pallets/attestation/set-max-attestors
+            1:pallets/attestation/set-max-catchup
+            1:pallets/attestation/set-max-invulnerables
+            1:pallets/attestation/set-min-bond-requirement
+            1:pallets/attestation/set-target-sample-size
+            1:pallets/attestation/unregister-attestor
+            1:pallets/attestation/unregister-full-unlocking-queue
+            1:pallets/attestation/unregister-invulnerable
+            1:pallets/attestation/withdraw-unbonded
+            1:pallets/supported-chains/register-chain
+            1:pallets/supported-chains/register-chain-roster-limits
+            1:pallets/supported-chains/remove-chain
+            2:block-hash-block-param
+            2:danger-will-brick-the-blockchain
+            2:eth-estimate-gas-shortcut
+            2:eth-new-heads
+            2:evm-call-proof-size
+            2:eth-base-fee-history
+            2:evm-blockhash-window
+            2:evm-authorization-list-limit
+            2:evm-gasprice-opcode
+            2:evm-priority-fee
+            2:evm-revert-extra-data
+            2:evm-state-overrides
+            2:evm-tracing
+            2:gas-estimation
+            2:grandpa-key-ownership-proof
+            2:pallets/identity/identityOf
+            2:pallets/operators/add-member
+            2:pallets/operators/change-key
+            2:pallets/operators/remove-member
+            2:pallets/operators/reset-members
+            2:pallets/operators/swap-member
+            2:pallets/randomness/on-initialize
+            2:precompiles/attestor-stash
+            2:precompiles/block-prover
+            2:precompiles/chain-info
+            2:precompiles/ed25519-verifier
+            2:precompiles/sr25519-verifier
+            2:precompiles/substrate-transfer
+        run: |
+          # The list must cover every test file exactly once, so a new file can't silently
+          # drop out of CI.
+          DIR=src/test/blockchain-tests
+          ASSIGNED=$(echo "$BLOCKCHAIN_SHARDS" | tr ' ' '\n' | cut -d: -f2 | sort)
+          PRESENT=$(cd "$DIR" && find . -name '*.test.ts' | sed -e 's|^\./||' -e 's|\.test\.ts$||' | sort)
+          if [ "$ASSIGNED" != "$PRESENT" ]; then
+            echo "blockchain shard list doesn't match the test files:" >&2
+            diff <(echo "$ASSIGNED") <(echo "$PRESENT") >&2 || true
+            exit 1
+          fi
+          UNKNOWN=$(echo "$BLOCKCHAIN_SHARDS" | tr ' ' '\n' | grep -vE '^[12]:' || true)
+          if [ -n "$UNKNOWN" ]; then
+            echo "BLOCKCHAIN_SHARDS entries for a shard the matrix doesn't run: $UNKNOWN" >&2
+            exit 1
+          fi
+
+          PATHS=()
+          for name in $(echo "$BLOCKCHAIN_SHARDS" | tr ' ' '\n' | sed -n "s/^${SHARD}://p"); do
+            PATHS+=("$DIR/${name}.test.ts")
+          done
+          if [ "${#PATHS[@]}" -eq 0 ]; then
+            echo "no test files for shard $SHARD" >&2
+            exit 1
+          fi
+          yarn test:blockchain:files "${PATHS[@]}"
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: junit-blockchain-shard-${{ matrix.shard }}
+          path: cli/reports/junit/
+          if-no-files-found: ignore
+
+      # The storage-version comparison needs one chain, not both: shard 1 does it.
+      - name: Collect pallet storage versions from Local chain
+        if: ${{ always() && matrix.shard == 1 }}
+        working-directory: ./cli
+        run: |
+          sudo apt-get install colordiff
+
+          node dist/scripts/queryPalletVersions.js ws://127.0.0.1:9944 2>/dev/null | sort > /var/tmp/pallet_storage.local
+
+      - name: Compare to pallet storage versions from Devnet
+        if: ${{ always() && matrix.shard == 1 }}
+        timeout-minutes: 15
+        working-directory: ./cli
+        run: |
+          node dist/scripts/queryPalletVersions.js wss://rpc.cc3-devnet.creditcoin.network 2>/var/tmp/pallet_storage.devnet.stderr | sort > /var/tmp/pallet_storage.devnet
+          ../.github/compare-pallet-storage-versions.sh devnet "${{ github.base_ref }}"
+
+      - name: Compare to pallet storage versions from Testnet
+        timeout-minutes: 15
+        if: ${{ always() && matrix.shard == 1 }}
+        working-directory: ./cli
+        run: |
+          node dist/scripts/queryPalletVersions.js wss://rpc.cc3-testnet.creditcoin.network 2>/var/tmp/pallet_storage.testnet.stderr | sort > /var/tmp/pallet_storage.testnet
+          ../.github/compare-pallet-storage-versions.sh testnet "${{ github.base_ref }}"
+
+      - name: Upload logs
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: integration-test-blockchain-shard-${{ matrix.shard }}
+          path: |
+            /var/tmp/pallet_storage.*
+            /var/tmp/integration-test-blockchain/
+          include-hidden-files: true
+
+      - name: Kill nodes
+        if: always()
+        continue-on-error: true
+        run: |
+          # if all went well kill the node. Otherwise GitHub Actions would exit on the
+          # previous step killing everything and we don't have to worry about
+          # dangling processes
+          killall -9 creditcoin3-node
+
+  docs-smart-contract-development-with-hardhat:
+    needs:
+      - build-creditcoin-node-for-testing-ci
+      - should-run
+    if: ${{ needs.should-run.outputs.docs_smart_contract == 'true' }}
+    runs-on: ubuntu-26.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Download creditcoin-node binary
+        uses: actions/download-artifact@v8
+        with:
+          name: binary-for-testing-ci
+          path: target/release
+
+      - name: Install Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: 'npm'
+          cache-dependency-path: docs/smart-contract-development/with-hardhat/package-lock.json
+
+      - name: Install dependencies
+        working-directory: ./docs/smart-contract-development/with-hardhat
+        run: |
+          npm install
+
+      - name: Compile contract(s)
+        working-directory: ./docs/smart-contract-development/with-hardhat
+        run: |
+          npx hardhat compile
+
+      - name: Test contract(s) against ephemeral Hardhat
+        working-directory: ./docs/smart-contract-development/with-hardhat
+        run: |
+          npx hardhat coverage
+
+      - name: Upload coverage report as artifact
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: hardhat-coverage-report
+          path: ./docs/smart-contract-development/with-hardhat/coverage/
+
+      - name: Deploy contract(s) to ephemeral Hardhat
+        working-directory: ./docs/smart-contract-development/with-hardhat
+        run: |
+          for module in ignition/modules/*.ts; do
+              npx hardhat ignition deploy "$module"
+          done
+
+      - name: Start a local Hardhat JSON-RPC instance
+        working-directory: ./docs/smart-contract-development/with-hardhat
+        run: |
+          npx hardhat node &
+          sleep 10
+
+      - name: Deploy contract(s) to Hardhat Local
+        working-directory: ./docs/smart-contract-development/with-hardhat
+        run: |
+          for module in ignition/modules/*.ts; do
+              npx hardhat ignition deploy --reset "$module" --network hardhatLocal
+          done
+
+      - name: Start Creditcoin Node 1 - Alice
+        env:
+          RUST_LOG: debug
+        run: |
+          chmod a+x ./target/release/creditcoin3-node
+          ./target/release/creditcoin3-node \
+            --dev --validator --pruning archive \
+            --node-key d182d503b7dd97e7c055f33438c7717145840fd66b2a055284ee8d768241a463 \
+            --base-path ./alice-data >/var/tmp/creditcoin3-node.log 2>&1 &
+
+      - name: Wait for node(s) to start
+        run: |
+          .github/wait-for-creditcoin.sh 'http://127.0.0.1:9944'
+
+      - name: Install Foundry
+        uses: foundry-rs/foundry-toolchain@v1
+        with:
+          # Pinned: v1.6.x changed the anvil --dump-state JSON format,
+          # which breaks --load-state on the existing anvil10k_blocks.json
+          # snapshot. Bump deliberately when we regenerate that snapshot.
+          version: v1.5.1
+
+      - name: Deploy contract via forge create
+        run: |
+          ~/.foundry/bin/forge create \
+              docs/smart-contract-development/with-hardhat/contracts/Counter.sol:Counter \
+              --rpc-url ws://127.0.0.1:9944 \
+              --private-key 0x5fb92d6e98884f76de468fa3f6278f8807c48bebc13595d45af5bdc4da702133 --legacy
+
+      - name: Check creditcoin3-node.log for error(s)
+        run: |
+          grep -B2 -A2 "panicked at" /var/tmp/creditcoin3-node.log || true
+          NUM_PANICKS=$(grep -c "panicked at" /var/tmp/creditcoin3-node.log || true)
+          if [ "$NUM_PANICKS" -gt 0 ]; then
+            exit 2
+          fi
+
+      - name: Deploy contract(s) to Creditcoin Local
+        working-directory: ./docs/smart-contract-development/with-hardhat
+        run: |
+          for module in ignition/modules/*.ts; do
+              npx hardhat ignition deploy --reset "$module" --network creditcoinLocal
+          done
+        env:
+          HARDHAT_IGNITION_CONFIRM_DEPLOYMENT: "yes"
+          HARDHAT_IGNITION_CONFIRM_RESET: "yes"
+
+      - name: Deploy contract(s) to Creditcoin Devnet
+        if: contains(fromJSON('["usc-dev", "dev"]'), github.base_ref) && env.HARDHAT_VAR_CC3TEST_PRIVATE_KEY
+        working-directory: ./docs/smart-contract-development/with-hardhat
+        run: |
+          WALLET_ADDRESS=$(~/.foundry/bin/cast wallet address --private-key "$HARDHAT_VAR_CC3TEST_PRIVATE_KEY")
+          echo "INFO: trying to deploy from $WALLET_ADDRESS"
+
+          NETWORK_URL=$(npx hardhat --config hardhat-creditcoin3.config.ts print-network --network creditcoinDevnet)
+          echo "INFO: available balance on $NETWORK_URL for $WALLET_ADDRESS"
+          ~/.foundry/bin/cast balance --rpc-url "$NETWORK_URL" "$WALLET_ADDRESS" --ether
+          ~/.foundry/bin/cast balance --rpc-url "$NETWORK_URL" "$WALLET_ADDRESS"
+
+          for module in ignition/modules/*.ts; do
+              npx hardhat --config hardhat-creditcoin3.config.ts ignition deploy --reset "$module" --network creditcoinDevnet
+          done
+        env:
+          # WARNING: EVM Balthathar != Substrate Bob
+          # WARNING: EVM Balthathar != Substrate Bob's Associated EVM address
+          HARDHAT_VAR_CC3TEST_PRIVATE_KEY: "${{ secrets.DEVNET_BOB_EVM_PK }}"
+          HARDHAT_IGNITION_CONFIRM_DEPLOYMENT: "yes"
+          HARDHAT_IGNITION_CONFIRM_RESET: "yes"
+
+      - name: Deploy contract(s) to Creditcoin Testnet
+        if: github.base_ref == 'usc-testnet' && env.HARDHAT_VAR_CC3TEST_PRIVATE_KEY
+        working-directory: ./docs/smart-contract-development/with-hardhat
+        run: |
+          WALLET_ADDRESS=$(~/.foundry/bin/cast wallet address --private-key "$HARDHAT_VAR_CC3TEST_PRIVATE_KEY")
+          echo "INFO: trying to deploy from $WALLET_ADDRESS"
+
+          NETWORK_URL=$(npx hardhat --config hardhat-creditcoin3.config.ts print-network --network creditcoinTestnet)
+          echo "INFO: available balance on $NETWORK_URL for $WALLET_ADDRESS"
+          ~/.foundry/bin/cast balance --rpc-url "$NETWORK_URL" "$WALLET_ADDRESS" --ether
+          ~/.foundry/bin/cast balance --rpc-url "$NETWORK_URL" "$WALLET_ADDRESS"
+
+          for module in ignition/modules/*.ts; do
+              npx hardhat --config hardhat-creditcoin3.config.ts ignition deploy --reset "$module" --network creditcoinTestnet
+          done
+        env:
+          # WARNING: EVM Balthathar != Substrate Bob
+          # WARNING: EVM Balthathar != Substrate Bob's Associated EVM address
+          HARDHAT_VAR_CC3TEST_PRIVATE_KEY: "${{ secrets.TESTNET_BOB_EVM_PK }}"
+          HARDHAT_IGNITION_CONFIRM_DEPLOYMENT: "yes"
+          HARDHAT_IGNITION_CONFIRM_RESET: "yes"
+
+      - name: Deploy contract(s) to Creditcoin Mainnet
+        if: github.base_ref == 'main' && env.HARDHAT_VAR_CC3TEST_PRIVATE_KEY
+        working-directory: ./docs/smart-contract-development/with-hardhat
+        run: |
+          WALLET_ADDRESS=$(~/.foundry/bin/cast wallet address --private-key "$HARDHAT_VAR_CC3TEST_PRIVATE_KEY")
+          echo "INFO: trying to deploy from $WALLET_ADDRESS"
+
+          NETWORK_URL=$(npx hardhat --config hardhat-creditcoin3.config.ts print-network --network creditcoinMainnet)
+          echo "INFO: available balance on $NETWORK_URL for $WALLET_ADDRESS"
+          ~/.foundry/bin/cast balance --rpc-url "$NETWORK_URL" "$WALLET_ADDRESS" --ether
+          ~/.foundry/bin/cast balance --rpc-url "$NETWORK_URL" "$WALLET_ADDRESS"
+
+          for module in ignition/modules/*.ts; do
+              npx hardhat --config hardhat-creditcoin3.config.ts ignition deploy --reset "$module" --network creditcoinMainnet
+          done
+        env:
+          # WARNING: EVM Balthathar != Substrate Bob
+          # WARNING: EVM Balthathar != Substrate Bob's Associated EVM address
+          HARDHAT_VAR_CC3TEST_PRIVATE_KEY: "${{ secrets.MAINNET_BOB_EVM_PK }}"
+          HARDHAT_IGNITION_CONFIRM_DEPLOYMENT: "yes"
+          HARDHAT_IGNITION_CONFIRM_RESET: "yes"
+
+      - name: Fork Creditcoin Testnet with Hardhat
+        working-directory: ./docs/smart-contract-development/with-hardhat
+        run: |
+          echo "Skipped b/c of https://github.com/NomicFoundation/hardhat/discussions/5266"
+          # npx hardhat node --fork https://rpc.cc3-testnet.creditcoin.network
+
+      - name: Upload logs
+        uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          if-no-files-found: warn
+          name: "creditcoin3-node-logs"
+          path: |
+            /var/tmp/creditcoin3-node.log
+
+  cc3-indexer-testing:
+    needs:
+      - should-run
+      - build-creditcoin-node-for-testing-ci
+    if: ${{ needs.should-run.outputs.cc3_indexer == 'true' }}
+    # One job: with a block sealed every second and eras sealed ahead, the files no longer
+    # need splitting over runners. cc3-indexer-handlers checks that every handler ran.
+    runs-on: ubuntu-26.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Download binaries
+        uses: actions/download-artifact@v8
+        with:
+          name: binary-for-testing-ci
+          path: target/release
+
+      - name: Start creditcoin3-node - Alice
+        env:
+          RUST_LOG: debug
+        run: |
+          mkdir -p /var/tmp/cc3-indexer-testing/
+          chmod a+x ./target/release/creditcoin3-node
+          # Manual sealing: .github/seal-blocks.sh produces a block every slot, and tests
+          # waiting for eras (unbonding, chilling, pending changes) seal the rest at once.
+          ./target/release/creditcoin3-node \
+            --chain dev \
+            --validator --alice  --pruning archive \
+            --sealing manual \
+            --node-key d182d503b7dd97e7c055f33438c7717145840fd66b2a055284ee8d768241a463 \
+            --unsafe-rpc-external --rpc-cors all \
+            --base-path ./alice-data >/var/tmp/cc3-indexer-testing/creditcoin3-node.log 2>&1 &
+
+      - name: Install Foundry
+        uses: foundry-rs/foundry-toolchain@v1
+        with:
+          # Pinned: v1.6.x changed the anvil --dump-state JSON format,
+          # which breaks --load-state on the existing anvil10k_blocks.json
+          # snapshot. Bump deliberately when we regenerate that snapshot.
+          version: v1.5.1
+
+      - name: Start Ethereum simulation with Anvil - several chains
+        run: |
+          # supported chain keys are hard-coded in attestor/src/cc3.rs and node/src/chain_spec.rs
+          # Anvil1 == chain_key(2), Anvil2 == chain_key(4). Ports are arbitrary
+          # Anvil3 == chain_key(5) - will be registered dynamically
+          ~/.foundry/bin/anvil --block-time 6 --chain-id 31337 --port 8141 &
+          ~/.foundry/bin/anvil --block-time 6 --chain-id 31338 --port 8242 &
+          ~/.foundry/bin/anvil --block-time 6 --chain-id 31339 --port 8343 &
+
+      - name: Check that creditcoin-node and anvil are running
+        run: |
+          .github/wait-for-creditcoin.sh 'http://127.0.0.1:9944'
+          .github/seal-blocks.sh 'http://127.0.0.1:9944' 1 >/var/tmp/cc3-indexer-testing/seal-blocks.log 2>&1 &
+          .github/wait-for-ethereum.sh 'http://127.0.0.1:8141'
+          .github/wait-for-ethereum.sh 'http://127.0.0.1:8242'
+          .github/wait-for-ethereum.sh 'http://127.0.0.1:8343'
+
+      - name: Setup Node.js environment
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: 'yarn'
+          cache-dependency-path: |
+            cc3-indexer/yarn.lock
+            cli/yarn.lock
+
+      - name: Simulate a native token transfer on Anvil 1
+        id: native-transfer-anvil-1
+        working-directory: attestor/scripts
+        run: |
+          npm install
+
+          OUTPUT=$(ETH_RPC_URL=http://127.0.0.1:8141 node Transfer.js)
+          echo "$OUTPUT"
+
+          BLOCK_NUMBER=$(echo "$OUTPUT" | grep block: | cut -f2 -d: | tr -d ' ')
+          TXN_HASH=$(echo "$OUTPUT" | grep hash: | cut -f2 -d: | tr -d ' ')
+
+          # Provide default values if extraction failed
+          if [ -z "$BLOCK_NUMBER" ]; then
+            echo "Warning: Could not extract block number from Transfer.js output"
+            BLOCK_NUMBER="1"
+          fi
+          if [ -z "$TXN_HASH" ]; then
+            echo "Warning: Could not extract transaction hash from Transfer.js output"
+            TXN_HASH="0x0000000000000000000000000000000000000000000000000000000000000000"
+          fi
+
+          echo "block_number=$BLOCK_NUMBER" >> "$GITHUB_OUTPUT"
+          echo "txn_hash=$TXN_HASH" >> "$GITHUB_OUTPUT"
+
+      - name: Start Attestation Zombienet for Alice - Anvil 1
+        run: |
+          chmod a+x ./target/release/attestor*
+
+          mkdir -p /var/tmp/cc3-indexer-testing/attestors-alice
+
+          ./target/release/attestor_zombienet \
+                -n 3 \
+                --bin=./target/release/attestor \
+                --eth-url=ws://localhost:8141 \
+                --cc3-url=ws://localhost:9944 \
+                --funding-address='//Alice' \
+                --config=./attestor/config.yaml \
+                --chain-key=2 &
+
+      - name: Install Solidity compiler
+        run: |
+          sudo .github/install-solidity-compiler.sh
+
+      - name: Generate ABI from source code
+        working-directory: ./precompiles/metadata
+        run: |
+          solc --version
+          ./abi-creator.sh
+
+      - name: Start Attestation Zombienet for Charlie - Anvil 3
+        run: |
+          chmod a+x ./target/release/attestor*
+
+          mkdir -p /var/tmp/cc3-indexer-testing/attestors-charlie
+
+          ./target/release/attestor_zombienet \
+                -n 3 \
+                --offset=3 \
+                --bin=./target/release/attestor \
+                --eth-url=ws://localhost:8343 \
+                --cc3-url=ws://localhost:9944 \
+                --funding-address='//Alice' \
+                --config=./attestor/config.yaml \
+                --chain-key=5 &
+
+      - name: Wait for 3 attestors to be registered
+        run: |
+          # note: chain_key is hard-coded in this script so waiting only on Anvil_1
+          .github/wait-for-attestors.sh 'http://127.0.0.1:9944'
+
+      - name: Setup cc3-indexer
+        working-directory: ./cc3-indexer
+        run: |
+          yarn install
+
+          # overwrite .env before building & starting the application
+          GENESIS_HASH=$(curl --silent -H "Content-Type: application/json" \
+            -d '{"id": 1, "jsonrpc": "2.0", "method": "chain_getBlockHash", "params": [0] }' \
+            http://127.0.0.1:9944 | jq -r .result)
+          echo "ENDPOINT=ws://host.docker.internal:9944/" > .env
+          echo "CHAIN_ID=$GENESIS_HASH" >> .env
+
+          yarn build
+
+          docker compose pull
+          docker compose up -d
+
+          # wait until the SubQuery GraphQL endpoint answers with a processed height
+          for _ in $(seq 1 120); do
+            HEIGHT=$(curl --silent -H 'Content-Type: application/json' \
+              -d '{"query":"{ _metadata { lastProcessedHeight } }"}' \
+              http://127.0.0.1:3000 | jq -r '.data._metadata.lastProcessedHeight // empty' 2>/dev/null || true)
+            [ -n "$HEIGHT" ] && break
+            sleep 1
+          done
+          if [ -z "$HEIGHT" ]; then
+            echo "cc3-indexer did not start processing blocks within 120s" >&2
+            exit 1
+          fi
+          echo "cc3-indexer processed up to block $HEIGHT"
+
+      - name: Run integration tests for cc3-indexer
+        working-directory: ./cli
+        env:
+          ANVIL1_TXN_HASH: ${{ steps.native-transfer-anvil-1.outputs.txn_hash }}
+        run: |
+          # Every file, alphabetically: the files that only read what the attestors
+          # produced (Elected, BlockAttested, CheckpointReached) come after the setup ones,
+          # and zz-/zzz-, which revert and then remove chain 5, stay last.
+          mapfile -t PATHS < <(find src/test/cc3-indexer-tests -name '*.test.ts' | sort)
+          yarn install
+          yarn test:cc3-indexer:files "${PATHS[@]}"
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: junit-cc3-indexer
+          path: cli/reports/junit/
+          if-no-files-found: ignore
+
+      - name: Collect logs
+        if: always()
+        working-directory: ./cc3-indexer
+        run: |
+          docker compose logs --no-color > /var/tmp/cc3-indexer-testing/indexer-compose.log
+          docker cp cc3-indexer-subquery-node-1:/.monitor /var/tmp/cc3-indexer-testing/
+
+      - name: Check cc3-indexer logs for errors
+        if: always()
+        run: |
+          .github/check-logs-for-error.sh /var/tmp/cc3-indexer-testing/indexer-compose.log
+
+      - name: Upload the handlers the tests executed
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: cc3-indexer-monitor
+          path: /var/tmp/cc3-indexer-testing/.monitor/app-fileA.txt
+          include-hidden-files: true
+          if-no-files-found: ignore
+
+      - name: Sanity check Int vs BigInt data types
+        if: always()
+        run: |
+          .github/check-grapqhl-schema-types.sh
+
+      - name: Run query-cli e2e with native verification
+        if: always()
+        run: |
+          chmod a+x ./target/release/query-cli
+          ./target/release/query-cli \
+            --cc3-rpc-url ws://127.0.0.1:9944 \
+            --cc3-evm-private-key "8075991ce870b93a8870eca0c0f91913d12f47948ca0fd25b49c6fa7cdbeee8b" \
+            verify \
+            --eth-rpc-url ws://127.0.0.1:8141 \
+            --block-height ${{ steps.native-transfer-anvil-1.outputs.block_number }} \
+            --txn-hash ${{ steps.native-transfer-anvil-1.outputs.txn_hash }}
+
+      # WARNING: upload logs before killing running processes b/c the created temporary directories
+      # may be removed once the program exits. Read about the implementation details at:
+      # https://docs.rs/tempfile/latest/tempfile/struct.TempDir.html
+      - name: Upload logs
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: cc3-indexer-testing
+          path: /var/tmp/cc3-indexer-testing/
+          include-hidden-files: true
+
+      - name: Kill processes
+        if: always()
+        continue-on-error: true
+        run: |
+          docker compose -f cc3-indexer/docker-compose.yaml down
+          pkill -f seal-blocks.sh
+
+          killall -9 attestor_zombienet
+          killall -9 attestor
+          killall -9 creditcoin3-node
+
+  # Every handler in datasources.ts must have run.
+  cc3-indexer-handlers:
+    needs:
+      - should-run
+      - cc3-indexer-testing
+    if: ${{ always() && needs.should-run.outputs.cc3_indexer == 'true' }}
+    runs-on: ubuntu-26.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Download the handlers the tests executed
+        uses: actions/download-artifact@v8
+        with:
+          name: cc3-indexer-monitor
+          path: monitor
+
+      - name: Check every handler was executed
+        run: |
+          sudo apt-get install colordiff
+          mapfile -t FILES < <(find monitor -type f -name 'app-fileA.txt')
+          .github/check-cc3-indexer-handlers.sh "${FILES[@]}"
+
+  attestor-cli-testing:
+    # Attestor stash operations are dispatched through the EVM precompile, which
+    # uses the EVM `msg.sender` as origin via HashedAddressMapping. Substrate
+    # `pallet_proxy` delegation is not plumbed through the EVM, so there's no
+    # proxy matrix here — the stash signs directly.
+    needs:
+      - build-creditcoin-node-for-testing-ci
+      - should-run
+      - regenerate-metadata
+    if: ${{ needs.should-run.outputs.attestor_cli_testing == 'true' }}
+    # One job: with blocks sealed every second the attestor files no longer need to be
+    # split over runners.
+    runs-on: ubuntu-26.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Download binaries
+        uses: actions/download-artifact@v8
+        with:
+          name: binary-for-testing-ci
+          path: target/release
+
+      - name: Start creditcoin3-node
+        run: |
+          chmod a+x ./target/release/attestor
+
+          chmod a+x ./target/release/creditcoin3-node
+          ./target/release/creditcoin3-node \
+            --chain dev \
+            --validator --alice  --pruning archive \
+            --node-key d182d503b7dd97e7c055f33438c7717145840fd66b2a055284ee8d768241a463 \
+            --base-path ./alice-data &
+
+      - name: Wait for nodes to start
+        run: |
+          ./.github/wait-for-creditcoin.sh 'http://127.0.0.1:9944'
+
+      - name: Install Foundry
+        uses: foundry-rs/foundry-toolchain@v1
+        with:
+          # Pinned: v1.6.x changed the anvil --dump-state JSON format,
+          # which breaks --load-state on the existing anvil10k_blocks.json
+          # snapshot. Bump deliberately when we regenerate that snapshot.
+          version: v1.5.1
+
+      - name: Start Ethereum simulation with Anvil
+        run: |
+          # supported chain keys are hard-coded in attestor/src/cc3.rs and node/src/chain_spec.rs
+          # Anvil1 == chain_key(2), Anvil2 == chain_key(4). Ports are arbitrary
+          ~/.foundry/bin/anvil --block-time 6 --chain-id 31337 --port 8141 &
+
+      - name: Install Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: 'yarn'
+          cache-dependency-path: cli/yarn.lock
+      - run: npm install -g yarn
+
+      - name: Install Solidity compiler
+        run: |
+          sudo .github/install-solidity-compiler.sh
+
+      - name: Generate precompiles ABI from source code
+        working-directory: ./precompiles/metadata
+        run: |
+          solc --version
+          ./abi-creator.sh
+
+      - name: Download regenerated metadata
+        uses: actions/download-artifact@v8
+        with:
+          name: new-metadata
+          path: .
+
+      - name: Show what the regenerated metadata changed
+        run: |
+          echo "========== DEBUG METADATA DIFF =========="
+          git status --short --untracked-files=no
+          git diff --binary
+          echo "======================================="
+
+      - name: Install creditcoin-cli dependencies
+        working-directory: ./cli
+        run: |
+          yarn install
+
+          # note: potentially rebuilds with newer type definitions
+          yarn build
+
+      - name: Check that Creditcoin chain has ETH blocks
+        working-directory: ./cli
+        run: |
+          node dist/scripts/eth-check.js ws://127.0.0.1:9944
+
+      # Each test file starts its own Alice and Bob on the default ports, with the same node
+      # key as the node above. Left running, it holds those ports for the first file: the
+      # CLI talks to it while Bob syncs from two peers with one identity and stalls.
+      - name: Stop the pre-test node
+        run: |
+          killall -9 creditcoin3-node || true
+          for _ in $(seq 1 30); do
+            pgrep -f '[t]arget/release/creditcoin3-node' >/dev/null || exit 0
+            sleep 1
+          done
+          echo "creditcoin3-node still running after 30 s" >&2
+          exit 1
+
+      - name: Run integration tests
+        working-directory: ./cli
+        run: |
+          yarn jest --config src/test/integration-tests.config.ts --silent --verbose --runInBand --forceExit \
+            src/test/integration-tests/attestor
+        env:
+          RUST_LOG: debug
+          # Blocks sealed and finalized every second instead of BABE slots and GRANDPA (see
+          # startSealTicker in cli/src/test/utils.ts), as for the validator CLI legs.
+          CREDITCOIN_SEALING: manual
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: junit-attestor-cli
+          path: cli/reports/junit/
+          if-no-files-found: ignore
+
+      - name: Kill nodes
+        if: always()
+        continue-on-error: true
+        run: |
+          # if all went well kill the node. Otherwise GitHub Actions would exit on the
+          # previous step killing everything and we don't have to worry about
+          # dangling processes
+          killall -9 creditcoin3-node
+
+      - name: Upload logs from Alice and Bob
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: logs-for-attestor-cli
+          path: |
+            /tmp/attestor-*.std*
+            /tmp/creditcoin3-node-*.std*
+            /tmp/seal-blocks.log
+
+  regenerate-metadata:
+    outputs:
+      git_diff: ${{ steps.update_typedefs.outputs.git_diff }}
+    needs:
+      - should-run
+      - build-creditcoin-node-for-testing-ci
+    if: ${{ needs.should-run.outputs.regenerate_metadata == 'true' || needs.should-run.outputs.integration_test_cli == 'true' || needs.should-run.outputs.attestor_cli_testing == 'true' }}
+    runs-on: ubuntu-26.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: 'yarn'
+          cache-dependency-path: cli/yarn.lock
+      - run: npm install -g yarn
+
+      # WARNING: always after Swatinem/rust-cache
+      - name: Download creditcoin-node binary
+        uses: actions/download-artifact@v8
+        with:
+          name: binary-for-testing-ci
+          path: target/release
+
+      - name: Start creditcoin3-node in order to update typedefs
+        run: |
+          chmod a+x ./target/release/creditcoin3-node
+          ./target/release/creditcoin3-node \
+            --chain dev \
+            --validator --alice  --pruning archive \
+            --node-key d182d503b7dd97e7c055f33438c7717145840fd66b2a055284ee8d768241a463 \
+            --base-path ./alice-data &
+
+      - name: Wait for nodes to start
+        run: |
+          ./.github/wait-for-creditcoin.sh 'http://127.0.0.1:9944'
+
+      - name: Install Solidity compiler
+        run: |
+          sudo .github/install-solidity-compiler.sh
+
+      - name: Generate precompiles ABI from source code
+        working-directory: ./precompiles/metadata
+        run: |
+          solc --version
+          ./abi-creator.sh
+
+      - name: Install creditcoin-cli dependencies
+        working-directory: ./cli
+        run: |
+          yarn install
+
+      - name: Download subxt from release ${{ needs.should-run.outputs.devnet_release_tag }}
+        uses: i3h/download-release-asset@v1
+        with:
+          owner: ${{ github.repository_owner }}
+          repo: ${{ github.event.repository.name }}
+          tag: ${{ needs.should-run.outputs.devnet_release_tag }}
+          file: subxt
+          path: /usr/local/bin
+          token: ${{ secrets.PAT || secrets.GITHUB_TOKEN }}
+
+      - name: Auto-update typedefs
+        id: update_typedefs
+        working-directory: ./cli
+        run: |
+          ./get-metadata.sh
+
+          sudo chmod a+x /usr/local/bin/subxt
+          subxt version
+
+          # pin the metadata version rather than taking subxt's default, which
+          # is whatever the runtime reports as its highest stable version. That
+          # would silently jump to v17 on a future SDK bump and break the
+          # cc-client macro with a compile error instead of a metadata error.
+          subxt metadata --version 16 -f bytes > ../common/cc-client/artifacts/metadata.scale
+
+          # kill the node b/c the tests will launch their own processes
+          killall -9 creditcoin3-node
+
+          yarn build:types
+          yarn format
+
+          echo "========== DEBUG DEBUG DEBUG =========="
+          git status --short --untracked-files=no
+          git diff --binary
+          echo "======================================="
+
+          # do not update if only creditcoin.json has changed,
+          # usually happens on version bump without any real metadata change
+          # shellcheck disable=SC2143
+          if [ -n "$(git status --short --untracked-files=no | grep -v yarn.lock | grep -v creditcoin.json | grep -v metadata.scale)" ]; then
+              git diff
+              echo "git_diff=true" >> "$GITHUB_OUTPUT"
+          else
+              echo "git_diff=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      # Ship the regenerated files themselves rather than a `git diff` of them.
+      # A diff records the blob it was computed against, so `git apply` in the
+      # consumers below failed outright whenever their checkout differed from this
+      # job's -- which it does on any PR whose branch is behind a base that moved
+      # `metadata.scale`, and would again if the refs ever drift apart. Copying the
+      # files in has no pre-image to match, so it cannot fail that way.
+      #
+      # These are exactly the three paths `commit-new-metadata` commits back
+      # (below). Incidental `cli/yarn.lock` churn is deliberately not
+      # carried over: every consumer runs its own `yarn install` afterwards.
+      - name: Upload regenerated metadata
+        uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          if-no-files-found: error
+          name: new-metadata
+          path: |
+            cli/creditcoin.json
+            cli/src/lib/interfaces/
+            common/cc-client/artifacts/metadata.scale
+
+  # Commits the files regenerate-metadata produced back to the PR branch. It used to
+  # compile the whole workspace in release first, only to check that cc-client builds
+  # against the new metadata.scale, and nothing used the binaries. The bot's commit
+  # starts a new CI run that compiles everything against the committed metadata anyway.
+  commit-new-metadata:
+    # checkov:skip=CKV2_GHA_1:We need this for typedefs auto-commit
+    permissions:
+      contents: write
+    needs:
+      - regenerate-metadata
+    if: ${{ needs.regenerate-metadata.outputs.git_diff == 'true' }}
+    runs-on: ubuntu-26.04
+    timeout-minutes: 10
+    steps:
+      # The branch head, not the merge ref: this job commits back to it. With the bot's
+      # token, which checkout keeps as the push credential: a push made with GITHUB_TOKEN
+      # starts no workflow, so nothing would compile the committed metadata.
+      - uses: actions/checkout@v7
+        with:
+          repository: ${{ github.event.pull_request.head.repo.full_name }}
+          ref: ${{ github.event.pull_request.head.ref }}
+          token: ${{ secrets.GLUWA_BOT_TOKEN }}
+
+      - name: Download regenerated metadata
+        uses: actions/download-artifact@v8
+        with:
+          name: new-metadata
+          path: .
+
+      - name: Show what the regenerated metadata changed
+        run: git status --short --untracked-files=no
+
+      - name: Commit typedefs and metadata changes
+        uses: EndBug/add-and-commit@v10
+        with:
+          add: "cli/creditcoin.json cli/src/lib/interfaces/ common/cc-client/artifacts/metadata.scale"
+          author_name: gluwa-bot
+          author_email: creditcoin@gluwa.com
+          message: "Auto-update metadata & TypeScript type definitions"
+          github_token: ${{ secrets.GLUWA_BOT_TOKEN }}
+
+  # The four example workflows below run gluwa/attestcoin-protocol-examples. They are pinned
+  # to one commit, the same SHA in `uses:` and `checkout_ref`, so a push to the examples repo
+  # can't turn every open PR here red. Bump both together when the examples change.
+  hello-bridge:
+    needs:
+      - build-creditcoin-node-for-testing-ci
+      - should-run
+    if: ${{ needs.should-run.outputs.integration_test_blockchain == 'true' }}
+    uses: gluwa/attestcoin-protocol-examples/.github/workflows/hello-bridge.yml@f5eca1234d57b53149f312063798d71072faebe3 # main, 2026-10-16
+    with:
+      source_chain_kind: "anvil"
+      asc_kind: "local"
+      checkout_repo: "gluwa/attestcoin-protocol-examples"
+      checkout_ref: "f5eca1234d57b53149f312063798d71072faebe3"
+
+  custom-contracts-bridging:
+    needs:
+      - build-creditcoin-node-for-testing-ci
+      - should-run
+    if: ${{ needs.should-run.outputs.integration_test_blockchain == 'true' }}
+    uses: gluwa/attestcoin-protocol-examples/.github/workflows/custom-contracts-bridging.yml@f5eca1234d57b53149f312063798d71072faebe3 # main, 2026-10-16
+    with:
+      source_chain_kind: "anvil"
+      asc_kind: "local"
+      checkout_repo: "gluwa/attestcoin-protocol-examples"
+      checkout_ref: "f5eca1234d57b53149f312063798d71072faebe3"
+
+  bridge-offchain-worker:
+    needs:
+      - build-creditcoin-node-for-testing-ci
+      - should-run
+    if: ${{ needs.should-run.outputs.integration_test_blockchain == 'true' }}
+    uses: gluwa/attestcoin-protocol-examples/.github/workflows/bridge-offchain-worker.yml@f5eca1234d57b53149f312063798d71072faebe3 # main, 2026-10-16
+    with:
+      source_chain_kind: "anvil"
+      asc_kind: "local"
+      checkout_repo: "gluwa/attestcoin-protocol-examples"
+      checkout_ref: "f5eca1234d57b53149f312063798d71072faebe3"
+
+  loan-flow:
+    needs:
+      - build-creditcoin-node-for-testing-ci
+      - should-run
+    if: ${{ needs.should-run.outputs.integration_test_blockchain == 'true' }}
+    uses: gluwa/attestcoin-protocol-examples/.github/workflows/loan-flow.yml@f5eca1234d57b53149f312063798d71072faebe3 # main, 2026-10-16
+    with:
+      runs-on: "['ubuntu-26.04']"
+      source_chain_kind: "anvil"
+      asc_kind: "local"
+      checkout_repo: "gluwa/attestcoin-protocol-examples"
+      checkout_ref: "f5eca1234d57b53149f312063798d71072faebe3"
+
+  # Both compatibility suites used to live in their own pull_request workflows, each
+  # building its own SUT. That was the same `--release --features=fast-runtime` compile
+  # of the same commit, three times over counting this workflow's build. They now run
+  # here so they can download binary-for-testing-ci instead.
+  #
+  # git-lfs-checkout is deliberately not needed: the only LFS-tracked file compiled into
+  # the node is chainspecs/mainnetSpecRaw.json, reached solely via mainnet_config() at
+  # node/src/chain_spec.rs:137, and both suites run --chain dev only. validator's
+  # chainspecs/** filter is a trigger, not a runtime read.
+  attestor-compatibility:
+    needs:
+      - should-run
+      - build-creditcoin-node-for-testing-ci
+    if: ${{ needs.should-run.outputs.attestor_compatibility == 'true' }}
+    uses: ./.github/workflows/attestor-compatibility.yml
+    with:
+      sut-artifact: binary-for-testing-ci
+      # Red by construction on dev whenever pallet-attestation's metadata changes; a
+      # warning there, blocking on promotion PRs.
+      informational: ${{ github.base_ref == 'dev' }}
+    secrets: inherit
+
+  validator-compatibility:
+    needs:
+      - should-run
+      - build-creditcoin-node-for-testing-ci
+    if: ${{ needs.should-run.outputs.validator_compatibility == 'true' }}
+    uses: ./.github/workflows/validator-compatibility.yml
+    with:
+      sut-artifact: binary-for-testing-ci
+    secrets: inherit
+
+  proof-gen-api-server:
+    needs:
+      - should-run
+      - build-creditcoin-node-for-testing-ci
+    if: ${{ needs.should-run.outputs.proof_gen == 'true' }}
+    uses: ./.github/workflows/proof-gen-api-server.yml
+    with:
+      sut-artifact: binary-for-testing-ci
+    secrets: inherit
+
+  archiver-testing:
+    if: ${{ needs.should-run.outputs.archiver == 'true' }}
+    needs:
+      - should-run
+      - build-creditcoin-node-for-testing-ci
+    runs-on: ubuntu-26.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Download binaries
+        uses: actions/download-artifact@v8
+        with:
+          name: binary-for-testing-ci
+          path: target/release
+
+      - name: Start creditcoin3-node - Alice
+        run: |
+          mkdir -p /var/tmp/archiver-testing/
+
+          chmod a+x ./target/release/creditcoin3-node
+          ./target/release/creditcoin3-node \
+            --chain dev \
+            --validator --alice  --pruning archive \
+            --node-key d182d503b7dd97e7c055f33438c7717145840fd66b2a055284ee8d768241a463 \
+            --unsafe-rpc-external --rpc-cors all \
+            --base-path ./alice-data >/var/tmp/archiver-testing/creditcoin3-node.log 2>&1 &
+
+      - name: Install Foundry
+        uses: foundry-rs/foundry-toolchain@v1
+        with:
+          # Pinned: v1.6.x changed the anvil --dump-state JSON format,
+          # which breaks --load-state on the existing anvil10k_blocks.json
+          # snapshot. Bump deliberately when we regenerate that snapshot.
+          version: v1.5.1
+
+      - name: Start Ethereum simulation with Anvil
+        run: |
+          # supported chain keys are hard-coded in attestor/src/cc3.rs and node/src/chain_spec.rs
+          # Anvil1 == chain_key(2)
+          ~/.foundry/bin/anvil --block-time 6 --chain-id 31337 \
+            --port 8141 >/var/tmp/archiver-testing/anvil.log 2>&1 &
+
+      - name: Check that creditcoin-node and anvil are running
+        run: |
+          .github/wait-for-creditcoin.sh 'http://127.0.0.1:9944'
+          .github/wait-for-ethereum.sh 'http://127.0.0.1:8141' /var/tmp/archiver-testing/anvil.log
+
+      - name: Setup Node.js environment
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: 'yarn'
+          cache-dependency-path: cli/yarn.lock
+
+      - name: Run native token transfers in background
+        working-directory: attestor/scripts
+        run: |
+          npm install
+
+          # archiver needs a steady stream of input blocks and transactions
+          {
+            while /bin/true; do
+                ETH_RPC_URL=http://127.0.0.1:8141 node Transfer.js
+                sleep 4;
+            done
+          } &
+
+      - name: Start archiver
+        env:
+          RUST_LOG: debug
+        run: |
+          chmod a+x ./target/release/archiver
+
+          ./target/release/archiver --help
+
+          ./target/release/archiver \
+              --rpc-http http://localhost:8141 \
+              --rpc-ws ws://localhost:8141 \
+              --start-height 0 \
+              --flush-every 5 \
+              --chain-key 2 \
+              --api-bind 0.0.0.0:8080 >/var/tmp/archiver-testing/archiver.log 2>&1 &
+
+      - name: Start Attestation Zombienet for Alice - Anvil 1
+        run: |
+          chmod a+x ./target/release/attestor*
+
+          mkdir -p /var/tmp/archiver-testing/attestors-alice
+
+          ./target/release/attestor_zombienet \
+                -n 3 \
+                --bin=./target/release/attestor \
+                --eth-url=ws://localhost:8141 \
+                --cc3-url=ws://localhost:9944 \
+                --funding-address='//Alice' \
+                --config=./attestor/config.yaml \
+                --chain-key=2 &
+
+      - name: Install Solidity compiler
+        run: |
+          sudo .github/install-solidity-compiler.sh
+
+      - name: Generate ABI from source code
+        working-directory: ./precompiles/metadata
+        run: |
+          solc --version
+          ./abi-creator.sh
+
+      - name: Wait for 3 attestors to be registered
+        run: |
+          # note: chain_key is hard-coded in this script so waiting only on Anvil_1
+          .github/wait-for-attestors.sh 'http://127.0.0.1:9944'
+
+      - name: Wait for the archiver to store its first attested block
+        run: |
+          # The archiver follows the latest attested height rather than the source head, so it
+          # stores nothing until the attestors have produced their first attestation. The tests
+          # below assert on stored blocks; give the pipeline a bounded window to produce one.
+          for _ in $(seq 1 90); do
+            LATEST=$(curl -sf http://127.0.0.1:8080/status | python3 -c 'import sys,json;print(json.load(sys.stdin).get("latest_archived_block") or 0)' 2>/dev/null || echo 0)
+            if [ "$LATEST" -gt 0 ]; then
+              echo "archiver stored up to block $LATEST"
+              exit 0
+            fi
+            sleep 10
+          done
+          echo "archiver stored nothing after 15 minutes: no attestation landed on chain key 2" >&2
+          exit 1
+
+      - name: Run integration tests for archiver
+        working-directory: ./cli
+        run: |
+          yarn install
+
+          yarn test:archiver
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: junit-archiver
+          path: cli/reports/junit/
+          if-no-files-found: ignore
+
+      - name: Check archiver logs for errors
+        if: always()
+        run: |
+          .github/check-logs-for-error.sh /var/tmp/archiver-testing/archiver.log
+
+      - name: Upload logs
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: archiver-testing
+          path: /var/tmp/archiver-testing/
+          include-hidden-files: true
+
+  # The nightly soak has nobody watching the run, so a failure has to reach people. A manual
+  # soak run (workflow_dispatch with `soak`) is watched by whoever started it.
+  report-nightly-soak-failure:
+    # should-run is listed too: if it fails, the two jobs after it are skipped rather than
+    # failed, and the night would otherwise pass without a word.
+    needs:
+      - should-run
+      - build-creditcoin-node-for-testing-ci
+      - integration-test-attestator-network
+    if: ${{ always() && github.event_name == 'schedule' && (contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')) }}
+    runs-on: ubuntu-26.04
+    timeout-minutes: 5
+    steps:
+      - name: Report result to Slack
+        uses: act10ns/slack@v2
+        with:
+          webhook-url: ${{ secrets.SLACK_WEBHOOK_URL }}
+          status: failure
+          channel: "#protocol-internal"
+          message: |-
+            Nightly attestor-network soak failed on `${{ github.ref_name }}` (${{ github.sha }}).
+            should-run: ${{ needs.should-run.result }} |
+            build: ${{ needs.build-creditcoin-node-for-testing-ci.result }} |
+            attestor-network: ${{ needs.integration-test-attestator-network.result }}
+            ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}

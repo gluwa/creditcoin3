@@ -1,0 +1,252 @@
+import { U64 } from '@polkadot/types-codec';
+import { WebSocketProvider } from 'ethers';
+import { newApi, ApiPromise, KeyringPair } from '../../lib';
+import { getChainStatus } from '../../lib/chain/status';
+import {
+    chain_Anvil1_Key,
+    chain_Anvil1_Url,
+    chain_Anvil2_Key,
+} from '../blockchain-tests/pallets/supported-chains/consts';
+import { randomIntBetween } from '../utils';
+
+describe('BlockAttested events', (): void => {
+    let api: ApiPromise;
+    let root: KeyringPair;
+    let startingEpoch = 0;
+    let chain_Anvil1_AttestationInterval = 0;
+    let startBlock_Anvil1 = 0;
+    let provider_Anvil1: WebSocketProvider;
+    // Hard ceiling only: the test stops as soon as every condition in `isDone()` holds,
+    // which is usually ~8 mins. Running into the ceiling means something is stuck and the
+    // assertions below will say what. The nightly soak (ATTESTATION_SOAK=1) ignores
+    // `isDone()` and always runs the whole window.
+    const maxBlocks = 250; // ~ 21 mins
+    const soak = process.env.ATTESTATION_SOAK === '1';
+    const minEpochBoundaries = 3;
+    const minIntervalChanges = 2;
+    const minAttestedAfterIntervalChange = 2;
+    const minAttestedAfterCatchUp = 2;
+
+    beforeAll(async () => {
+        ({ api } = await newApi((global as any).CREDITCOIN_API_URL));
+        startingEpoch = (await api.query.babe.epochIndex()).toNumber();
+        root = (global as any).CREDITCOIN_CREATE_SIGNER('sudo');
+
+        // check that we have enough attestors
+        const attestorsForAnvil1 = (await api.query.attestation.activeAttestors(chain_Anvil1_Key)).length;
+        expect(attestorsForAnvil1).toBeGreaterThanOrEqual(3);
+
+        const attestorsForAnvil2 = (await api.query.attestation.activeAttestors(chain_Anvil2_Key)).length;
+        expect(attestorsForAnvil2).toBeGreaterThanOrEqual(3);
+
+        // the interval is read at assert time, not cached here
+
+        provider_Anvil1 = new WebSocketProvider(chain_Anvil1_Url);
+        startBlock_Anvil1 = await provider_Anvil1.getBlockNumber();
+    }, 60_000);
+
+    afterAll(async () => {
+        await api.disconnect();
+    });
+
+    test('are emitted frequently enough and match Ethereum', async (): Promise<void> => {
+        /* eslint-disable @typescript-eslint/naming-convention */
+        const attestedEvents: { [key: string]: number } = {
+            '2': 0,
+            '4': 0,
+        };
+
+        const electionEvents: { [key: string]: number } = {
+            '2': 0,
+            '4': 0,
+        };
+        const intervalChangedEvents: { [key: string]: number } = {
+            '2': 0,
+            '4': 0,
+        };
+        let epochBoundaries = 0;
+        // Anvil-2 attestations made under an interval that was changed during this test
+        let attestedAfterIntervalChange_Anvil2 = 0;
+        // Anvil-1 attestations past the head it had when the test started, i.e. once the
+        // attestors have caught up with the preloaded blocks and follow the tip
+        let attestedAfterCatchUp_Anvil1 = 0;
+        const initialBlock = (await getChainStatus(api)).bestNumber;
+
+        const isDone = (): boolean =>
+            epochBoundaries >= minEpochBoundaries &&
+            intervalChangedEvents[chain_Anvil2_Key] >= minIntervalChanges &&
+            attestedAfterIntervalChange_Anvil2 >= minAttestedAfterIntervalChange &&
+            attestedAfterCatchUp_Anvil1 >= minAttestedAfterCatchUp &&
+            attestedEvents[chain_Anvil1_Key] >= 15 &&
+            attestedEvents[chain_Anvil2_Key] >= 4;
+
+        let done = false;
+        let unsubscribe: (() => void) | undefined;
+
+        return new Promise((resolve, reject): void => {
+            // Subscribe to system events via storage
+            api.query.system
+                .events(async (events) => {
+                    if (done) {
+                        return;
+                    }
+                    console.log(`Received ${events.length} events`);
+
+                    // Loop through the Vec<EventRecord>
+                    for (const record of events) {
+                        const { event, phase: _ } = record;
+
+                        if (`${event.section}.${event.method}` === 'attestation.BlockAttested') {
+                            // Show what we are busy with
+                            console.log(`EVENT=${event.section}:${event.method}; data=${event.data.toString()}`);
+                            const [supportedChainKey, headerNumber, _digest] = event.data;
+                            const supportedChainKeyStr = (supportedChainKey as U64).toString();
+
+                            attestedEvents[supportedChainKeyStr]++;
+
+                            if (
+                                supportedChainKeyStr === String(chain_Anvil1_Key) &&
+                                (headerNumber as U64).toNumber() > startBlock_Anvil1
+                            ) {
+                                attestedAfterCatchUp_Anvil1++;
+                            }
+                            if (
+                                supportedChainKeyStr === String(chain_Anvil2_Key) &&
+                                intervalChangedEvents[chain_Anvil2_Key] > 0
+                            ) {
+                                attestedAfterIntervalChange_Anvil2++;
+                            }
+                        }
+
+                        if (`${event.section}.${event.method}` === 'attestation.AttestationIntervalChanged') {
+                            // Show what we are busy with
+                            console.log(`EVENT=${event.section}:${event.method}; data=${event.data.toString()}`);
+                            const [chainKey, _interval] = event.data;
+                            const chainKeyStr = (chainKey as U64).toString();
+
+                            intervalChangedEvents[chainKeyStr]++;
+                        }
+
+                        if (`${event.section}.${event.method}` === 'attestation.AttestorsElected') {
+                            // Show what we are busy with
+                            console.log(`EVENT=${event.section}:${event.method}; data=${event.data.toString()}`);
+                            const [_epoch, chainKey, _attestors] = event.data;
+                            const supportedChainKeyStr = (chainKey as U64).toString();
+
+                            electionEvents[supportedChainKeyStr]++;
+                        }
+
+                        // The epoch boundary itself is signalled by pallet-randomness; `AttestorsElected`
+                        // only fires when an attestor set actually changes, so it is no longer a
+                        // per-epoch heartbeat we can schedule work from.
+                        if (`${event.section}.${event.method}` === 'randomness.StoreRandomnessForEpoch') {
+                            console.log(`EVENT=${event.section}:${event.method}; data=${event.data.toString()}`);
+                            epochBoundaries++;
+
+                            // Pending intervals apply at the next epoch boundary, so changing it on
+                            // every boundary gives one applied change per epoch from the second one on.
+                            const defaultInterval = (
+                                api.consts.attestation.defaultAttestationInterval as U64
+                            ).toNumber();
+                            const newInterval = randomIntBetween(defaultInterval - 5, defaultInterval + 5);
+
+                            // note: using chain Anvil-2 b/c changing interval for Anvil-1
+                            // may lead to side effects in other test scenarios
+                            const nonce = await api.rpc.system.accountNextIndex(root.address);
+                            await api.tx.sudo
+                                .sudo(api.tx.attestation.setChainAttestationInterval(chain_Anvil2_Key, newInterval))
+                                .signAndSend(root, { nonce });
+                            console.log(`**** DEBUG: NEW INTERVAL for ${chain_Anvil2_Key} will be ${newInterval}`);
+                        }
+                    } // loop over events
+
+                    const currentBlock = (await getChainStatus(api)).bestNumber;
+                    if ((!soak && isDone()) || currentBlock - initialBlock >= maxBlocks) {
+                        done = true;
+                        console.log(
+                            `Stopping after ${currentBlock - initialBlock} blocks, all conditions met: ${isDone()}`,
+                        );
+                        unsubscribe?.();
+                        resolve(undefined);
+                    }
+                })
+                .then((unsub) => {
+                    unsubscribe = unsub;
+                })
+                .catch((error) => reject(new Error(error)));
+        }).then(async () => {
+            // b/c we always start from scratch in CI expect that there is
+            // a checkpoint for the genesis block of the ingested chain
+            let checkpointsForGenesis = 0;
+            const checkpoints = await api.query.attestation.checkpoints.entries(chain_Anvil1_Key);
+            checkpoints.forEach(([key, _attestation]) => {
+                if (key.args[1].toNumber() === 0) {
+                    checkpointsForGenesis++;
+                }
+            });
+            expect(checkpointsForGenesis).toBe(1);
+
+            // note: this test is started *after* we have min 3 attestors already elected on each chain
+            const currentEpoch = (await api.query.babe.epochIndex()).toNumber();
+            const elapsedEpochs = currentEpoch - startingEpoch;
+            // we must have crossed enough epoch boundaries for the assertions below to mean anything
+            expect(elapsedEpochs).toBeGreaterThanOrEqual(minEpochBoundaries);
+
+            // `AttestorsElected` fires only when a chain's attestor set changes, never as a per-epoch
+            // heartbeat. The fleet is steady for the whole run, so at most a straggler from a
+            // previous scenario (e.g. a chilled attestor retiring at the boundary) may show up.
+            // The epoch hook itself is observed through pallet-randomness: we must have seen the
+            // boundaries the election count is being compared against.
+            expect(epochBoundaries).toBeGreaterThanOrEqual(minEpochBoundaries);
+            expect(electionEvents[chain_Anvil1_Key]).toBeLessThanOrEqual(2);
+            expect(electionEvents[chain_Anvil2_Key]).toBeLessThanOrEqual(2);
+            expect(electionEvents[chain_Anvil1_Key]).toBeLessThan(epochBoundaries);
+            expect(electionEvents[chain_Anvil2_Key]).toBeLessThan(epochBoundaries);
+
+            expect(attestedEvents[chain_Anvil1_Key]).toBeGreaterThan(0);
+            expect(attestedEvents[chain_Anvil2_Key]).toBeGreaterThan(0);
+
+            // attestors caught up with the preloaded Anvil-1 blocks and keep following its tip
+            expect(attestedAfterCatchUp_Anvil1).toBeGreaterThanOrEqual(minAttestedAfterCatchUp);
+
+            const endBlock_Anvil1 = await provider_Anvil1.getBlockNumber();
+            // There are 10013 initial blocks which will result in 20 attestations for each 500
+            // until we catch up, then every <interval> blocks.
+            // Anvil-1's interval is 10 from genesis and nothing here writes it, so re-reading it
+            // is a no-op; what varies is the replay rate. A caught-up attestor emits one event per
+            // interval of progress, but while the catch-up window is open the round re-descends the
+            // range it already cached up to `max_catchup / interval` times before jumping 500 ahead
+            // again, so the tail emits ~3.5 events per interval of progress. All four flakes are run
+            // length only: on 10-15, 53 events against a one-per-interval bound of 34, with every
+            // lower bound passing.
+            chain_Anvil1_AttestationInterval = (
+                await api.query.attestation.chainAttestationInterval(chain_Anvil1_Key)
+            ).toNumber();
+            const catchUpReplayRate = 3.5;
+            const expectedBlockAttestedEvents_Anvil1 =
+                20 +
+                Math.ceil((endBlock_Anvil1 - startBlock_Anvil1) / chain_Anvil1_AttestationInterval) * catchUpReplayRate;
+            expect(attestedEvents[chain_Anvil1_Key]).toBeGreaterThanOrEqual(15);
+            // so allow for some timing differences
+            expect(attestedEvents[chain_Anvil1_Key]).toBeLessThanOrEqual(expectedBlockAttestedEvents_Anvil1 + 2);
+
+            // note: interval for Anvil2 changes dynamically during this test
+            expect(attestedEvents[chain_Anvil2_Key]).toBeLessThanOrEqual(40);
+
+            // match the frequency b/c we don't want this to pass if only a few events are recorded
+            // and then something suddenly fails/disconnects
+            expect(attestedEvents[chain_Anvil1_Key]).toBeGreaterThanOrEqual(4);
+            expect(attestedEvents[chain_Anvil2_Key]).toBeGreaterThanOrEqual(4);
+            // note that this isn't super robust b/c we still don't quite know what the
+            // average distance between these events is, see CSUB-1268 but
+            // nevertheless should be good enough for CI to detect if something suddenly
+            // starts failing
+
+            expect(intervalChangedEvents[chain_Anvil1_Key]).toBe(0);
+            // a change is requested on every epoch boundary and applied on the next one
+            expect(intervalChangedEvents[chain_Anvil2_Key]).toBeGreaterThanOrEqual(minIntervalChanges);
+            // and attestation keeps going under the changed interval
+            expect(attestedAfterIntervalChange_Anvil2).toBeGreaterThanOrEqual(minAttestedAfterIntervalChange);
+        });
+    }, 1_500_000); // 250 blocks is 1250 sec + reserve to avoid timeouts
+});
