@@ -8743,6 +8743,156 @@ fn forward_patch_checkpoints_suffix_wipe_many_checkpoints_at_once() {
 }
 
 #[test]
+fn forward_patch_wipe_suffix_drains_long_suffix_across_blocks() {
+    ExtBuilder.build_and_execute(|| {
+        let digest = |i: u64| H256::from_low_u64_be(i + 1);
+        let batch_max = CHECKPOINT_BUCKET_SIZE + 500;
+        // Well past the cap the single-dispatch wipe used to enforce.
+        let buckets_above = 41u64;
+        let per_bucket = 100u64;
+
+        // History below the tip, and entries above it in the tip's own bucket.
+        for h in (0..CHECKPOINT_BUCKET_SIZE).step_by(100) {
+            insert_checkpoint_and_bucket_entry::<Test>(SUPPORTED_CHAIN_KEY, h, digest(h));
+        }
+        for h in [batch_max, batch_max + 100, batch_max + 200] {
+            insert_checkpoint_and_bucket_entry::<Test>(SUPPORTED_CHAIN_KEY, h, digest(h));
+        }
+        let mut last_height = batch_max + 200;
+        for bucket in 2..2 + buckets_above {
+            for i in 0..per_bucket {
+                last_height = bucket * CHECKPOINT_BUCKET_SIZE + i * 10;
+                insert_checkpoint_and_bucket_entry::<Test>(
+                    SUPPORTED_CHAIN_KEY,
+                    last_height,
+                    digest(last_height),
+                );
+            }
+        }
+        LastCheckpoint::<Test>::insert(
+            SUPPORTED_CHAIN_KEY,
+            AttestationCheckpoint {
+                block_number: last_height,
+                digest: digest(last_height),
+            },
+        );
+
+        let tip_digest = H256::from([9u8; 32]);
+        let patch = vec![AttestationCheckpoint {
+            block_number: batch_max,
+            digest: tip_digest,
+        }];
+        assert_ok!(Attestation::forward_patch_checkpoints(
+            RuntimeOrigin::root(),
+            SUPPORTED_CHAIN_KEY,
+            true,
+            patch.clone().try_into().unwrap(),
+        ));
+
+        // The tip's bucket is cleaned synchronously; the rest is queued and still untrusted.
+        assert_eq!(
+            Checkpoints::<Test>::get(SUPPORTED_CHAIN_KEY, batch_max),
+            Some(tip_digest)
+        );
+        assert_eq!(
+            Checkpoints::<Test>::get(SUPPORTED_CHAIN_KEY, batch_max + 100),
+            None
+        );
+        assert_eq!(
+            CheckpointPruningStates::<Test>::get(SUPPORTED_CHAIN_KEY),
+            Some(CheckpointPruningState {
+                stop_height: last_height,
+                next_pivot: 2 * CHECKPOINT_BUCKET_SIZE,
+            })
+        );
+        assert_eq!(
+            LastCheckpoint::<Test>::get(SUPPORTED_CHAIN_KEY)
+                .unwrap()
+                .block_number,
+            batch_max
+        );
+        assert!(Checkpoints::<Test>::contains_key(
+            SUPPORTED_CHAIN_KEY,
+            last_height
+        ));
+        assert_eq!(
+            Pallet::<Test>::checkpoint_if_stable(SUPPORTED_CHAIN_KEY, last_height),
+            None
+        );
+        assert!(Pallet::<Test>::commit_blocked_by_cleanup(
+            SUPPORTED_CHAIN_KEY
+        ));
+        assert_noop!(
+            Attestation::forward_patch_checkpoints(
+                RuntimeOrigin::root(),
+                SUPPORTED_CHAIN_KEY,
+                true,
+                patch.try_into().unwrap(),
+            ),
+            Error::<Test>::CheckpointMaintenanceInProgress,
+        );
+
+        let mut blocks = 0u64;
+        while CheckpointPruningStates::<Test>::contains_key(SUPPORTED_CHAIN_KEY) {
+            progress_to_block(System::block_number() + 1);
+            blocks += 1;
+            assert!(blocks < 512, "suffix did not drain in a reasonable window");
+        }
+        // 4100 entries at `MAX_CHECKPOINTS_CLEARED_PER_BLOCK` per block cannot fit in one.
+        assert!(blocks > 100);
+
+        assert!(Checkpoints::<Test>::iter_prefix(SUPPORTED_CHAIN_KEY).all(|(h, _)| h <= batch_max));
+        assert_eq!(
+            CheckpointBuckets::<Test>::iter_prefix((SUPPORTED_CHAIN_KEY,)).count(),
+            Checkpoints::<Test>::iter_prefix(SUPPORTED_CHAIN_KEY).count()
+        );
+        for h in (0..CHECKPOINT_BUCKET_SIZE).step_by(100) {
+            assert_eq!(
+                Checkpoints::<Test>::get(SUPPORTED_CHAIN_KEY, h),
+                Some(digest(h))
+            );
+        }
+    });
+}
+
+#[test]
+fn forward_patch_wipe_suffix_within_tip_bucket_queues_no_drain() {
+    ExtBuilder.build_and_execute(|| {
+        let digest = |i: u64| H256::from_low_u64_be(i + 1);
+        for h in [100u64, 200, 300] {
+            insert_checkpoint_and_bucket_entry::<Test>(SUPPORTED_CHAIN_KEY, h, digest(h));
+        }
+        LastCheckpoint::<Test>::insert(
+            SUPPORTED_CHAIN_KEY,
+            AttestationCheckpoint {
+                block_number: 300,
+                digest: digest(300),
+            },
+        );
+
+        let patch = vec![AttestationCheckpoint {
+            block_number: 100,
+            digest: digest(100),
+        }];
+        assert_ok!(Attestation::forward_patch_checkpoints(
+            RuntimeOrigin::root(),
+            SUPPORTED_CHAIN_KEY,
+            true,
+            patch.try_into().unwrap(),
+        ));
+
+        assert!(CheckpointPruningStates::<Test>::get(SUPPORTED_CHAIN_KEY).is_none());
+        assert!(!Pallet::<Test>::commit_blocked_by_cleanup(
+            SUPPORTED_CHAIN_KEY
+        ));
+        assert_eq!(
+            Checkpoints::<Test>::iter_prefix(SUPPORTED_CHAIN_KEY).count(),
+            1
+        );
+    });
+}
+
+#[test]
 fn forward_patch_checkpoints_empty_patch_errors() {
     ExtBuilder.build_and_execute(|| {
         let empty: BoundedVec<AttestationCheckpoint, MaxCheckpointsImportedPerCall> =
