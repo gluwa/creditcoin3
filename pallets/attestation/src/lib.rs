@@ -58,6 +58,11 @@ pub mod pallet {
     // Amount of blocks tracked in a single checkpoint bucket
     pub const CHECKPOINT_BUCKET_SIZE: u64 = 1000;
 
+    /// Largest chain count `force_election` and `force_apply_updates` are benchmarked over. The
+    /// runtime's `MaxSupportedChains` must not exceed it, or the epoch hook's weight is
+    /// extrapolated past what was measured.
+    pub const MAX_BENCHMARKED_SUPPORTED_CHAINS: u32 = 32;
+
     /// The balance type of this pallet.
     pub type BalanceOf<T> = <T as Config>::CurrencyBalance;
     pub type PositiveImbalanceOf<T> = <<T as Config>::Currency as Currency<
@@ -239,7 +244,10 @@ pub mod pallet {
         /// ones are rewritten).
         fn force_election(a: u32) -> Weight;
         fn set_max_catchup() -> Weight;
-        fn force_apply_updates() -> Weight;
+        /// `c` = chains with pending updates applied (each can carry one pending value per
+        /// map). Bounded by the supported-chains `MaxSupportedChains`, up to
+        /// [`MAX_BENCHMARKED_SUPPORTED_CHAINS`].
+        fn force_apply_updates(c: u32) -> Weight;
         fn revert_to() -> Weight;
         fn forward_patch_checkpoints() -> Weight;
     }
@@ -1583,7 +1591,7 @@ pub mod pallet {
         /// and max catchup values for all supported chains without waiting
         /// for the next epoch boundary.
         #[pallet::call_index(27)]
-        #[pallet::weight(<T as Config>::WeightInfo::force_apply_updates())]
+        #[pallet::weight(<T as Config>::WeightInfo::force_apply_updates(T::SupportedChains::supported_chains_count()))]
         pub fn force_apply_updates(origin: OriginFor<T>) -> DispatchResult {
             T::OperatorsOrigin::ensure_origin(origin)?;
 

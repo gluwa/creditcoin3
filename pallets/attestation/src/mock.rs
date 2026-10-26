@@ -322,6 +322,7 @@ impl pallet_supported_chains::Config for Test {
     type ChainRegistrationHandler = Attestation;
     type DefaultMaturityStrategy = DefaultMaturityStrategy;
     type OperatorsOrigin = frame_system::EnsureRoot<AccountId>;
+    type MaxSupportedChains = frame_support::traits::ConstU32<8>;
 }
 
 impl pallet_randomness::Config for Test {

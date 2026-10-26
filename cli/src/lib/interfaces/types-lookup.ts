@@ -4305,13 +4305,15 @@ declare module '@polkadot/types/lookup' {
         readonly isInvalidMaturityStrategy: boolean;
         readonly isMaturityStrategyUnchanged: boolean;
         readonly isChainNameUnchanged: boolean;
+        readonly isTooManyChains: boolean;
         readonly type:
             | 'ChainAlreadyRegistered'
             | 'ChainNotSupported'
             | 'Arithmetic'
             | 'InvalidMaturityStrategy'
             | 'MaturityStrategyUnchanged'
-            | 'ChainNameUnchanged';
+            | 'ChainNameUnchanged'
+            | 'TooManyChains';
     }
 
     /** @name PalletRandomnessError (457) */
