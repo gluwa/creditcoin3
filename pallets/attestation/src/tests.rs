@@ -1403,13 +1403,54 @@ fn set_max_invulnerables_should_error_when_not_signed_by_operator_nor_root() {
 #[test]
 fn set_max_invulnerables_should_error_when_value_is_less_than_current_count() {
     ExtBuilder.build_and_execute(|| {
-        let root_origin = RuntimeOrigin::root();
-        // There should be at least one invulnerable set in mock.rs
-        // We set the max number of invulnerables to 0, less than the current number.
+        // mock.rs sets one invulnerable; add a second so a non-zero max can sit below the count.
+        assert_ok!(Attestation::register_invulnerable(
+            RuntimeOrigin::root(),
+            SUPPORTED_CHAIN_KEY,
+            ATTESTOR_1,
+        ));
         assert_noop!(
-            Attestation::set_max_invulnerables(root_origin, SUPPORTED_CHAIN_KEY, 0),
+            Attestation::set_max_invulnerables(RuntimeOrigin::root(), SUPPORTED_CHAIN_KEY, 1),
             Error::<Test>::MaxInvulnerablesCannotBeChanged
         );
+    })
+}
+
+#[test]
+fn set_max_invulnerables_rejects_zero() {
+    ExtBuilder.build_and_execute(|| {
+        assert_noop!(
+            Attestation::set_max_invulnerables(RuntimeOrigin::root(), SUPPORTED_CHAIN_KEY, 0),
+            Error::<Test>::InvalidMaxInvulnerables
+        );
+    })
+}
+
+#[test]
+fn set_max_invulnerables_rejects_above_runtime_ceiling() {
+    ExtBuilder.build_and_execute(|| {
+        let ceiling = <Test as crate::Config>::MaxAttestationNodes::get();
+        assert_noop!(
+            Attestation::set_max_invulnerables(
+                RuntimeOrigin::root(),
+                SUPPORTED_CHAIN_KEY,
+                ceiling + 1
+            ),
+            Error::<Test>::InvalidMaxInvulnerables
+        );
+    })
+}
+
+#[test]
+fn set_max_invulnerables_accepts_runtime_ceiling() {
+    ExtBuilder.build_and_execute(|| {
+        let ceiling = <Test as crate::Config>::MaxAttestationNodes::get();
+        assert_ok!(Attestation::set_max_invulnerables(
+            RuntimeOrigin::root(),
+            SUPPORTED_CHAIN_KEY,
+            ceiling
+        ));
+        assert_eq!(Attestation::max_invulnerables(SUPPORTED_CHAIN_KEY), ceiling);
     })
 }
 
@@ -1470,7 +1511,7 @@ fn set_max_attestors_should_error_when_not_signed_by_operator_nor_root() {
 }
 
 #[test]
-fn set_max_attestors_should_work_when_truncating_existing_list() {
+fn set_max_attestors_rejects_below_registered_attestors() {
     ExtBuilder.build_and_execute(|| {
         let att_1 = Attestor::new(STASH_1, ATTESTOR_1);
         let att_2 = Attestor::new(STASH_2, ATTESTOR_2);
@@ -1480,27 +1521,66 @@ fn set_max_attestors_should_work_when_truncating_existing_list() {
             att_1.attestor_id,
         ));
         assert_ok!(Attestation::register_attestor(
+            att_2.stash.clone(),
+            SUPPORTED_CHAIN_KEY,
+            att_2.attestor_id,
+        ));
+        let before = Attestation::max_attestors(SUPPORTED_CHAIN_KEY);
+
+        assert_noop!(
+            Attestation::set_max_attestors(RuntimeOrigin::root(), SUPPORTED_CHAIN_KEY, 1),
+            Error::<Test>::InvalidMaxAttestors
+        );
+        assert_eq!(Attestation::max_attestors(SUPPORTED_CHAIN_KEY), before);
+
+        // The registered count itself is allowed.
+        assert_ok!(Attestation::set_max_attestors(
+            RuntimeOrigin::root(),
+            SUPPORTED_CHAIN_KEY,
+            2
+        ));
+        assert_eq!(Attestation::max_attestors(SUPPORTED_CHAIN_KEY), 2);
+
+        // Room opens up once an attestor leaves.
+        assert_ok!(Attestation::unregister_attestor(
             att_2.stash,
             SUPPORTED_CHAIN_KEY,
             att_2.attestor_id,
         ));
-
-        let count = Attestors::<Test>::iter_prefix_values(SUPPORTED_CHAIN_KEY)
-            .collect::<Vec<_>>()
-            .len();
-        assert_eq!(count, 2);
-
         assert_ok!(Attestation::set_max_attestors(
             RuntimeOrigin::root(),
             SUPPORTED_CHAIN_KEY,
             1
         ));
-        let count = Attestors::<Test>::iter_prefix_values(SUPPORTED_CHAIN_KEY)
-            .collect::<Vec<_>>()
-            .len();
-        assert_eq!(count, 2);
-        let max_attestors = Attestation::max_attestors(SUPPORTED_CHAIN_KEY);
-        assert_eq!(max_attestors, 1);
+        assert_eq!(Attestation::max_attestors(SUPPORTED_CHAIN_KEY), 1);
+    })
+}
+
+#[test]
+fn set_max_attestors_rejects_below_active_set() {
+    ExtBuilder.build_and_execute(|| {
+        // 100 active attestors need a quorum of 67; a limit of 50 would halt every commit.
+        pad_active_attestors(SUPPORTED_CHAIN_KEY, 100);
+        assert_eq!(Attestation::quorum_threshold(SUPPORTED_CHAIN_KEY), 67);
+        let before = Attestation::max_attestors(SUPPORTED_CHAIN_KEY);
+
+        for below in [1, 50, 66, 67, 99] {
+            assert_noop!(
+                Attestation::set_max_attestors(RuntimeOrigin::root(), SUPPORTED_CHAIN_KEY, below),
+                Error::<Test>::InvalidMaxAttestors
+            );
+        }
+        assert_eq!(Attestation::max_attestors(SUPPORTED_CHAIN_KEY), before);
+
+        assert_ok!(Attestation::set_max_attestors(
+            RuntimeOrigin::root(),
+            SUPPORTED_CHAIN_KEY,
+            100
+        ));
+        assert!(
+            Attestation::quorum_threshold(SUPPORTED_CHAIN_KEY)
+                <= Attestation::max_attestors(SUPPORTED_CHAIN_KEY)
+        );
     })
 }
 
@@ -2067,6 +2147,30 @@ fn set_max_catchup_rejects_below_attestation_interval() {
                 interval as u32 * 2 - 1
             ),
             Error::<Test>::InvalidMaxCatchup
+        );
+    })
+}
+
+#[test]
+fn set_max_catchup_rejects_above_ceiling() {
+    ExtBuilder.build_and_execute(|| {
+        let ceiling = <<Test as Config>::MaxCatchupCeiling as Get<u32>>::get();
+        for above in [ceiling + 1, u32::MAX] {
+            assert_noop!(
+                Attestation::set_max_catchup(RuntimeOrigin::root(), SUPPORTED_CHAIN_KEY, above),
+                Error::<Test>::InvalidMaxCatchup
+            );
+        }
+        assert_eq!(PendingMaxCatchup::<Test>::get(SUPPORTED_CHAIN_KEY), None);
+
+        assert_ok!(Attestation::set_max_catchup(
+            RuntimeOrigin::root(),
+            SUPPORTED_CHAIN_KEY,
+            ceiling
+        ));
+        assert_eq!(
+            PendingMaxCatchup::<Test>::get(SUPPORTED_CHAIN_KEY),
+            Some(ceiling)
         );
     })
 }
@@ -12529,6 +12633,41 @@ fn commit_weight_caps_queued_proof_at_max_catchup() {
         .max_extrinsic
         .expect("normal class has an extrinsic limit");
         assert!(wide.all_lte(max_extrinsic));
+    })
+}
+
+#[test]
+fn commit_weight_outgrows_a_block_past_the_catchup_ceiling() {
+    ExtBuilder.build_and_execute(|| {
+        let max_extrinsic = <<Test as frame_system::Config>::BlockWeights as Get<
+            frame_system::limits::BlockWeights,
+        >>::get()
+        .get(frame_support::dispatch::DispatchClass::Normal)
+        .max_extrinsic
+        .expect("normal class has an extrinsic limit");
+        let weight_at = |max_catchup| {
+            CommitWeightState {
+                proof_len: 1,
+                attestors: 1,
+                queue_len: 0,
+                attestation_interval:
+                    <<Test as Config>::MaxChainAttestationInterval as Get<u64>>::get(),
+                checkpoint_interval: <<Test as Config>::MaxAttestationCheckpointInterval as Get<
+                    u32,
+                >>::get(),
+                max_catchup,
+                header_span: 0,
+            }
+            .weight::<Test>(|| 0)
+        };
+
+        // At the widest settings the queued proof that straddles the last checkpoint is as long
+        // as `MaxCatchup` allows, so only the ceiling keeps it within a block.
+        assert!(
+            weight_at(<<Test as Config>::MaxCatchupCeiling as Get<u32>>::get())
+                .all_lte(max_extrinsic)
+        );
+        assert!(!weight_at(20_000_000).all_lte(max_extrinsic));
     })
 }
 

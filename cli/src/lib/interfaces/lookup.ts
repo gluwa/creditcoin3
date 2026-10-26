@@ -3642,6 +3642,7 @@ export default {
             'OversizedContinuityProof',
             'AttestationCleanupInProgress',
             'TooManyAttestationsInBlock',
+            'InvalidMaxInvulnerables',
         ],
     },
     /**
