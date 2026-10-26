@@ -4243,7 +4243,7 @@ declare module '@polkadot/types/lookup' {
         readonly isOversizedContinuityProof: boolean;
         readonly isAttestationCleanupInProgress: boolean;
         readonly isTooManyAttestationsInBlock: boolean;
-        readonly isInvalidMaxInvulnerables: boolean
+        readonly isInvalidMaxInvulnerables: boolean;
         readonly isInvalidPeerKeyProof: boolean;
         readonly isPeerKeyAlreadyRegistered: boolean;
         readonly isPeerKeyNotRegistered: boolean;
