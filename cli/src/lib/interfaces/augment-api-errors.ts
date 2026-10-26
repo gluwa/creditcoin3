@@ -1019,6 +1019,11 @@ declare module '@polkadot/api-base/types/errors' {
              **/
             MaturityStrategyUnchanged: AugmentedError<ApiType>;
             /**
+             * [`Config::MaxSupportedChains`] chains are already registered. Remove one before
+             * registering another.
+             **/
+            TooManyChains: AugmentedError<ApiType>;
+            /**
              * Generic error
              **/
             [key: string]: AugmentedError<ApiType>;

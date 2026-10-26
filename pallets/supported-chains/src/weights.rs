@@ -36,6 +36,8 @@ pub struct WeightInfo<T>(PhantomData<T>);
 impl<T: frame_system::Config> crate::WeightInfo for WeightInfo<T> {
 	/// Storage: `SupportedChains::ChainIdAndNameToUniqKey` (r:1 w:1)
 	/// Proof: `SupportedChains::ChainIdAndNameToUniqKey` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `SupportedChains::SupportedChainsCount` (r:1 w:1)
+	/// Proof: `SupportedChains::SupportedChainsCount` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
 	/// Storage: `SupportedChains::ChainKeyValue` (r:1 w:1)
 	/// Proof: `SupportedChains::ChainKeyValue` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
 	/// Storage: `System::Number` (r:1 w:0)
@@ -62,13 +64,13 @@ impl<T: frame_system::Config> crate::WeightInfo for WeightInfo<T> {
 	/// Proof: `SupportedChains::SupportedChains` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	fn register_chain() -> Weight {
 		// Proof Size summary in bytes:
-		//  Measured:  `381`
-		//  Estimated: `3846`
-		// Minimum execution time: 66_552_000 picoseconds.
-		Weight::from_parts(71_322_000, 0)
-			.saturating_add(Weight::from_parts(0, 3846))
-			.saturating_add(T::DbWeight::get().reads(6))
-			.saturating_add(T::DbWeight::get().writes(11))
+		//  Measured:  `404`
+		//  Estimated: `3869`
+		// Minimum execution time: 68_342_000 picoseconds.
+		Weight::from_parts(72_502_000, 0)
+			.saturating_add(Weight::from_parts(0, 3869))
+			.saturating_add(T::DbWeight::get().reads(7))
+			.saturating_add(T::DbWeight::get().writes(12))
 	}
 	/// Storage: `SupportedChains::SupportedChains` (r:1 w:1)
 	/// Proof: `SupportedChains::SupportedChains` (`max_values`: None, `max_size`: None, mode: `Measured`)
@@ -114,6 +116,8 @@ impl<T: frame_system::Config> crate::WeightInfo for WeightInfo<T> {
 	}
 	/// Storage: `SupportedChains::SupportedChains` (r:1 w:1)
 	/// Proof: `SupportedChains::SupportedChains` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `SupportedChains::SupportedChainsCount` (r:1 w:1)
+	/// Proof: `SupportedChains::SupportedChainsCount` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
 	/// Storage: `Attestation::Attestors` (r:1 w:0)
 	/// Proof: `Attestation::Attestors` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Attestation::RetiredAttestorBlsKeys` (r:1 w:0)
@@ -168,12 +172,12 @@ impl<T: frame_system::Config> crate::WeightInfo for WeightInfo<T> {
 	/// Proof: `SupportedChains::ChainIdAndNameToUniqKey` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	fn remove_chain() -> Weight {
 		// Proof Size summary in bytes:
-		//  Measured:  `882`
-		//  Estimated: `4347`
-		// Minimum execution time: 124_203_000 picoseconds.
-		Weight::from_parts(127_983_000, 0)
-			.saturating_add(Weight::from_parts(0, 4347))
-			.saturating_add(T::DbWeight::get().reads(7))
-			.saturating_add(T::DbWeight::get().writes(23))
+		//  Measured:  `905`
+		//  Estimated: `4370`
+		// Minimum execution time: 129_523_000 picoseconds.
+		Weight::from_parts(136_273_000, 0)
+			.saturating_add(Weight::from_parts(0, 4370))
+			.saturating_add(T::DbWeight::get().reads(8))
+			.saturating_add(T::DbWeight::get().writes(24))
 	}
 }
