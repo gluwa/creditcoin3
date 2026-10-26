@@ -247,9 +247,10 @@ impl frame_system::Config for Runtime {
         // executed on devnet/testnet (version 1). Remove once mainnet runs a runtime that
         // includes it.
         pallet_randomness::migrations::MigrateRandomnessByEpochIndexV0ToV1<Runtime>,
-        // Initialises `SupportedChainsCount` (supported-chains storage version 0 -> 1). Remove
-        // once every network runs a runtime that includes it.
-        pallet_supported_chains::migrations::MigrateSupportedChainsCountV0ToV1<Runtime>,
+        // Initialises `SupportedChainsCount`. Not version-gated, so it also works where the
+        // pallet's storage version differs. Remove once every network runs a runtime that
+        // includes it.
+        pallet_supported_chains::chains_count::InitSupportedChainsCount<Runtime>,
         // NOTE: all other historical migrations are intentionally NOT registered:
         // - pallet_attestation::MigrateAttestationContinuityProofV0ToV1 and
         //   MigrateAttestorsCountV1ToV2: executed everywhere (on-chain storage version 2

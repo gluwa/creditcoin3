@@ -14,7 +14,7 @@ mod tests;
 
 #[cfg(feature = "runtime-benchmarks")]
 mod benchmarking;
-pub mod migrations;
+pub mod chains_count;
 pub mod weights;
 
 #[frame_support::pallet]
@@ -37,7 +37,7 @@ pub mod pallet {
     };
 
     /// The in-code storage version.
-    const STORAGE_VERSION: StorageVersion = StorageVersion::new(1);
+    const STORAGE_VERSION: StorageVersion = StorageVersion::new(0);
 
     #[pallet::pallet]
     #[pallet::storage_version(STORAGE_VERSION)]
@@ -487,6 +487,10 @@ pub mod pallet {
 
         fn get_supported_chain(chain_key: ChainKey) -> Option<SupportedChain> {
             SupportedChains::<T>::get(chain_key)
+        }
+
+        fn supported_chains_count() -> u32 {
+            SupportedChainsCount::<T>::get()
         }
     }
 }

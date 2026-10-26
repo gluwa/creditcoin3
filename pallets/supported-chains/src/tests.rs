@@ -992,7 +992,7 @@ fn set_chain_name_allows_a_name_used_under_another_chain_id() {
 
 mod max_supported_chains {
     use super::*;
-    use crate::migrations::MigrateSupportedChainsCountV0ToV1;
+    use crate::chains_count::InitSupportedChainsCount;
     use frame_support::traits::{Get, GetStorageVersion, OnRuntimeUpgrade, StorageVersion};
 
     fn register(chain_id: u64) -> frame_support::dispatch::DispatchResult {
@@ -1091,43 +1091,77 @@ mod max_supported_chains {
         ExtBuilder.build_and_execute_with_duplicate_chains(chains, || {});
     }
 
+    fn insert_chains(keys: std::ops::RangeInclusive<u64>) {
+        for key in keys {
+            SupportedChains::<Test>::insert(
+                key,
+                supported_chains_primitives::SupportedChain {
+                    chain_id: key,
+                    chain_name: format!("Chain {key}").into_bytes(),
+                    chain_encoding: ChainEncodingVersion::V1,
+                    maturity_strategy: MATURITY_FIXED_DELAY_10.to_string(),
+                },
+            );
+        }
+    }
+
     #[test]
-    fn migration_counts_the_existing_chains_and_bumps_the_version() {
-        new_test_ext().execute_with(|| {
-            // Pre-upgrade state: chains exist, no counter, storage version 0.
-            for key in 1..=3u64 {
-                SupportedChains::<Test>::insert(
-                    key,
-                    supported_chains_primitives::SupportedChain {
-                        chain_id: key,
-                        chain_name: format!("Chain {key}").into_bytes(),
-                        chain_encoding: ChainEncodingVersion::V1,
-                        maturity_strategy: MATURITY_FIXED_DELAY_10.to_string(),
-                    },
-                );
-            }
-            StorageVersion::new(0).put::<SupportedChain>();
-            assert_eq!(SupportedChain::supported_chains_count(), 0);
-
-            MigrateSupportedChainsCountV0ToV1::<Test>::on_runtime_upgrade();
-
-            assert_eq!(SupportedChain::supported_chains_count(), 3);
+    fn provider_reports_the_count_without_listing_chains() {
+        ExtBuilder.build_and_execute(|| {
+            System::set_block_number(1);
+            assert_ok!(register(1));
             assert_eq!(
-                SupportedChain::on_chain_storage_version(),
-                StorageVersion::new(1)
+                <SupportedChain as SupportedChainsProvider>::supported_chains_count(),
+                2
             );
         });
     }
 
     #[test]
-    fn migration_is_a_no_op_once_applied() {
+    fn init_counts_chains_registered_before_the_counter_existed() {
         new_test_ext().execute_with(|| {
-            StorageVersion::new(1).put::<SupportedChain>();
+            insert_chains(1..=3);
+            assert_eq!(SupportedChain::supported_chains_count(), 0);
+
+            InitSupportedChainsCount::<Test>::on_runtime_upgrade();
+
+            assert_eq!(SupportedChain::supported_chains_count(), 3);
+        });
+    }
+
+    #[test]
+    fn init_ignores_and_leaves_the_storage_version() {
+        new_test_ext().execute_with(|| {
+            insert_chains(1..=2);
+
+            // The pallet's version differs between branches, so the migration must not look at
+            // it or move it.
+            for version in [0, 1, 2, 3] {
+                StorageVersion::new(version).put::<SupportedChain>();
+                crate::SupportedChainsCount::<Test>::put(0);
+
+                InitSupportedChainsCount::<Test>::on_runtime_upgrade();
+
+                assert_eq!(SupportedChain::supported_chains_count(), 2);
+                assert_eq!(
+                    SupportedChain::on_chain_storage_version(),
+                    StorageVersion::new(version)
+                );
+            }
+        });
+    }
+
+    #[test]
+    fn init_corrects_a_stale_count_and_leaves_a_correct_one() {
+        new_test_ext().execute_with(|| {
+            insert_chains(1..=2);
+
             crate::SupportedChainsCount::<Test>::put(7);
+            InitSupportedChainsCount::<Test>::on_runtime_upgrade();
+            assert_eq!(SupportedChain::supported_chains_count(), 2);
 
-            MigrateSupportedChainsCountV0ToV1::<Test>::on_runtime_upgrade();
-
-            assert_eq!(SupportedChain::supported_chains_count(), 7);
+            InitSupportedChainsCount::<Test>::on_runtime_upgrade();
+            assert_eq!(SupportedChain::supported_chains_count(), 2);
         });
     }
 }
