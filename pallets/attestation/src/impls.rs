@@ -192,28 +192,25 @@ impl<T: Config> Pallet<T> {
             *count = count.saturating_add(1);
         });
 
-        // Make sure the stash can pay for the registration
-        let stash_balance = Self::get_free_balance(&stash);
+        // The stash must cover both the bond and the controller funding below.
+        let min_bond = Self::min_bond_requirement(chain_key);
+        let funding: BalanceOf<T> = ONE_TENTH_CTC.into();
         ensure!(
-            stash_balance >= Self::min_bond_requirement(chain_key),
+            Self::get_free_balance(&stash) >= min_bond.saturating_add(funding),
             Error::<T>::InsufficientBalance
         );
-
-        // Get some amount to fund the attestor
-        let amount: BalanceOf<T> = ONE_TENTH_CTC.into();
 
         // Fund the attestor key
         T::Currency::transfer(
             &stash,
             &attestor_id,
-            amount,
+            funding,
             frame_support::traits::ExistenceRequirement::KeepAlive,
         )?;
 
         // Create a new ledger for the attestor
         // With minimum bond requirement
-        let ledger: AttestorLedger<T> =
-            AttestorLedger::new(stash.clone(), Self::min_bond_requirement(chain_key));
+        let ledger: AttestorLedger<T> = AttestorLedger::new(stash.clone(), min_bond);
 
         // If bond fails, it means it's already bonded and there is already an attestor(s) registerd by this stash
         // In this case, we just bond extra to the stash
@@ -226,9 +223,12 @@ impl<T: Config> Pallet<T> {
             // Emit event
             Self::deposit_event(Event::<T>::Bonded {
                 stash,
-                amount: Self::min_bond_requirement(chain_key),
+                amount: min_bond,
             });
         }
+
+        // Settle this attestor's own bond on unregistration, whatever the minimum becomes.
+        AttestorCollateral::<T>::insert(chain_key, &attestor_id, min_bond);
 
         // Emit event
         Self::deposit_event(Event::<T>::AttestorRegistered(chain_key, attestor_id));
@@ -261,8 +261,10 @@ impl<T: Config> Pallet<T> {
             Error::<T>::AttestorNotIdle
         );
 
-        // Get the min bond requirement for the attestor
-        let bond = Self::min_bond_requirement(chain_key);
+        // Settle the bond recorded at registration; attestors registered before it was
+        // recorded fall back to the current minimum.
+        let bond = AttestorCollateral::<T>::take(chain_key, &attestor_id)
+            .unwrap_or_else(|| Self::min_bond_requirement(chain_key));
 
         let mut ledger = Self::ledger(&stash).ok_or(Error::<T>::NotStash)?;
         // Value is the minimum of the bond and the active amount
@@ -621,11 +623,12 @@ impl<T: Config> Pallet<T> {
 
         let mut ledger = Self::ledger(stash.clone()).ok_or(Error::<T>::NotStash)?;
 
-        let extra = bond.min(
-            T::Currency::free_balance(stash)
-                .checked_sub(&ledger.total_staked)
-                .ok_or(ArithmeticError::Overflow)?,
-        );
+        // Bond the full requirement or fail, so the recorded stake is always backed.
+        let available = T::Currency::free_balance(stash)
+            .checked_sub(&ledger.total_staked)
+            .ok_or(ArithmeticError::Overflow)?;
+        ensure!(available >= bond, Error::<T>::InsufficientBalance);
+        let extra = bond;
 
         // Update total staked and active amount
         ledger.total_staked = ledger
