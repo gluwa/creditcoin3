@@ -7,6 +7,7 @@ name: Check runtime changes
       - '**Cargo.*'
       - 'precompiles/**'
       - 'runtime/**'
+      - '.github/check-version.sh'
       - '.github/workflows/check-runtime-changes.yml'
 
 concurrency:
@@ -23,9 +24,17 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Check if version.rs was modified
+      - name: Check runtime versions
         run: |
-          ./.github/check-version.sh "remotes/origin/$GITHUB_BASE_REF" "$GITHUB_SHA"
+          case "$GITHUB_BASE_REF" in
+            dev|asc-dev)
+              # These branches collect feature changes; the release workflow bumps versions.
+              ./.github/check-version.sh --consistency-only
+              ;;
+            *)
+              ./.github/check-version.sh "remotes/origin/$GITHUB_BASE_REF" "$GITHUB_SHA"
+              ;;
+          esac
   # dangerous conditions that will brick the blockchain
   danger-will-brick-the-blockchain:
     runs-on: ubuntu-26.04
