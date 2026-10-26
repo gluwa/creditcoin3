@@ -25,7 +25,7 @@ use supported_chains_primitives::provider::SupportedChainsProvider;
 
 use crate::{
     asset::existential_deposit,
-    clear_or_revert::MAX_ATTESTATIONS_CLEARED_PER_BLOCK,
+    clear_or_revert::{CheckpointPruningState, MAX_ATTESTATIONS_CLEARED_PER_BLOCK},
     ledger::{AttestorLedger, UnlockChunk},
 };
 
@@ -33,10 +33,6 @@ use super::pallet::*;
 
 // One tenth of a CTC in micro units
 pub const ONE_TENTH_CTC: u64 = 100_000_000_000_000_000;
-
-/// Upper bound on how many checkpoints may sit strictly above a [`forward_patch_checkpoints`] batch tip
-/// when [`crate::pallet::Pallet::do_forward_patch_checkpoints`] `wipe_suffix` is enabled (single dispatch).
-pub const MAX_CHECKPOINT_SUFFIX_WIPE_TOTAL: usize = 4096;
 
 /// PALLET CALL IMPLS ///
 impl<T: Config> Pallet<T> {
@@ -1635,16 +1631,21 @@ impl<T: Config> Pallet<T> {
             .ok_or(Error::<T>::EmptyCheckpointPatch)?;
 
         if wipe_suffix {
-            let heights_above: Vec<u64> = Checkpoints::<T>::iter_prefix(chain_key)
-                .filter_map(|(h, _)| (h > batch_max).then_some(h))
-                .collect();
-            ensure!(
-                heights_above.len() <= MAX_CHECKPOINT_SUFFIX_WIPE_TOTAL,
-                Error::<T>::CheckpointSuffixWipeTooLarge
-            );
-            for h in heights_above {
-                Checkpoints::<T>::remove(chain_key, h);
-                CheckpointBuckets::<T>::remove((chain_key, Self::compute_block_index_for(h), h));
+            // Drop the tip's bucket now and drain the buckets above it per block, like `do_revert_to`,
+            // instead of scanning the whole `Checkpoints` prefix. `LastCheckpoint` is the highest
+            // checkpoint, so it bounds the drain.
+            let tip_pivot = Self::purge_bucket_above(chain_key, batch_max);
+            let next_pivot = tip_pivot.saturating_add(CHECKPOINT_BUCKET_SIZE);
+            if let Some(last) = LastCheckpoint::<T>::get(chain_key) {
+                if last.block_number >= next_pivot {
+                    CheckpointPruningStates::<T>::insert(
+                        chain_key,
+                        CheckpointPruningState {
+                            stop_height: last.block_number,
+                            next_pivot,
+                        },
+                    );
+                }
             }
         }
 

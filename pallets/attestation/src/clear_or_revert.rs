@@ -73,18 +73,7 @@ impl<T: Config> Pallet<T> {
             digest,
         };
 
-        // Remove all entries with height > checkpoint_height from bucket containing `checkpoint_height`
-        let checkpoint_pivot = Self::compute_block_index_for(checkpoint_height);
-        // Expected upper bound here is `CHECKPOINT_BUCKET_SIZE / (attestation_interval * checkpoint_interval`
-        // So in practice this should be fewer than 20 keys
-        let block_heights: Vec<u64> =
-            CheckpointBuckets::<T>::iter_key_prefix((chain_key, checkpoint_pivot)).collect();
-        for block_number in block_heights {
-            if block_number > checkpoint_height {
-                Checkpoints::<T>::remove(chain_key, block_number);
-                CheckpointBuckets::<T>::remove((chain_key, checkpoint_pivot, block_number));
-            }
-        }
+        let checkpoint_pivot = Self::purge_bucket_above(chain_key, checkpoint_height);
 
         let pruning_state = CheckpointPruningState {
             stop_height: last_checkpoint.block_number,
@@ -100,6 +89,25 @@ impl<T: Config> Pallet<T> {
         LastDigest::<T>::set(chain_key, Some((checkpoint_height, digest)));
 
         Ok(digest)
+    }
+
+    /// Removes the checkpoints above `height` from the bucket containing `height` and returns that
+    /// bucket's pivot. Only that one bucket is read, so the work is bounded by
+    /// `CHECKPOINT_BUCKET_SIZE` however long the history is; callers drain the buckets above it
+    /// through [`CheckpointPruningStates`].
+    pub(crate) fn purge_bucket_above(chain_key: ChainKey, height: u64) -> u64 {
+        let pivot = Self::compute_block_index_for(height);
+        // Expected upper bound here is `CHECKPOINT_BUCKET_SIZE / (attestation_interval * checkpoint_interval`
+        // So in practice this should be fewer than 20 keys
+        let block_heights: Vec<u64> =
+            CheckpointBuckets::<T>::iter_key_prefix((chain_key, pivot)).collect();
+        for block_number in block_heights {
+            if block_number > height {
+                Checkpoints::<T>::remove(chain_key, block_number);
+                CheckpointBuckets::<T>::remove((chain_key, pivot, block_number));
+            }
+        }
+        pivot
     }
 
     /// Helpers to keep on_initialize readable ///

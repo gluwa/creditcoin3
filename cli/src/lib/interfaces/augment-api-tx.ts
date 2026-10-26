@@ -157,8 +157,10 @@ declare module '@polkadot/api-base/types/submittable' {
              * Does **not** unregister attestors or alter bonding ledger entries — attestors resume committing
              * attestations after recovery.
              *
-             * When `wipe_suffix` is true, every checkpoint strictly above the batch tip is removed in this
-             * dispatch (bounded by [`crate::impls::MAX_CHECKPOINT_SUFFIX_WIPE_TOTAL`]).
+             * When `wipe_suffix` is true, every checkpoint strictly above the batch tip is removed: those in
+             * the tip's bucket here, the rest by `on_initialize` a bounded batch per block through
+             * [`CheckpointPruningStates`], like `revert_to`. Until that drains, commits for the chain are
+             * rejected and a further patch is refused.
              **/
             forwardPatchCheckpoints: AugmentedSubmittable<
                 (

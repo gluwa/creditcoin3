@@ -69,7 +69,8 @@ declare module '@polkadot/api-base/types/errors' {
              **/
             CheckpointMaintenanceInProgress: AugmentedError<ApiType>;
             /**
-             * More checkpoints sit above the patch tip than allowed by [`MAX_CHECKPOINT_SUFFIX_WIPE_TOTAL`].
+             * No longer returned: the suffix above the patch tip is drained across blocks. Kept so
+             * later variants keep their SCALE index.
              **/
             CheckpointSuffixWipeTooLarge: AugmentedError<ApiType>;
             CheckpointTargetNotFound: AugmentedError<ApiType>;
