@@ -234,7 +234,8 @@ pub async fn run(
             Some(vote) = gossip_rx.recv() => {
                 // Publish eagerly, but queue regardless of the result: Ok is not delivery (see
                 // the outbox comment above), so the vote stays until its height finalizes.
-                try_publish(&mut swarm, &topic, &vote);
+                let solo = shared.bls_store.is_sole_member(shared.attestor_id.account_id());
+                try_publish(&mut swarm, &topic, &vote, solo);
                 enqueue_unfinalized(&mut outbox, vote);
             }
 
@@ -244,7 +245,8 @@ pub async fn run(
             // cheap: only the handful of in-flight heights are queued, and peers' pools dedup
             // repeats by (height, attestor).
             _ = retry_tick.tick(), if !outbox.is_empty() => {
-                republish_outbox(&mut outbox, |vote| try_publish(&mut swarm, &topic, vote));
+                let solo = shared.bls_store.is_sole_member(shared.attestor_id.account_id());
+                republish_outbox(&mut outbox, |vote| try_publish(&mut swarm, &topic, vote, solo));
             }
 
             // Local production cached new AttestationData → drain every buffered height up to
@@ -307,7 +309,8 @@ pub async fn run(
                 // Mesh just (re)formed — flush queued votes immediately rather than waiting for
                 // the next retry tick.
                 if !could_broadcast && can_broadcast && !outbox.is_empty() {
-                    republish_outbox(&mut outbox, |vote| try_publish(&mut swarm, &topic, vote));
+                    let solo = shared.bls_store.is_sole_member(shared.attestor_id.account_id());
+                    republish_outbox(&mut outbox, |vote| try_publish(&mut swarm, &topic, vote, solo));
                 }
             }
         }
@@ -622,10 +625,15 @@ async fn handle_swarm(
 /// either it was published, or gossipsub reports it a duplicate (already in the message cache
 /// from a previous successful publish). Any other failure returns `false` so the caller can
 /// queue the vote for retry.
+///
+/// `solo` is `true` when this attestor is the only elected member of its set. It then reaches
+/// quorum on its own vote and has no peer to gossip to, so `InsufficientPeers` is the expected
+/// answer and is logged at debug instead of warn. Retry behaviour does not change.
 fn try_publish(
     swarm: &mut libp2p::Swarm<behavior::P2PBehavior>,
     topic: &libp2p::gossipsub::IdentTopic,
     vote: &Vote,
+    solo: bool,
 ) -> bool {
     match swarm
         .behaviour_mut()
@@ -642,6 +650,16 @@ fn try_publish(
             true
         }
         Err(libp2p::gossipsub::PublishError::Duplicate) => true,
+        Err(err) if publish_failure_is_expected(&err, solo) => {
+            tracing::debug!(
+                digest = ?vote.digest,
+                height = vote.height,
+                %err,
+                "✉️ no gossip peers: this attestor is the only elected member, so there is nobody \
+                 to broadcast to",
+            );
+            false
+        }
         Err(err) => {
             tracing::warn!(
                 digest = ?vote.digest,
@@ -652,6 +670,12 @@ fn try_publish(
             false
         }
     }
+}
+
+/// A solo attestor's publish fails with `InsufficientPeers` on every vote and every retry tick.
+/// That is expected, not a broken mesh; any other error, or the same error in a real set, is not.
+fn publish_failure_is_expected(err: &libp2p::gossipsub::PublishError, solo: bool) -> bool {
+    solo && matches!(err, libp2p::gossipsub::PublishError::InsufficientPeers)
 }
 
 /// Append a vote to the bounded outbox, dropping the oldest entry on overflow (lowest height —
@@ -1133,6 +1157,26 @@ async fn retry_pending_vote(shared: &Arc<Shared>, vote: Vote) {
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn insufficient_peers_is_expected_only_for_a_solo_attestor() {
+        use libp2p::gossipsub::PublishError;
+        assert!(super::publish_failure_is_expected(
+            &PublishError::InsufficientPeers,
+            true
+        ));
+        // In a real set the same error is the stalled-mesh signal and must stay a warning.
+        assert!(!super::publish_failure_is_expected(
+            &PublishError::InsufficientPeers,
+            false
+        ));
+        // Other failures are never expected, solo or not.
+        assert!(!super::publish_failure_is_expected(
+            &PublishError::MessageTooLarge,
+            true
+        ));
+    }
+
     use super::{
         deny_decision, drain_pending_votes, is_bufferable, note_attestor_peer, PendingVotes,
     };
