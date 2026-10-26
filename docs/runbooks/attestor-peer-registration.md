@@ -71,7 +71,7 @@ steps below to the attestor operator guide when publishing this release.
 
 ## Rollout for an existing network
 
-1. Build the runtime and matching binaries/types from this feature (3.141.0 / spec version 141,
+1. Build the runtime and matching binaries/types from this feature (3.140.0 / spec version 140,
    following release 139). Coordinate the final release version through the normal release process.
    Existing binaries enforce Attestation metadata compatibility, so coordinate the finalized
    runtime upgrade and binary rollout using the normal network upgrade procedure.
