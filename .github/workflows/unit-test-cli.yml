@@ -8,6 +8,7 @@ name: unit-test-cli
       - "cli/src/commands/**"
       - "cli/src/lib/**"
       - "cli/src/test/unit-tests/**"
+      - "cli/src/test/cc3-indexer-tests/common.ts"
       - ".github/workflows/unit-test-cli.yml"
   workflow_dispatch:
 

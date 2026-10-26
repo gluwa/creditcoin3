@@ -2,7 +2,7 @@ import { newApi, ApiPromise, KeyringPair } from '../../lib';
 import { getChainStatus } from '../../lib/chain/status';
 import { chain_Anvil3_Key } from '../blockchain-tests/pallets/supported-chains/consts';
 import { dispatchErrorName, forElapsedBlocks, sleep, sudoInBlock } from '../utils';
-import { chainNow, graphQLQuery } from './common';
+import { chainNow, graphQLQuery, queryIndexedData } from './common';
 
 // Poll the indexer until the latest reversion for `chainKey` is fully applied
 // (status === 'complete'). Returns once settled or throws after the timeout so a
@@ -289,7 +289,7 @@ describe('handleEventRevertedAttestationChainTo()', () => {
                     expect(node.lastAttestedDigest).toEqual(checkpointDigestToRevertTo);
                 }
             } else {
-                const checkpoint = await graphQLQuery(
+                const checkpoint = await queryIndexedData(
                     `query {
                         checkpoints(
                             filter: {
