@@ -3,7 +3,7 @@ import { getChainStatus } from '../../lib/chain/status';
 import { forElapsedBlocks } from '../utils';
 import { randomFundedAccount } from '../integration-tests/helpers';
 import { chain_Anvil2_Key } from '../blockchain-tests/pallets/supported-chains/consts';
-import { chainNow, graphQLQuery } from './common';
+import { chainNow, graphQLQuery, queryIndexedData } from './common';
 
 describe('handleEventBonded()', () => {
     let api: ApiPromise;
@@ -60,7 +60,7 @@ describe('handleEventBonded()', () => {
                 expect(BigInt(node.blockNumber)).toBeGreaterThan(0n);
 
                 // query each node individually to cover this endpoint too
-                const response2 = await graphQLQuery(
+                const response2 = await queryIndexedData(
                     `query { bonded(id: "${node.id}") { id, amount, stashId, whoId, date, blockNumber } }`,
                 );
                 expect(response2.data.bonded).toBeTruthy();

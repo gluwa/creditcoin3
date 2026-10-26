@@ -1,6 +1,6 @@
 import { newApi, ApiPromise } from '../../lib';
 import { chain_Anvil1_Key, chain_Anvil3_Key } from '../blockchain-tests/pallets/supported-chains/consts';
-import { chainNow, graphQLQuery } from './common';
+import { chainNow, graphQLQuery, queryIndexedData } from './common';
 
 describe('handleEventBlockAttested()', () => {
     let api: ApiPromise;
@@ -84,7 +84,7 @@ describe('handleEventBlockAttested()', () => {
                 lastDigest = node.digest;
 
                 // for each Attestation entity there is at least 1 entry in MapAttestationAttestor
-                const mapResponse = await graphQLQuery(
+                const mapResponse = await queryIndexedData(
                     `query {
                         mapAttestationAttestors(
                             orderBy: ID_ASC,
