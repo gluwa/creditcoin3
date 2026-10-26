@@ -1,6 +1,6 @@
 import { newApi, ApiPromise } from '../../lib';
 import { chain_Anvil1_Key } from '../blockchain-tests/pallets/supported-chains/consts';
-import { graphQLQuery, indexedRecordQuery } from './common';
+import { graphQLQuery, queryIndexedData } from './common';
 
 describe('handleEventAttestorElected()', () => {
     let api: ApiPromise;
@@ -49,7 +49,7 @@ describe('handleEventAttestorElected()', () => {
 
             // The latest election is what produced today's active set: every active attestor
             // must appear in it.
-            const response = await graphQLQuery(
+            const response = await queryIndexedData(
                 `query {
                     attestorsElecteds(
                         orderBy: EPOCH_ASC,
@@ -77,7 +77,7 @@ describe('handleEventAttestorElected()', () => {
                 expect(node.chainKey).toEqual(chain_Anvil1_Key.toString());
                 expect(activeAttestorsForAnvil1).toContain(node.attestorId);
 
-                const response2 = await indexedRecordQuery(
+                const response2 = await queryIndexedData(
                     `query { attestorsElected(id: "${node.id}") { id, epoch, chainKey, attestorId }}`,
                 );
                 expect(response2.data.attestorsElected).toBeTruthy();

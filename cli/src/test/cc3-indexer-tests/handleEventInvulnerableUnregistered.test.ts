@@ -1,7 +1,7 @@
 import { newApi, ApiPromise, KeyringPair } from '../../lib';
 import { forElapsedBlocks } from '../utils';
 import { chain_Anvil1_Key, chain_Anvil2_Key } from '../blockchain-tests/pallets/supported-chains/consts';
-import { graphQLQuery, indexedRecordQuery } from './common';
+import { graphQLQuery, queryIndexedData } from './common';
 
 describe('handleEventInvulnerableUnregistered()', () => {
     let api: ApiPromise;
@@ -82,7 +82,7 @@ describe('handleEventInvulnerableUnregistered()', () => {
                 }
 
                 // query each node individually to cover this endpoint too
-                const response2 = await indexedRecordQuery(
+                const response2 = await queryIndexedData(
                     `query { invulnerableUnregistered(id: "${node.id}") { id, attestorId, whoId, chainKey, blockNumber } }`,
                 );
                 expect(response2.data.invulnerableUnregistered).toBeTruthy();

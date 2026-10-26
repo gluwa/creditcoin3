@@ -1,6 +1,6 @@
 import { newApi, ApiPromise } from '../../lib';
 import { chain_Anvil1_Key, chain_Anvil3_Key } from '../blockchain-tests/pallets/supported-chains/consts';
-import { chainNow, graphQLQuery, indexedRecordQuery } from './common';
+import { chainNow, graphQLQuery, queryIndexedData } from './common';
 
 describe('handleEventCheckpointReached()', () => {
     let api: ApiPromise;
@@ -47,7 +47,7 @@ describe('handleEventCheckpointReached()', () => {
                 expect(BigInt(node.timestamp)).toBeLessThanOrEqual(await chainNow(api));
 
                 // query each node individually to cover this endpoint too
-                const response2 = await indexedRecordQuery(
+                const response2 = await queryIndexedData(
                     `query { checkpoint(id: "${node.id}") { id, whoId, atBlockNumber, chainKey, blockNumber, digest, timestamp } }`,
                 );
                 expect(response2.data.checkpoint).toBeTruthy();
