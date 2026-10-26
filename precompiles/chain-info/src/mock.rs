@@ -425,6 +425,9 @@ impl pallet_attestation::Config for Runtime {
     type MaxChainAttestationInterval = ConstU64<10_000>;
     type DefaultTargetSampleSize = DefaultTargetSampleSize;
     type DefaultMaxCatchup = ConstU32<500>;
+    // The runtime's devnet/fast ceiling: this mock uses the devnet block budget, where a 2_000-root
+    // commit charged per 500-root benchmark envelope exceeds max_extrinsic.
+    type MaxCatchupCeiling = ConstU32<1_000>;
     type RuntimeEvent = RuntimeEvent;
     type WeightInfo = pallet_attestation::weights::WeightInfo<Runtime>;
     type MaxAttestationNodes = MaxAttestorsDefault;

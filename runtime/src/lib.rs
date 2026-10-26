@@ -1030,6 +1030,12 @@ parameter_types! {
     /// each attestation's continuity proof spans at most this many
     /// blocks, bounding proof size to protect runtime validation.
     pub const DefaultMaxCatchup: u32 = 500;
+    /// Ceiling for the per-chain `MaxCatchup`. A catch-up commit's declared weight grows with it,
+    /// and must fit the smallest `Normal` extrinsic limit; `integrity_test` checks that.
+    /// Devnet and fast builds have a 1_666 ms block budget instead of 5_000 ms: there a 2_000-root
+    /// commit, charged one benchmark envelope per 500 own roots, exceeds `max_extrinsic`, so they
+    /// keep the ceiling the attestation pallet's mock uses.
+    pub const MaxCatchupCeiling: u32 = prod_devnet_fast!(2_000, 1_000, 1_000);
     /// Per-chain ceiling on the attestor set (`MaxAttestationNodes`).
     ///
     /// Sits below RFC-0174's ~120 committee-sortition floor, so a committee large enough to need
@@ -1064,6 +1070,7 @@ impl pallet_attestation::Config for Runtime {
     type MaxChainAttestationInterval = MaxChainAttestationInterval;
     type DefaultTargetSampleSize = DefaultTargetSampleSize;
     type DefaultMaxCatchup = DefaultMaxCatchup;
+    type MaxCatchupCeiling = MaxCatchupCeiling;
     type RuntimeEvent = RuntimeEvent;
     type WeightInfo = pallet_attestation::weights::WeightInfo<Runtime>;
     // TODO make this setting useful

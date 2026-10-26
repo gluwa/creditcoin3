@@ -73,6 +73,12 @@ declare module '@polkadot/api-base/types/consts' {
              **/
             maxAttestationsPerBlock: u32 & AugmentedConst<ApiType>;
             /**
+             * Runtime-safe ceiling for the per-chain `MaxCatchup` (see [`Pallet::set_max_catchup`]).
+             * Catch-up commits walk and checkpoint up to this many roots, so `integrity_test` checks
+             * their declared weight against the `Normal` extrinsic limit at this value.
+             **/
+            maxCatchupCeiling: u32 & AugmentedConst<ApiType>;
+            /**
              * Runtime-safe ceiling for the per-chain attestation interval (see
              * [`Pallet::set_chain_attestation_interval`]). Bounds `max_roots` (`max(MaxCatchup,
              * interval)`) in continuity-proof validation, so an unbounded value would neuter the

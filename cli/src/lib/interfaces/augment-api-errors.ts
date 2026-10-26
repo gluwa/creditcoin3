@@ -129,13 +129,21 @@ declare module '@polkadot/api-base/types/errors' {
             InvalidEvmProofOfPossession: AugmentedError<ApiType>;
             /**
              * Tried to set per-chain `MaxAttestors` above the runtime-level `MaxAttestationNodes`
-             * ceiling, or to zero. The ceiling is what `commit_attestation`'s benchmarked weight
-             * bound is measured against, so a per-chain value above it would undercharge weight.
-             * (`ActiveAttestors` is an unbounded `Vec`, so lowering the ceiling cannot invalidate
-             * stored state; the weight path clamps a stale per-chain value with `.min()`.)
+             * ceiling, to zero, or below the chain's registered or active attestor count. The
+             * ceiling is what `commit_attestation`'s benchmarked weight bound is measured against,
+             * so a per-chain value above it would undercharge weight.
              **/
             InvalidMaxAttestors: AugmentedError<ApiType>;
+            /**
+             * Tried to set `MaxCatchup` to zero, below the attestation interval, or above the
+             * runtime-level `MaxCatchupCeiling`.
+             **/
             InvalidMaxCatchup: AugmentedError<ApiType>;
+            /**
+             * Tried to set per-chain `MaxInvulnerables` to zero or above the runtime-level
+             * `MaxAttestationNodes` ceiling. Mirrors [`Error::InvalidMaxAttestors`].
+             **/
+            InvalidMaxInvulnerables: AugmentedError<ApiType>;
             InvalidProofOfPossession: AugmentedError<ApiType>;
             InvalidTargetSampleSize: AugmentedError<ApiType>;
             /**

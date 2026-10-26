@@ -5,6 +5,7 @@ use crate::{
     },
     BoundsCheckResult, ChainInfo, ChainInfoResult, CoreFees, HashResult, HeightHashResult,
     HeightResult, OutboxDiscoveries, OutboxDiscoveryResult, OutboxFactories, OutboxFactoryResult,
+    GAS_STORAGE_LOOKUP,
 };
 
 use attestor_primitives::{AttestationCheckpoint, AttestationData, SignedAttestation};
@@ -525,6 +526,139 @@ fn get_latest_checkpoint_height_and_hash_returns_default_when_no_data() {
                     },
                 )
                 .execute_returns(expected_result);
+        });
+}
+
+// The latest-height lookups read storage whether or not the entry exists, so absent state must be
+// charged like present state. Every call also pays the framework's caller-type read and the
+// supported-chain lookup before the body runs.
+fn base_cost() -> u64 {
+    let db_read_cost = RuntimeHelper::<Runtime>::db_read_gas_cost();
+    assert_ne!(
+        db_read_cost, 0,
+        "test runtime must be configured with a non-zero DB-read cost"
+    );
+    db_read_cost.saturating_add(GAS_STORAGE_LOOKUP)
+}
+
+fn assert_latest_attestation_cost(
+    setup: impl FnOnce(),
+    db_reads: u64,
+    expected_result: HeightHashResult,
+) {
+    let alice: H160 = Alice.into();
+    let expected_cost =
+        base_cost().saturating_add(RuntimeHelper::<Runtime>::db_read_gas_cost() * db_reads);
+
+    ExtBuilder::default()
+        .with_balances(vec![(alice.into(), 300)])
+        .build()
+        .execute_with(|| {
+            setup();
+
+            precompiles()
+                .prepare_test(
+                    alice,
+                    Precompile,
+                    PCall::get_latest_attestation_height_and_hash {
+                        chain_key: SUPPORTED_CHAIN_KEY,
+                    },
+                )
+                .expect_cost(expected_cost)
+                .execute_returns(expected_result);
+        });
+}
+
+#[test]
+fn get_latest_attestation_height_and_hash_charges_each_read_for_present_and_absent_state() {
+    let digest = H256::from_slice(&[23_u8; 32]);
+    let checkpoint_digest = H256::from_slice(&[45_u8; 32]);
+
+    // `LastDigest` hit: one read.
+    assert_latest_attestation_cost(
+        || LastDigest::<Runtime>::insert(SUPPORTED_CHAIN_KEY, (1000, digest)),
+        1,
+        HeightHashResult {
+            height: 1000,
+            hash: digest,
+            is_attestation: true,
+            exists: true,
+        },
+    );
+
+    // `LastDigest` miss, `LastCheckpoint` hit: both reads.
+    assert_latest_attestation_cost(
+        || {
+            LastCheckpoint::<Runtime>::insert(
+                SUPPORTED_CHAIN_KEY,
+                AttestationCheckpoint {
+                    block_number: 2000,
+                    digest: checkpoint_digest,
+                },
+            )
+        },
+        2,
+        HeightHashResult {
+            height: 2000,
+            hash: checkpoint_digest,
+            is_attestation: false,
+            exists: true,
+        },
+    );
+
+    // Both miss: both reads are still charged.
+    assert_latest_attestation_cost(|| {}, 2, HeightHashResult::default());
+}
+
+#[test]
+fn get_latest_checkpoint_height_and_hash_charges_db_read_cost_for_present_and_absent_state() {
+    let alice: H160 = Alice.into();
+    let digest = H256::from_slice(&[45_u8; 32]);
+    let expected_cost = base_cost().saturating_add(RuntimeHelper::<Runtime>::db_read_gas_cost());
+
+    ExtBuilder::default()
+        .with_balances(vec![(alice.into(), 300)])
+        .build()
+        .execute_with(|| {
+            LastCheckpoint::<Runtime>::insert(
+                SUPPORTED_CHAIN_KEY,
+                AttestationCheckpoint {
+                    block_number: 2000,
+                    digest,
+                },
+            );
+
+            precompiles()
+                .prepare_test(
+                    alice,
+                    Precompile,
+                    PCall::get_latest_checkpoint_height_and_hash {
+                        chain_key: SUPPORTED_CHAIN_KEY,
+                    },
+                )
+                .expect_cost(expected_cost)
+                .execute_returns(HeightHashResult {
+                    height: 2000,
+                    hash: digest,
+                    is_attestation: false,
+                    exists: true,
+                });
+        });
+
+    ExtBuilder::default()
+        .with_balances(vec![(alice.into(), 300)])
+        .build()
+        .execute_with(|| {
+            precompiles()
+                .prepare_test(
+                    alice,
+                    Precompile,
+                    PCall::get_latest_checkpoint_height_and_hash {
+                        chain_key: SUPPORTED_CHAIN_KEY,
+                    },
+                )
+                .expect_cost(expected_cost)
+                .execute_returns(HeightHashResult::default());
         });
 }
 

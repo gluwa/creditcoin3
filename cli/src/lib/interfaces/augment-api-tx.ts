@@ -295,8 +295,8 @@ declare module '@polkadot/api-base/types/submittable' {
             /**
              * Set the maximum catchup bound (in **blocks**) for a given chain.
              * During catchup, continuity proofs will span at most this many
-             * blocks per attestation. Must be greater than zero. Takes effect
-             * at the next checkpoint.
+             * blocks per attestation. Must be greater than zero and at most
+             * [`Config::MaxCatchupCeiling`]. Takes effect at the next checkpoint.
              **/
             setMaxCatchup: AugmentedSubmittable<
                 (
