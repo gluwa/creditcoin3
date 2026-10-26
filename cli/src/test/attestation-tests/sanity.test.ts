@@ -239,9 +239,17 @@ describe('BlockAttested events', (): void => {
             expect(attestedEvents[chain_Anvil1_Key]).toBeLessThanOrEqual(expectedBlockAttestedEvents_Anvil1 + 2);
 
             // ... and the heights behind those events are distinct, so the count cannot be inflated
-            // by re-attesting a handful of heights: roughly one per interval of progress, minus a
-            // couple for an attestor being mid-round when the run stops.
-            expect(attestedHeightsAfterCatchUp_Anvil1.size).toBeGreaterThanOrEqual(intervalsElapsed - 2);
+            // by re-attesting a handful of heights. One per interval of progress is the shape of a
+            // tip-following run, but while the catch-up window is still open heights step by up to
+            // `max_catchup` and can be clamped to a tip that has only just moved, so the floor is
+            // also capped by what the observed events can support: no more than one attestation per
+            // attestor per height. Duplicates still fail, because a run that re-attests one height
+            // raises the second term without raising the first.
+            const minDistinctHeights = Math.max(
+                1,
+                Math.min(intervalsElapsed - 2, Math.ceil(attestedAfterCatchUp_Anvil1 / attestorsForAnvil1)),
+            );
+            expect(attestedHeightsAfterCatchUp_Anvil1.size).toBeGreaterThanOrEqual(minDistinctHeights);
 
             // note: interval for Anvil2 changes dynamically during this test
             expect(attestedEvents[chain_Anvil2_Key]).toBeLessThanOrEqual(40);
