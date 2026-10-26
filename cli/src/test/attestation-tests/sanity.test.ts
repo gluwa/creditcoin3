@@ -15,6 +15,7 @@ describe('BlockAttested events', (): void => {
     let startingEpoch = 0;
     let chain_Anvil1_AttestationInterval = 0;
     let startBlock_Anvil1 = 0;
+    let attestorsForAnvil1 = 0;
     let provider_Anvil1: WebSocketProvider;
     // Hard ceiling only: the test stops as soon as every condition in `isDone()` holds,
     // which is usually ~8 mins. Running into the ceiling means something is stuck and the
@@ -33,7 +34,7 @@ describe('BlockAttested events', (): void => {
         root = (global as any).CREDITCOIN_CREATE_SIGNER('sudo');
 
         // check that we have enough attestors
-        const attestorsForAnvil1 = (await api.query.attestation.activeAttestors(chain_Anvil1_Key)).length;
+        attestorsForAnvil1 = (await api.query.attestation.activeAttestors(chain_Anvil1_Key)).length;
         expect(attestorsForAnvil1).toBeGreaterThanOrEqual(3);
 
         const attestorsForAnvil2 = (await api.query.attestation.activeAttestors(chain_Anvil2_Key)).length;
@@ -70,6 +71,9 @@ describe('BlockAttested events', (): void => {
         // Anvil-1 attestations past the head it had when the test started, i.e. once the
         // attestors have caught up with the preloaded blocks and follow the tip
         let attestedAfterCatchUp_Anvil1 = 0;
+        // Distinct Anvil-1 heights attested past the starting head. Event counts alone can be
+        // inflated by re-attesting the same height, so progress is asserted on this instead.
+        const attestedHeightsAfterCatchUp_Anvil1 = new Set<number>();
         const initialBlock = (await getChainStatus(api)).bestNumber;
 
         const isDone = (): boolean =>
@@ -109,6 +113,7 @@ describe('BlockAttested events', (): void => {
                                 (headerNumber as U64).toNumber() > startBlock_Anvil1
                             ) {
                                 attestedAfterCatchUp_Anvil1++;
+                                attestedHeightsAfterCatchUp_Anvil1.add((headerNumber as U64).toNumber());
                             }
                             if (
                                 supportedChainKeyStr === String(chain_Anvil2_Key) &&
@@ -210,25 +215,33 @@ describe('BlockAttested events', (): void => {
             expect(attestedAfterCatchUp_Anvil1).toBeGreaterThanOrEqual(minAttestedAfterCatchUp);
 
             const endBlock_Anvil1 = await provider_Anvil1.getBlockNumber();
-            // There are 10013 initial blocks which will result in 20 attestations for each 500
-            // until we catch up, then every <interval> blocks.
+            // There are 10013 initial blocks, attested at one per interval over each catch-up
+            // window: 20 attestations per 500 preloaded blocks.
             // Anvil-1's interval is 10 from genesis and nothing here writes it, so re-reading it
-            // is a no-op; what varies is the replay rate. A caught-up attestor emits one event per
-            // interval of progress, but while the catch-up window is open the round re-descends the
-            // range it already cached up to `max_catchup / interval` times before jumping 500 ahead
-            // again, so the tail emits ~3.5 events per interval of progress. All four flakes are run
-            // length only: on 10-15, 53 events against a one-per-interval bound of 34, with every
-            // lower bound passing.
+            // is a no-op; what varies is the replay. A caught-up attestor emits one event per
+            // interval of progress, but while the catch-up window is open every active attestor can
+            // re-descend the range it already cached, up to `max_catchup / interval` times per
+            // round. The ceiling therefore follows the chain parameters rather than a constant: the
+            // theoretical maximum is attestors * max_catchup / interval events per interval of
+            // progress. It is deliberately loose (the measured tail is ~3.5 per interval), which is
+            // why the distinct-height assert below is what actually pins progress.
             chain_Anvil1_AttestationInterval = (
                 await api.query.attestation.chainAttestationInterval(chain_Anvil1_Key)
             ).toNumber();
-            const catchUpReplayRate = 3.5;
-            const expectedBlockAttestedEvents_Anvil1 =
-                20 +
-                Math.ceil((endBlock_Anvil1 - startBlock_Anvil1) / chain_Anvil1_AttestationInterval) * catchUpReplayRate;
+            const maxCatchup_Anvil1 = (await api.query.attestation.maxCatchup(chain_Anvil1_Key)).toNumber();
+            const catchUpReplayRate = (attestorsForAnvil1 * maxCatchup_Anvil1) / chain_Anvil1_AttestationInterval;
+            const intervalsElapsed = Math.ceil(
+                (endBlock_Anvil1 - startBlock_Anvil1) / chain_Anvil1_AttestationInterval,
+            );
+            const expectedBlockAttestedEvents_Anvil1 = 20 + intervalsElapsed * catchUpReplayRate;
             expect(attestedEvents[chain_Anvil1_Key]).toBeGreaterThanOrEqual(15);
             // so allow for some timing differences
             expect(attestedEvents[chain_Anvil1_Key]).toBeLessThanOrEqual(expectedBlockAttestedEvents_Anvil1 + 2);
+
+            // ... and the heights behind those events are distinct, so the count cannot be inflated
+            // by re-attesting a handful of heights: roughly one per interval of progress, minus a
+            // couple for an attestor being mid-round when the run stops.
+            expect(attestedHeightsAfterCatchUp_Anvil1.size).toBeGreaterThanOrEqual(intervalsElapsed - 2);
 
             // note: interval for Anvil2 changes dynamically during this test
             expect(attestedEvents[chain_Anvil2_Key]).toBeLessThanOrEqual(40);
