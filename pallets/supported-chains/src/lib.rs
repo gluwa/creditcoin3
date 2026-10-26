@@ -14,6 +14,7 @@ mod tests;
 
 #[cfg(feature = "runtime-benchmarks")]
 mod benchmarking;
+pub mod chains_count;
 pub mod weights;
 
 #[frame_support::pallet]
@@ -68,6 +69,13 @@ pub mod pallet {
         type DefaultMaturityStrategy: Get<String>;
         /// Origin that can perform Operator-only calls
         type OperatorsOrigin: EnsureOrigin<Self::RuntimeOrigin>;
+        /// Maximum number of chains that can be registered at once.
+        ///
+        /// The epoch hook elects attestors for every supported chain and applies their pending
+        /// updates in a single mandatory block, so this is what keeps that work, and the weight it
+        /// reports, bounded.
+        #[pallet::constant]
+        type MaxSupportedChains: Get<u32>;
     }
 
     pub trait WeightInfo {
@@ -85,6 +93,12 @@ pub mod pallet {
         Value = SupportedChain,
         QueryKind = OptionQuery,
     >;
+
+    /// Number of entries in [`SupportedChains`], kept in lock-step with it so the
+    /// [`Config::MaxSupportedChains`] check in `register_chain` is O(1).
+    #[pallet::storage]
+    #[pallet::getter(fn supported_chains_count)]
+    pub type SupportedChainsCount<T: Config> = StorageValue<_, u32, ValueQuery>;
 
     #[pallet::storage]
     #[pallet::getter(fn chain_id_and_name_to_uniq_key)]
@@ -114,6 +128,10 @@ pub mod pallet {
     #[pallet::genesis_build]
     impl<T: Config> BuildGenesisConfig for GenesisConfig<T> {
         fn build(&self) {
+            assert!(
+                self.supported_chains.len() as u32 <= T::MaxSupportedChains::get(),
+                "Genesis config registers more chains than `MaxSupportedChains` allows",
+            );
             let mut chain_key = 1;
             for (chain_id, chain_name, encoding, maturity_strategy) in &self.supported_chains {
                 SupportedChains::<T>::insert(
@@ -136,6 +154,7 @@ pub mod pallet {
                     .expect("Error incrementing index");
             }
             ChainKeyValue::<T>::put(chain_key);
+            SupportedChainsCount::<T>::put(self.supported_chains.len() as u32);
         }
     }
 
@@ -204,6 +223,10 @@ pub mod pallet {
         /// The chain already carries the requested name. Rejected rather than applied as a
         /// no-op so that every `ChainNameSet` event stands for a real change.
         ChainNameUnchanged,
+
+        /// [`Config::MaxSupportedChains`] chains are already registered. Remove one before
+        /// registering another.
+        TooManyChains,
     }
 
     #[pallet::call]
@@ -230,6 +253,12 @@ pub mod pallet {
             ensure!(
                 !ChainIdAndNameToUniqKey::<T>::contains_key(chain_id, chain_name.as_bytes()),
                 Error::<T>::ChainAlreadyRegistered
+            );
+
+            let chains_count = SupportedChainsCount::<T>::get();
+            ensure!(
+                chains_count < T::MaxSupportedChains::get(),
+                Error::<T>::TooManyChains
             );
 
             let maturity_strategy = if let Some(strategy) = maturity_strategy {
@@ -259,6 +288,7 @@ pub mod pallet {
             );
 
             ChainKeyValue::<T>::put(chain_key.checked_add(1).ok_or(Error::<T>::Arithmetic)?);
+            SupportedChainsCount::<T>::put(chains_count.saturating_add(1));
 
             // Propagate registration-handler rejection. `DispatchError: From<&'static str>` lets
             // `?` flow the error straight out of the extrinsic. Dispatchables are transactional
@@ -306,6 +336,7 @@ pub mod pallet {
             ChainIdAndNameToUniqKey::<T>::remove(item.chain_id, item.chain_name.clone());
 
             SupportedChains::<T>::remove(chain_key);
+            SupportedChainsCount::<T>::mutate(|count| *count = count.saturating_sub(1));
 
             // Notify event listeners
             T::EventListeners::on_supported_chain_removed(chain_key, remove_checkpoints);
@@ -456,6 +487,10 @@ pub mod pallet {
 
         fn get_supported_chain(chain_key: ChainKey) -> Option<SupportedChain> {
             SupportedChains::<T>::get(chain_key)
+        }
+
+        fn supported_chains_count() -> u32 {
+            SupportedChainsCount::<T>::get()
         }
     }
 }

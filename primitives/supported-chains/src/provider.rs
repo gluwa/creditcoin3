@@ -8,6 +8,8 @@ pub trait SupportedChainsProvider {
     fn supported_chains() -> Vec<ChainKey>;
     fn chain_key_by_chain_id_and_name(chain_id: ChainId, chain_name: Vec<u8>) -> Option<ChainKey>;
     fn get_supported_chain(chain_key: ChainKey) -> Option<SupportedChain>;
+    /// Number of supported chains, without listing them.
+    fn supported_chains_count() -> u32;
 }
 
 pub trait OnRegisterChainProvider {
