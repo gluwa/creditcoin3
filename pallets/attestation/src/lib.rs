@@ -507,6 +507,21 @@ pub mod pallet {
         T::DefaultMinBondRequirement::get().into()
     }
 
+    /// Stake bonded for each attestor at registration, settled on unregistration. Attestors
+    /// registered before this map existed have no entry and fall back to the current
+    /// [`MinBondRequirement`].
+    #[pallet::storage]
+    #[pallet::getter(fn attestor_collateral)]
+    pub type AttestorCollateral<T: Config> = StorageDoubleMap<
+        _,
+        Twox64Concat,
+        ChainKey,
+        Blake2_128Concat,
+        T::AccountId,
+        BalanceOf<T>,
+        OptionQuery,
+    >;
+
     /// Map from all (unlocked) "controller" accounts to info regarding staking.
     ///
     /// Note: All the reads and mutations to this storage *MUST* be done through the methods exposed
