@@ -959,7 +959,8 @@ pub mod pallet {
         CheckpointMaintenanceInProgress,
         /// Operator forward patch contained no checkpoints.
         EmptyCheckpointPatch,
-        /// More checkpoints sit above the patch tip than allowed by [`MAX_CHECKPOINT_SUFFIX_WIPE_TOTAL`].
+        /// No longer returned: the suffix above the patch tip is drained across blocks. Kept so
+        /// later variants keep their SCALE index.
         CheckpointSuffixWipeTooLarge,
         /// No longer returned: leftover attestations are drained across blocks. Kept so later
         /// variants keep their SCALE index.
@@ -1717,8 +1718,10 @@ pub mod pallet {
         /// Does **not** unregister attestors or alter bonding ledger entries — attestors resume committing
         /// attestations after recovery.
         ///
-        /// When `wipe_suffix` is true, every checkpoint strictly above the batch tip is removed in this
-        /// dispatch (bounded by [`crate::impls::MAX_CHECKPOINT_SUFFIX_WIPE_TOTAL`]).
+        /// When `wipe_suffix` is true, every checkpoint strictly above the batch tip is removed: those in
+        /// the tip's bucket here, the rest by `on_initialize` a bounded batch per block through
+        /// [`CheckpointPruningStates`], like `revert_to`. Until that drains, commits for the chain are
+        /// rejected and a further patch is refused.
         #[pallet::call_index(29)]
         #[pallet::weight(<T as Config>::WeightInfo::forward_patch_checkpoints())]
         pub fn forward_patch_checkpoints(
