@@ -46,6 +46,27 @@ pub struct ChainState {
     /// Heights currently being filled, so concurrent misses for one block share a single
     /// fetch+build instead of each doing their own.
     pub in_flight_fills: std::sync::Mutex<HashMap<u64, Arc<tokio::sync::Notify>>>,
+    /// When this chain's source-chain probe (archiver readiness + source tip read) last
+    /// passed. `None` until the first pass. Lets `/health` ride out short source-RPC blips: a
+    /// failing probe only counts once it has been failing for [`SOURCE_PROBE_GRACE`].
+    pub last_source_probe_ok: std::sync::Mutex<Option<Instant>>,
+}
+
+/// How long a chain's source probe may keep failing, after its last pass, before `/health`
+/// and `/readyz` report it. Single misses of the 2 s tip read made the Better Stack monitor
+/// page on cc3-testnet while every replica kept serving proofs; a source chain that stays
+/// unreachable for longer than this still turns the replica degraded and not ready.
+pub const SOURCE_PROBE_GRACE: Duration = Duration::from_secs(180);
+
+/// Whether a chain whose source probe just failed still counts as healthy: it passed within
+/// the last `grace`. A chain that never passed gets no grace, so a replica that boots against
+/// a dead source chain reports it at once.
+pub(crate) fn within_source_probe_grace(
+    last_ok: Option<Instant>,
+    now: Instant,
+    grace: Duration,
+) -> bool {
+    last_ok.is_some_and(|ok| now.saturating_duration_since(ok) < grace)
 }
 
 impl ChainState {
@@ -487,6 +508,7 @@ impl ContinuityService {
                     checkpoint_interval: AtomicU64::new(checkpoint_interval),
                     attestation_interval: AtomicU64::new(attestation_interval),
                     last_cache_advance: std::sync::Mutex::new(Instant::now()),
+                    last_source_probe_ok: std::sync::Mutex::new(None),
                     fill_permits: Arc::new(tokio::sync::Semaphore::new(
                         cache_config.max_concurrent_block_fills.get(),
                     )),
@@ -1197,19 +1219,54 @@ impl ContinuityService {
         }
     }
 
-    /// Health check for ETH RPC connectivity
+    /// Health check for source-chain connectivity on every chain.
+    ///
+    /// The chains are probed concurrently, so one slow chain cannot run out the caller's
+    /// budget for the others. A chain whose probe fails within [`SOURCE_PROBE_GRACE`] of its
+    /// last pass is logged and still counted as healthy; only a chain that has been failing
+    /// for longer (or never passed) fails the check.
     pub async fn check_eth_connectivity(&self) -> anyhow::Result<()> {
-        for (chain_key, chain) in &self.chains {
-            chain
-                .builder
-                .eth_provider
-                .is_healthy()
-                .await
-                .map_err(|e| anyhow::anyhow!("eth RPC chain {chain_key}: {e}"))?
-                .then_some(())
-                .ok_or_else(|| anyhow::anyhow!("eth RPC chain {chain_key} is unhealthy"))?;
+        let probes = self.chains.iter().map(|(chain_key, chain)| async move {
+            (
+                *chain_key,
+                chain,
+                chain.builder.eth_provider.is_healthy().await,
+            )
+        });
+        let results = futures::future::join_all(probes).await;
+
+        let now = Instant::now();
+        let mut failing = Vec::new();
+        for (chain_key, chain, result) in results {
+            let mut last_ok = chain
+                .last_source_probe_ok
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            let error = match result {
+                Ok(true) => {
+                    *last_ok = Some(now);
+                    continue;
+                }
+                Ok(false) => "unhealthy".to_owned(),
+                Err(err) => format!("{err:#}"),
+            };
+            if within_source_probe_grace(*last_ok, now, SOURCE_PROBE_GRACE) {
+                tracing::warn!(
+                    chain_key,
+                    %error,
+                    failing_for_secs = last_ok.map(|ok| now.saturating_duration_since(ok).as_secs()),
+                    grace_secs = SOURCE_PROBE_GRACE.as_secs(),
+                    "🩺 source-chain probe failed; within grace, still reported healthy"
+                );
+            } else {
+                failing.push(format!("eth RPC chain {chain_key}: {error}"));
+            }
         }
-        Ok(())
+        if failing.is_empty() {
+            Ok(())
+        } else {
+            Err(anyhow::anyhow!(failing.join("; ")))
+        }
     }
 
     /// Returns the latest attested height in the in-memory cache for a chain.
