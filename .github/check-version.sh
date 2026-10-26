@@ -1,5 +1,9 @@
 #!/bin/bash
 
+# Usage: check-version.sh [--consistency-only | <base-ref> <head-ref>]
+# Development PRs only need consistent versions; development releases bump them.
+# Without --consistency-only, also require version.rs to change with runtime code.
+
 set -xeuo pipefail
 
 # Colorful output.
@@ -36,6 +40,10 @@ if [ "$VERSION_FROM_CARGO_TOML" != "$VERSION_FROM_VERSION_RS" ]; then
     exit 2
 fi
 
+if [ "${1:-}" = "--consistency-only" ]; then
+    echo "PASS: Version strings are in sync; the development release workflow handles version bumps"
+    exit 0
+fi
 
 FROM=$(git rev-parse "${1:-origin/dev}")
 TO=$(git rev-parse "${2:-HEAD}")
