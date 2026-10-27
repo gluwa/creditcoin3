@@ -12564,6 +12564,11 @@ fn failed_commit_does_not_count_towards_block_limit() {
             AttestationsInBlock::<Test>::get(SUPPORTED_CHAIN_KEY),
             Some((now, limit))
         );
+        // The genesis and each accepted commit notify rewards once; the rejected commit does not.
+        assert_eq!(
+            RecordingCommittedAttestationObserver::notifications(),
+            vec![(SUPPORTED_CHAIN_KEY, vec![attestor.attestor_id]); limit as usize + 1]
+        );
     })
 }
 
@@ -12614,6 +12619,10 @@ fn commit_over_queue_len_limit_checkpoints_at_the_attestation() {
         let removal = AttestationRemovalQueues::<Test>::get(SUPPORTED_CHAIN_KEY);
         assert_eq!(removal.back(), Some(&attestation.digest()));
         assert!(removal.contains(full.back().unwrap()));
+        assert_eq!(
+            RecordingCommittedAttestationObserver::notifications(),
+            vec![(SUPPORTED_CHAIN_KEY, vec![attestor.attestor_id]); 2]
+        );
 
         // The chain keeps attesting on the queue-based path.
         let next = create_signed_attestation(
@@ -12633,6 +12642,10 @@ fn commit_over_queue_len_limit_checkpoints_at_the_attestation() {
         assert_eq!(
             CheckpointingQueues::<Test>::get(SUPPORTED_CHAIN_KEY),
             VecDeque::from([next.digest()])
+        );
+        assert_eq!(
+            RecordingCommittedAttestationObserver::notifications(),
+            vec![(SUPPORTED_CHAIN_KEY, vec![attestor.attestor_id]); 3]
         );
     })
 }
@@ -13005,6 +13018,10 @@ fn commit_over_queue_len_limit_checkpoints_after_checkpoint_error() {
         assert_eq!(Checkpoints::<Test>::get(SUPPORTED_CHAIN_KEY, 1), None);
         assert_eq!(Checkpoints::<Test>::get(SUPPORTED_CHAIN_KEY, 2), None);
         assert!(CheckpointingQueues::<Test>::get(SUPPORTED_CHAIN_KEY).is_empty());
+        assert_eq!(
+            RecordingCommittedAttestationObserver::notifications(),
+            vec![(SUPPORTED_CHAIN_KEY, vec![attestor.attestor_id]); 4]
+        );
 
         // The chain keeps attesting on the queue-based path.
         let fourth = direct_link_attestation(&attestor, 4, third.digest());

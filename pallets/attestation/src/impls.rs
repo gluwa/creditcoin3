@@ -514,9 +514,10 @@ impl<T: Config> Pallet<T> {
             // The queue can't grow any further, and the next checkpoint boundary may still be
             // out of reach (e.g. after the attestation interval grew). Checkpoint at this
             // attestation instead, which condenses the whole queue without walking any proof.
-            return Self::checkpoint_at_attestation(chain_key, header_number, digest, queue);
+            Self::checkpoint_at_attestation(chain_key, header_number, digest, queue)?;
+        } else {
+            CheckpointingQueues::<T>::insert(chain_key, queue);
         }
-        CheckpointingQueues::<T>::insert(chain_key, queue);
 
         Self::notify_rewards_for_commit(chain_key, &eligible_vec);
         Ok(())

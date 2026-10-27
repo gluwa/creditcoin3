@@ -29,9 +29,9 @@ use sp_runtime::{
 };
 use supported_chains_primitives::MATURITY_FIXED_DELAY_10;
 
-use attestor_primitives::{AttestationChainConfiguration, ChainEncodingVersion};
+use attestor_primitives::{AttestationChainConfiguration, ChainEncodingVersion, ChainKey};
 
-use crate::NoopCommittedAttestationObserver;
+use crate::CommittedAttestationObserver;
 
 use sp_staking::{EraIndex, SessionIndex};
 
@@ -41,6 +41,24 @@ type Block = frame_system::mocking::MockBlock<Test>;
 type Balance = u128;
 
 pub const ALICE: AccountId = 1;
+
+pub struct RecordingCommittedAttestationObserver;
+
+impl RecordingCommittedAttestationObserver {
+    const STORAGE_KEY: &[u8] = b":test:committed_attestations";
+
+    pub fn notifications() -> Vec<(ChainKey, Vec<AccountId>)> {
+        frame_support::storage::unhashed::get_or_default(Self::STORAGE_KEY)
+    }
+}
+
+impl CommittedAttestationObserver<AccountId> for RecordingCommittedAttestationObserver {
+    fn on_committed_eligible(chain_key: ChainKey, eligible_signers: &[AccountId]) {
+        let mut notifications = Self::notifications();
+        notifications.push((chain_key, eligible_signers.to_vec()));
+        frame_support::storage::unhashed::put(Self::STORAGE_KEY, &notifications);
+    }
+}
 
 frame_support::construct_runtime!(
     pub enum Test
@@ -364,7 +382,7 @@ impl attestation_poc::Config for Test {
     type MaxCheckpointsImportedPerCall = MaxCheckpointsImportedPerCall;
     type DefaultAttestationChainGenesisBlockNumber = DefaultAttestationChainGenesisBlockNumber;
     type OperatorsOrigin = EnsureRootOrOperators;
-    type CommittedAttestationHook = NoopCommittedAttestationObserver;
+    type CommittedAttestationHook = RecordingCommittedAttestationObserver;
 }
 
 parameter_types! {
