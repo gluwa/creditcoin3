@@ -38,4 +38,12 @@ if [[ $BENCH -eq 0 ]]
 then
     ./target/release/creditcoin3-node benchmark pallet --chain dev --steps="$STEPS" --repeat="$REPEAT" --pallet "pallet_$PALLET" --extrinsic='*' --wasm-execution=compiled --heap-pages=10000 --output "$OUTPUT"
     sed -i "s/pallet_$PALLET/crate/" "$OUTPUT"
+
+    # A fit can drop a small slope when BLS verification dominates the measurements.
+    # Check dispatch-weight invariants against the generated file before CI commits it.
+    # Keep this here so manual attestation-weight regeneration gets the same validation.
+    if [[ "$PALLET" == "attestation" ]]
+    then
+        cargo test --locked --release -p pallet-attestation --lib
+    fi
 fi
