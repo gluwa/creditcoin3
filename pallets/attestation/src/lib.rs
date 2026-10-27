@@ -1767,7 +1767,7 @@ pub mod pallet {
         /// Fails with `NotStash` if the caller has no ledger (nothing to top up — a stash with no
         /// registered attestor exits via `withdraw_unbonded`) and with `InsufficientBalance` if the
         /// caller's liquid attest-coin balance is below `amount`.
-        #[pallet::call_index(30)]
+        #[pallet::call_index(31)]
         #[pallet::weight(<T as Config>::WeightInfo::bond_extra())]
         pub fn bond_extra(origin: OriginFor<T>, amount: BalanceOf<T>) -> DispatchResult {
             let stash = ensure_signed(origin)?;
@@ -1789,7 +1789,7 @@ pub mod pallet {
         /// fall below the sum of `MinBondRequirement` across the stash's still-registered
         /// attestors (`InsufficientRemainingBond` otherwise). With no attestors registered that
         /// sum is zero, so the full remaining bond can be released and the stash reaped.
-        #[pallet::call_index(31)]
+        #[pallet::call_index(32)]
         // `n` = same `required_bond_for_stash` scan as the two paths above, priced via `n`.
         #[pallet::weight(<T as Config>::WeightInfo::unbond_surplus(T::MaxAttestationNodes::get().saturating_mul(ASSUMED_MAX_SUPPORTED_CHAINS)))]
         pub fn unbond_surplus(origin: OriginFor<T>, amount: BalanceOf<T>) -> DispatchResult {

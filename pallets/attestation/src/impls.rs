@@ -331,7 +331,8 @@ impl<T: Config> Pallet<T> {
                 // attestor being removed is still present in [`Attestors`] at this point, so it
                 // is excluded from the requirement. Checked before any storage write so a
                 // failure cleanly aborts the unbond.
-                let required = Self::required_bond_for_stash(&stash, Some((chain_key, &attestor_id)));
+                let required =
+                    Self::required_bond_for_stash(&stash, Some((chain_key, &attestor_id)));
 
                 // Avoid there being a dust balance left in the staking system — but only when no
                 // remaining attestor still needs it as collateral. Sweeping unconditionally would zero
@@ -420,8 +421,9 @@ impl<T: Config> Pallet<T> {
 
         // Validate the attestation
         Self::validate_attestation(chain_key, &attestation)?;
+        let active_attestors = ActiveAttestors::<T>::get(chain_key).into_iter().collect();
         let eligible_vec: Vec<T::AccountId> =
-            Self::eligible_active_signers(chain_key, &attestation)
+            Self::eligible_active_signers(&active_attestors, &attestation)
                 .into_iter()
                 .collect();
 
@@ -522,12 +524,9 @@ impl<T: Config> Pallet<T> {
 
     /// Active attestors listed on the attestation (intersection with [`ActiveAttestors`]).
     pub(crate) fn eligible_active_signers(
-        chain_key: ChainKey,
+        active_attestors: &BTreeSet<T::AccountId>,
         attestation: &SignedAttestation<T::Hash, T::AccountId>,
     ) -> BTreeSet<T::AccountId> {
-        let active_attestors = ActiveAttestors::<T>::get(chain_key)
-            .into_iter()
-            .collect::<BTreeSet<_>>();
         attestation
             .attestors
             .iter()
@@ -1311,7 +1310,8 @@ impl<T: Config> Pallet<T> {
         }
 
         // Attestor eligibility validation
-        let eligible_attestors = Self::eligible_active_signers(chain_key, attestation);
+        let active_attestors = ActiveAttestors::<T>::get(chain_key).into_iter().collect();
+        let eligible_attestors = Self::eligible_active_signers(&active_attestors, attestation);
 
         // Threshold validation.
         //

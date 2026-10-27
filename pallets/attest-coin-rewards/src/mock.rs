@@ -272,15 +272,19 @@ impl frame_support::traits::Get<AccountId32> for AttestationBondPoolAccount {
 
 impl pallet_attestation::Config for Runtime {
     type DefaultAttestationsPerCheckpoint = ConstU32<10>;
+    type MaxAttestationCheckpointInterval = ConstU32<1_000>;
     type DefaultAttestationInterval = ConstU64<10>;
+    type MaxChainAttestationInterval = ConstU64<10_000>;
     type DefaultTargetSampleSize = ConstU32<3>;
     type DefaultMaxCatchup = ConstU32<500>;
+    type MaxCatchupCeiling = ConstU32<2_000>;
     type RuntimeEvent = RuntimeEvent;
     type WeightInfo = pallet_attestation::weights::WeightInfo<Runtime>;
     type MaxAttestationNodes = ConstU32<100>;
     type CommittmentInterval = ConstU64<1000>;
     type BlsSignature = [u8; 42];
     type SupportedChains = SupportedChains;
+    type CurrentEpochIndex = ConstU64<0>;
     type DefaultMinBondRequirement = ConstU128<0>;
     type NativeCurrency = Balances;
     type BondFungibles = Assets;
@@ -292,6 +296,7 @@ impl pallet_attestation::Config for Runtime {
     type Staking = Staking;
     type Reward = ();
     type MaxAttestationsPerBlock = ConstU32<10>;
+    type MaxCheckpointingQueueLen = ConstU32<2048>;
     type DefaultAttestationRetentionDuration = ConstU32<10>;
     type MaxCheckpointsImportedPerCall = ConstU32<100>;
     type DefaultAttestationChainGenesisBlockNumber = ConstU64<0>;

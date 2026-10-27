@@ -3,6 +3,7 @@ use crate::clear_or_revert::{
     CheckpointPruningState, RemovedChainCleanupPhase, MAX_ATTESTATIONS_CLEARED_PER_BLOCK,
     MAX_CHECKPOINTS_CLEARED_PER_BLOCK, MAX_REMOVAL_CLEANUP_ITEMS_PER_BLOCK,
 };
+use crate::impls::ONE_TENTH_CTC;
 use crate::mock::*;
 use crate::Call;
 use attestor_primitives::{
