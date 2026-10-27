@@ -1852,4 +1852,112 @@ mod attested_boundary_tests {
             "got {err:?}"
         );
     }
+
+    /// Answers `is_healthy` from a switch, so a test can flip a source chain up and down.
+    struct SwitchableEthProvider(std::sync::atomic::AtomicBool);
+
+    #[async_trait]
+    impl EthRpcProvider for SwitchableEthProvider {
+        async fn build_continuity_blocks(
+            &self,
+            _lower_digest: H256,
+            _start: u64,
+            _end: u64,
+        ) -> Result<Vec<Block>> {
+            Ok(vec![])
+        }
+        async fn get_block_tx_bytes(&self, _block_number: u64) -> Result<Vec<Vec<u8>>> {
+            Ok(vec![])
+        }
+        async fn get_tx_hash_by_index(
+            &self,
+            _block_number: u64,
+            _tx_index: u64,
+        ) -> Result<Option<H256>> {
+            Ok(None)
+        }
+        async fn get_tx_position_by_hash(&self, _tx_hash: H256) -> Result<Option<(u64, u64)>> {
+            Ok(None)
+        }
+        async fn get_last_block(&self) -> Result<u64> {
+            Ok(1000)
+        }
+        async fn get_chain_id(&self) -> Result<u64> {
+            Ok(31337)
+        }
+        async fn is_healthy(&self) -> Result<bool> {
+            if self.0.load(std::sync::atomic::Ordering::SeqCst) {
+                Ok(true)
+            } else {
+                Err(anyhow::anyhow!("tip read timed out"))
+            }
+        }
+    }
+
+    #[test]
+    fn source_probe_grace_only_covers_a_recent_pass() {
+        let now = Instant::now();
+        let grace = Duration::from_secs(180);
+        assert!(
+            !within_source_probe_grace(None, now, grace),
+            "never passed: no grace"
+        );
+        assert!(within_source_probe_grace(
+            Some(now - Duration::from_secs(30)),
+            now,
+            grace
+        ));
+        assert!(!within_source_probe_grace(Some(now - grace), now, grace));
+        assert!(!within_source_probe_grace(
+            Some(now - Duration::from_secs(600)),
+            now,
+            grace
+        ));
+    }
+
+    #[tokio::test]
+    async fn a_source_blip_after_a_pass_stays_healthy_but_a_long_outage_does_not() {
+        let provider = Arc::new(SwitchableEthProvider(std::sync::atomic::AtomicBool::new(
+            false,
+        )));
+        let (cc_provider, _) = make_mock_providers(CHAIN_KEY);
+        let config = ContinuityConfig::builder()
+            .cc3_rpc_url("ws://mock")
+            .eth_rpc_url("http://mock")
+            .chain_key(CHAIN_KEY)
+            .attestation_interval(10)
+            .checkpoint_interval(10)
+            .build();
+        let builder = Arc::new(ContinuityBuilder::new_with_providers(
+            config,
+            cc_provider,
+            provider.clone(),
+        ));
+        let service = ContinuityService::new(vec![builder], NoopMetrics::new(), 10, 1_000)
+            .await
+            .expect("service init should succeed with mocks");
+
+        // Never passed: reported at once, with the cause.
+        let err = service
+            .check_eth_connectivity()
+            .await
+            .unwrap_err()
+            .to_string();
+        assert!(
+            err.contains("eth RPC chain 2") && err.contains("tip read timed out"),
+            "{err}"
+        );
+
+        // One pass, then a blip: within the grace window, still healthy.
+        provider.0.store(true, std::sync::atomic::Ordering::SeqCst);
+        service.check_eth_connectivity().await.unwrap();
+        provider.0.store(false, std::sync::atomic::Ordering::SeqCst);
+        service.check_eth_connectivity().await.unwrap();
+
+        // Failing for longer than the grace: reported again.
+        let chain = service.chains.get(&CHAIN_KEY).unwrap();
+        *chain.last_source_probe_ok.lock().unwrap() =
+            Some(Instant::now() - SOURCE_PROBE_GRACE - Duration::from_secs(1));
+        assert!(service.check_eth_connectivity().await.is_err());
+    }
 }

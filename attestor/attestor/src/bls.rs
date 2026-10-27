@@ -7,7 +7,7 @@
 //!   shares one `Arc<Client>` across all tasks, reconnections done from any task become visible
 //!   here automatically (the inner `ArcSwap` is shared).
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use parking_lot::RwLock;
@@ -19,7 +19,26 @@ use crate::retry::with_retries;
 
 pub struct BlsStore {
     chain_key: ChainKey,
-    keys: RwLock<HashMap<[u8; 32], bls_signatures::PublicKey>>,
+    set: RwLock<ElectedSet>,
+}
+
+/// The elected attestor set as of the last election. `members` is every elected attestor, with or
+/// without a BLS key on chain; `keys` only has those whose key could be fetched. Kept behind one
+/// lock so a reader never sees the keys of one election next to the members of another.
+#[derive(Default)]
+struct ElectedSet {
+    keys: HashMap<[u8; 32], bls_signatures::PublicKey>,
+    members: HashSet<[u8; 32]>,
+}
+
+impl ElectedSet {
+    fn new(
+        keys: HashMap<[u8; 32], bls_signatures::PublicKey>,
+        attestors: &[cc_client::AccountId32],
+    ) -> Self {
+        let members = attestors.iter().map(|a| *a.as_ref()).collect();
+        Self { keys, members }
+    }
 }
 
 impl BlsStore {
@@ -32,7 +51,7 @@ impl BlsStore {
         let keys = fetch(cc3, token, chain_key, attestors).await?;
         Ok(Self {
             chain_key,
-            keys: RwLock::new(keys),
+            set: RwLock::new(ElectedSet::new(keys, attestors)),
         })
     }
 
@@ -43,12 +62,29 @@ impl BlsStore {
         attestors: &[cc_client::AccountId32],
     ) -> Result<(), cc_client::Error> {
         let next = fetch(cc3, token, self.chain_key, attestors).await?;
-        *self.keys.write() = next;
+        *self.set.write() = ElectedSet::new(next, attestors);
         Ok(())
     }
 
     pub fn pubkey(&self, attestor: impl AsRef<[u8; 32]>) -> Option<bls_signatures::PublicKey> {
-        self.keys.read().get(attestor.as_ref()).cloned()
+        self.set.read().keys.get(attestor.as_ref()).cloned()
+    }
+
+    /// `true` when `attestor` is the only elected member of the set. Such an attestor reaches
+    /// quorum on its own vote and has nobody to gossip to, so a failed publish is expected rather
+    /// than a sign of a broken mesh. Counts every elected member, including ones without a BLS
+    /// key, so a set with a misconfigured peer is never mistaken for a solo one.
+    pub fn is_sole_member(&self, attestor: impl AsRef<[u8; 32]>) -> bool {
+        let set = self.set.read();
+        set.members.len() == 1 && set.members.contains(attestor.as_ref())
+    }
+
+    #[cfg(test)]
+    pub(crate) fn for_tests(chain_key: ChainKey, attestors: &[cc_client::AccountId32]) -> Self {
+        Self {
+            chain_key,
+            set: RwLock::new(ElectedSet::new(HashMap::new(), attestors)),
+        }
     }
 }
 
@@ -105,4 +141,24 @@ async fn fetch(
     }
 
     Ok(out)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::BlsStore;
+
+    fn id(byte: u8) -> cc_client::AccountId32 {
+        cc_client::AccountId32::from([byte; 32])
+    }
+
+    #[test]
+    fn sole_member_only_when_the_set_is_exactly_this_attestor() {
+        let me = id(1);
+        assert!(BlsStore::for_tests(0, &[me.clone()]).is_sole_member(&me));
+        // Another member, even one we hold no BLS key for, means gossip is needed.
+        assert!(!BlsStore::for_tests(0, &[me.clone(), id(2)]).is_sole_member(&me));
+        // Elected alone, but it is someone else: we are not even in the set.
+        assert!(!BlsStore::for_tests(0, &[id(2)]).is_sole_member(&me));
+        assert!(!BlsStore::for_tests(0, &[]).is_sole_member(&me));
+    }
 }
