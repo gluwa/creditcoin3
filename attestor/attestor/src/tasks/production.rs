@@ -287,7 +287,9 @@ async fn handle_cc3_batch(
     // production loop is turning. The watchdog reads this to distinguish "alive" from "wedged".
     shared.health.note_progress();
     let finalized_number = batch.block_number();
+    let mut registry_changed = false;
     while let Some(event) = batch.try_next().await? {
+        registry_changed |= crate::peer_registry::affects_registry(&event);
         handle_one(
             shared,
             stream_attestation,
@@ -297,6 +299,16 @@ async fn handle_cc3_batch(
         )
         .await?;
     }
+    // Publish once after the whole block's BLS/eligibility/removal handling. The watch channel
+    // coalesces bursts without blocking production; the registry task does the RPC separately.
+    // First delivery also closes the startup snapshot/subscription gap. A new connection
+    // triggers reconciliation even if reconnect backfill contains no membership events.
+    crate::peer_registry::request_refresh(
+        &shared.peer_registry_refresh_tx,
+        finalized_number,
+        shared.cc3.reconnect_success_count(),
+        registry_changed,
+    );
     Ok(())
 }
 
@@ -543,6 +555,9 @@ async fn handle_one(
             }
         }
 
+        // The completed batch requests a finalized networking-registry reload.
+        CcEvent::PeerRegistryChanged(_) => {}
+
         // Chill / kick removes the attestor from `ActiveAttestors` on-chain immediately. Refresh
         // BlsStore and the pool's allow-set on every chill/kick — not just for the local node —
         // so peers stop accepting gossip signed by the removed attestor's still-cached BLS key.
@@ -699,7 +714,9 @@ async fn wait_for_block_attested(
                 // on a slow chain) — batches are still arriving, so we're alive, not wedged.
                 shared.health.note_progress();
                 let finalized_number = batch.block_number();
+                let mut registry_changed = false;
                 while let Some(event) = batch.try_next().await? {
+                    registry_changed |= crate::peer_registry::affects_registry(&event);
                     match event {
                         // The genesis terminator: the first BlockAttested at/above the genesis
                         // height carries the runtime-committed digest the caller needs. Return it
@@ -710,6 +727,14 @@ async fn wait_for_block_attested(
                                 height = att.header_number,
                                 digest = ?att.digest,
                                 "✅ genesis attestation finalized on-chain"
+                            );
+                            // This early return does not drain the rest of the block. Reload
+                            // its complete registry so a later key/policy event is still covered.
+                            crate::peer_registry::request_refresh(
+                                &shared.peer_registry_refresh_tx,
+                                finalized_number,
+                                shared.cc3.reconnect_success_count(),
+                                true,
                             );
                             return Ok(Some(AttestationInfo {
                                 height: att.header_number,
@@ -729,6 +754,12 @@ async fn wait_for_block_attested(
                         }
                     }
                 }
+                crate::peer_registry::request_refresh(
+                    &shared.peer_registry_refresh_tx,
+                    finalized_number,
+                    shared.cc3.reconnect_success_count(),
+                    registry_changed,
+                );
             }
         }
     }

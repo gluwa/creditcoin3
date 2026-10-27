@@ -14,8 +14,11 @@ use attestor_primitives::{AttestationCheckpoint, ChainKey, Digest};
 use crate::cc3::{
     attestation::events::{
         AttestationChainGenesisBlockNumberSet, AttestationIntervalChanged, AttestorActivated,
-        AttestorChilled, AttestorsElected, BlockAttested, CheckpointIntervalChanged,
-        CheckpointReached, MaxCatchupChanged, RevertedAttestationChainTo, TargetSampleSizeChanged,
+        AttestorChilled, AttestorPeerKeyUpdated, AttestorUnregistered, AttestorsElected,
+        AuthorizedAttestorAdded, AuthorizedAttestorRemoved, BlockAttested, ChangedElectionPolicy,
+        CheckpointIntervalChanged, CheckpointReached, ClearedStorageForRemovedChain,
+        MaxCatchupChanged, PeerRegistrationRequiredChanged, RevertedAttestationChainTo,
+        TargetSampleSizeChanged,
     },
     randomness::events::StoreRandomnessForEpoch,
     staking::events::Kicked,
@@ -63,11 +66,29 @@ pub enum CcEvent {
     AttestorChilled(ChainKey, AccountId32),
     /// Staking pallet `Kicked` (nominator/stash); not scoped to a source chain — no `ChainKey` on-chain.
     AttestorKicked(AccountId32),
+    /// Peer keys, enforcement, registration or waiting-candidate eligibility changed.
+    /// Consumers reload the complete registry at a finalized block instead of replaying deltas.
+    PeerRegistryChanged(ChainKey),
     AttestationChainGenesisBlockNumberSet(ChainKey, u64),
     RevertedAttestationChainTo(ChainKey, u64, Digest),
 }
 
 const BUFFER_SIZE: usize = 100;
+
+fn peer_registry_change<E: StaticEvent>(
+    event: &subxt::events::EventDetails<subxt::SubstrateConfig>,
+    chain_filter: &[ChainKey],
+    chain_key: impl FnOnce(E) -> ChainKey,
+) -> Option<Result<CcEvent, subxt::Error>> {
+    let Ok(Some(decoded)) = event.as_event::<E>() else {
+        tracing::error!("Invalid peer-registry event mapping");
+        return None;
+    };
+    let chain_key = chain_key(decoded);
+    chain_filter
+        .contains(&chain_key)
+        .then_some(Ok(CcEvent::PeerRegistryChanged(chain_key)))
+}
 
 /// `Subscription` is a struct that references to a receiving end of a channel where claims are pushed upon
 /// It has a handle to cancel the subscription
@@ -256,6 +277,57 @@ impl Client {
                 let _enter = span.enter();
 
                 match (event.pallet_name(), event.variant_name()) {
+                    (AttestorPeerKeyUpdated::PALLET, AttestorPeerKeyUpdated::EVENT) => {
+                        peer_registry_change::<AttestorPeerKeyUpdated>(
+                            &event,
+                            chain_filter,
+                            |event| event.0,
+                        )
+                    }
+                    (
+                        PeerRegistrationRequiredChanged::PALLET,
+                        PeerRegistrationRequiredChanged::EVENT,
+                    ) => peer_registry_change::<PeerRegistrationRequiredChanged>(
+                        &event,
+                        chain_filter,
+                        |event| event.0,
+                    ),
+                    (AttestorUnregistered::PALLET, AttestorUnregistered::EVENT) => {
+                        peer_registry_change::<AttestorUnregistered>(
+                            &event,
+                            chain_filter,
+                            |event| event.0,
+                        )
+                    }
+                    (AuthorizedAttestorAdded::PALLET, AuthorizedAttestorAdded::EVENT) => {
+                        peer_registry_change::<AuthorizedAttestorAdded>(
+                            &event,
+                            chain_filter,
+                            |event| event.0,
+                        )
+                    }
+                    (AuthorizedAttestorRemoved::PALLET, AuthorizedAttestorRemoved::EVENT) => {
+                        peer_registry_change::<AuthorizedAttestorRemoved>(
+                            &event,
+                            chain_filter,
+                            |event| event.0,
+                        )
+                    }
+                    (ChangedElectionPolicy::PALLET, ChangedElectionPolicy::EVENT) => {
+                        peer_registry_change::<ChangedElectionPolicy>(
+                            &event,
+                            chain_filter,
+                            |event| event.0,
+                        )
+                    }
+                    (
+                        ClearedStorageForRemovedChain::PALLET,
+                        ClearedStorageForRemovedChain::EVENT,
+                    ) => peer_registry_change::<ClearedStorageForRemovedChain>(
+                        &event,
+                        chain_filter,
+                        |event| event.0,
+                    ),
                     (BlockAttested::PALLET, BlockAttested::EVENT) => {
                         let Ok(Some(event)) = event.as_event::<BlockAttested>() else {
                             tracing::error!("Invalid event mapping");
@@ -472,5 +544,54 @@ impl Client {
             }
             Err(e) => Some(Err(e)),
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use subxt::ext::codec::{Compact, Encode};
+
+    fn encoded_event(name: &str, fields: &[u8]) -> subxt::events::Events<subxt::SubstrateConfig> {
+        let metadata = crate::compiled_metadata().unwrap();
+        let pallet = metadata.pallet_by_name("Attestation").unwrap();
+        let variant = pallet
+            .event_variants()
+            .unwrap()
+            .iter()
+            .find(|variant| variant.name == name)
+            .unwrap();
+        let mut bytes = Compact(1u32).encode();
+        subxt::events::Phase::Initialization.encode_to(&mut bytes);
+        bytes.extend([pallet.index(), variant.index]);
+        bytes.extend_from_slice(fields);
+        Vec::<crate::H256>::new().encode_to(&mut bytes);
+        subxt::events::Events::decode_from(bytes, metadata)
+    }
+
+    #[test]
+    fn registry_invalidations_decode_and_filter_the_source_chain() {
+        let account = AccountId32([1; 32]);
+        for (name, fields) in [
+            (
+                "AttestorPeerKeyUpdated",
+                (1u64, account.clone(), [7u8; 32]).encode(),
+            ),
+            ("PeerRegistrationRequiredChanged", (1u64, true).encode()),
+            ("AttestorUnregistered", (1u64, account.clone()).encode()),
+            ("AuthorizedAttestorAdded", (1u64, account.clone()).encode()),
+            ("AuthorizedAttestorRemoved", (1u64, account).encode()),
+            // The first election-policy variant has no payload; only the chain key is routed.
+            ("ChangedElectionPolicy", (1u64, 0u8).encode()),
+            ("ClearedStorageForRemovedChain", 1u64.encode()),
+        ] {
+            let events = encoded_event(name, &fields);
+            let decoded: Vec<_> = Client::extract_events(&[1], &events).collect();
+            assert!(
+                matches!(decoded.as_slice(), [Ok(CcEvent::PeerRegistryChanged(1))]),
+                "{name}: {decoded:?}"
+            );
+            assert_eq!(Client::extract_events(&[2], &events).count(), 0, "{name}");
+        }
     }
 }

@@ -410,6 +410,7 @@ impl Attestor {
         let (local_produced_tx, local_produced_rx) =
             watch::channel::<Option<attestor_primitives::Height>>(None);
 
+        let (peer_registry_refresh_tx, peer_registry_refresh_rx) = watch::channel(None);
         let shared = Arc::new(Shared {
             name: self.config.name.clone(),
             chain_key,
@@ -433,6 +434,7 @@ impl Attestor {
             pool_send,
             gossip_tx,
             peer_deactivated_tx,
+            peer_registry_refresh_tx,
 
             attest_target: std::sync::atomic::AtomicBool::new(true),
             eligibility_gen: std::sync::atomic::AtomicU64::new(0),
@@ -492,9 +494,15 @@ impl Attestor {
             let cc3 = cc3.clone();
             let token = token.clone();
             set.spawn(async move {
-                peer_registry::run(cc3, token, chain_key, peer_registry_tx)
-                    .await
-                    .map(|_| "peer-registry")
+                peer_registry::run(
+                    cc3,
+                    token,
+                    chain_key,
+                    peer_registry_tx,
+                    peer_registry_refresh_rx,
+                )
+                .await
+                .map(|_| "peer-registry")
             });
         }
 

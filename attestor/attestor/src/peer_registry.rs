@@ -1,6 +1,6 @@
 //! Finalized networking identities, loaded independently of gossip and refreshed off the swarm.
 
-use std::{collections::HashSet, sync::Arc, time::Duration};
+use std::{collections::HashSet, future::Future, sync::Arc, time::Duration};
 
 use anyhow::{ensure, Context as _};
 use attestor_primitives::{peer_key_proof_message, AttestorId, ChainKey, PeerRegistry};
@@ -11,7 +11,54 @@ use tokio_util::sync::CancellationToken;
 
 use crate::{error::Error, retry::with_retries, secret::AttestorSecret};
 
-const REFRESH_INTERVAL: Duration = Duration::from_secs(15);
+const REFRESH_INTERVAL: Duration = Duration::from_secs(120);
+const LAGGING_RETRY_INTERVAL: Duration = Duration::from_secs(1);
+
+/// Coalesced invalidation from the existing finalized-event stream. The height prevents a
+/// lagging RPC from satisfying a refresh with state from before the event that requested it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct RefreshRequest {
+    finalized_number: u64,
+    reconnect_count: u64,
+}
+
+pub fn request_refresh(
+    sender: &watch::Sender<Option<RefreshRequest>>,
+    finalized_number: u64,
+    reconnect_count: u64,
+    registry_changed: bool,
+) {
+    sender.send_if_modified(|current| {
+        if current
+            .is_some_and(|request| !registry_changed && request.reconnect_count == reconnect_count)
+        {
+            return false;
+        }
+        let next = Some(RefreshRequest {
+            finalized_number: finalized_number
+                .max(current.map_or(0, |request| request.finalized_number)),
+            reconnect_count,
+        });
+        if *current == next {
+            return false;
+        }
+        *current = next;
+        true
+    });
+}
+
+pub fn affects_registry(event: &cc_client::attestation::CcEvent) -> bool {
+    use cc_client::attestation::CcEvent;
+    matches!(
+        event,
+        CcEvent::PeerRegistryChanged(_)
+            | CcEvent::AttestorsElected(..)
+            | CcEvent::AttestorActivated(..)
+            | CcEvent::AttestorChilled(..)
+            | CcEvent::AttestorKicked(..)
+            | CcEvent::RandomnessChanged(_)
+    )
+}
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Registry {
@@ -24,6 +71,13 @@ pub struct Registry {
 }
 
 impl Registry {
+    /// Freshness still advances on an unchanged snapshot; only reservation rebuilding ignores it.
+    pub fn same_reservations(&self, other: &Self) -> bool {
+        self.registration_required == other.registration_required
+            && self.attestors == other.attestors
+            && self.waiting_attestors == other.waiting_attestors
+    }
+
     pub fn from_chain(registry: PeerRegistry<cc_client::AccountId32>) -> anyhow::Result<Self> {
         ensure!(
             registry.attestors.len() + registry.waiting_attestors.len()
@@ -213,29 +267,70 @@ pub async fn run(
     token: CancellationToken,
     chain_key: ChainKey,
     sender: watch::Sender<Arc<Registry>>,
+    refresh: watch::Receiver<Option<RefreshRequest>>,
 ) -> Result<(), Error> {
+    let load_token = token.clone();
+    refresh_loop(token, sender, refresh, move || {
+        let cc3 = cc3.clone();
+        let token = load_token.clone();
+        async move { load(&cc3, &token, chain_key).await }
+    })
+    .await
+}
+
+async fn refresh_loop<F, Fut>(
+    token: CancellationToken,
+    sender: watch::Sender<Arc<Registry>>,
+    mut refresh: watch::Receiver<Option<RefreshRequest>>,
+    mut load: F,
+) -> Result<(), Error>
+where
+    F: FnMut() -> Fut,
+    Fut: Future<Output = Result<Registry, Error>>,
+{
     let mut interval = tokio::time::interval(REFRESH_INTERVAL);
     interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
     interval.tick().await;
+    let mut lagging = false;
     loop {
         tokio::select! {
+            biased;
             _ = token.cancelled() => return Ok(()),
-            _ = interval.tick() => {}
+            _ = interval.tick() => {},
+            changed = refresh.changed() => {
+                changed.map_err(|_| Error::Init(anyhow::anyhow!("peer registry refresh channel closed")))?;
+            },
+            _ = tokio::time::sleep(LAGGING_RETRY_INTERVAL), if lagging => {},
         }
-        let registry = match load(&cc3, &token, chain_key).await {
+        refresh.borrow_and_update();
+        let loaded = tokio::select! {
+            _ = token.cancelled() => return Ok(()),
+            result = load() => result,
+        };
+        let registry = match loaded {
             Ok(registry) => Arc::new(registry),
             Err(_) if token.is_cancelled() => return Ok(()),
             Err(error) => return Err(error),
         };
+        // Requests can arrive while the RPC is in flight. Check the newest required block,
+        // not only the request that woke this task, before publishing the result.
+        let minimum = refresh
+            .borrow()
+            .map_or(0, |request| request.finalized_number);
         let current = sender.borrow().clone();
-        if !can_advance(&current, &registry).map_err(Error::Init)? {
+        if !can_advance(&current, &registry).map_err(Error::Init)?
+            || registry.finalized_number < minimum
+        {
+            lagging = true;
             tracing::warn!(
                 observed = registry.finalized_number,
                 retained = current.finalized_number,
+                minimum,
                 "ignoring a lagging finalized peer registry"
             );
             continue;
         }
+        lagging = false;
         sender.send_if_modified(|current| {
             if *current == registry {
                 return false;
@@ -263,7 +358,193 @@ fn can_advance(current: &Registry, next: &Registry) -> anyhow::Result<bool> {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
     use super::*;
+
+    fn empty_registry_at(number: u64) -> Registry {
+        let mut registry = Registry::from_chain(PeerRegistry {
+            registration_required: false,
+            attestors: vec![],
+            waiting_attestors: vec![],
+        })
+        .unwrap();
+        registry.finalized_number = number;
+        registry
+    }
+
+    #[test]
+    fn only_registry_and_committee_events_request_refreshes() {
+        use cc_client::attestation::CcEvent;
+        let account = cc_client::AccountId32([1; 32]);
+        for event in [
+            CcEvent::PeerRegistryChanged(1),
+            CcEvent::AttestorsElected(1, vec![]),
+            CcEvent::AttestorActivated(1, account.clone()),
+            CcEvent::AttestorChilled(1, account.clone()),
+            CcEvent::AttestorKicked(account),
+            CcEvent::RandomnessChanged((1, [0; 32])),
+        ] {
+            assert!(affects_registry(&event));
+        }
+        for event in [
+            CcEvent::AttestationIntervalChanged(1, 10),
+            CcEvent::TargetSampleSizeChanged(1, 3),
+            CcEvent::CheckpointIntervalChanged(1, 10),
+            CcEvent::MaxCatchupChanged(1, 100),
+        ] {
+            assert!(!affects_registry(&event));
+        }
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn unchanged_registry_uses_two_minute_fallback_without_event_polling() {
+        let token = CancellationToken::new();
+        let (sender, receiver) = watch::channel(Arc::new(empty_registry_at(10)));
+        let (_refresh_tx, refresh_rx) = watch::channel(None);
+        let calls = Arc::new(AtomicUsize::new(0));
+        let loaded = calls.clone();
+        let task = tokio::spawn(refresh_loop(token.clone(), sender, refresh_rx, move || {
+            loaded.fetch_add(1, Ordering::SeqCst);
+            std::future::ready(Ok(empty_registry_at(11)))
+        }));
+        tokio::task::yield_now().await;
+        tokio::time::advance(REFRESH_INTERVAL - Duration::from_secs(1)).await;
+        tokio::task::yield_now().await;
+        assert_eq!(calls.load(Ordering::SeqCst), 0);
+        tokio::time::advance(Duration::from_secs(1)).await;
+        tokio::task::yield_now().await;
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
+        assert_eq!(receiver.borrow().finalized_number, 11);
+        token.cancel();
+        task.await.unwrap().unwrap();
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn events_coalesce_and_reconnect_refreshes_without_waiting_for_fallback() {
+        let token = CancellationToken::new();
+        let (sender, mut receiver) = watch::channel(Arc::new(empty_registry_at(10)));
+        let (refresh_tx, refresh_rx) = watch::channel(None);
+        let calls = Arc::new(AtomicUsize::new(0));
+        let loaded = calls.clone();
+        let next = Arc::new(std::sync::atomic::AtomicU64::new(22));
+        let number = next.clone();
+        request_refresh(&refresh_tx, 20, 0, true);
+        request_refresh(&refresh_tx, 21, 0, true);
+        request_refresh(&refresh_tx, 22, 0, true);
+        let now = tokio::time::Instant::now();
+        let task = tokio::spawn(refresh_loop(token.clone(), sender, refresh_rx, move || {
+            loaded.fetch_add(1, Ordering::SeqCst);
+            std::future::ready(Ok(empty_registry_at(number.load(Ordering::SeqCst))))
+        }));
+        receiver.changed().await.unwrap();
+        assert_eq!(tokio::time::Instant::now(), now);
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
+        request_refresh(&refresh_tx, 23, 0, false);
+        tokio::task::yield_now().await;
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
+
+        next.store(24, Ordering::SeqCst);
+        request_refresh(&refresh_tx, 24, 1, false);
+        receiver.changed().await.unwrap();
+        assert_eq!(tokio::time::Instant::now(), now);
+        assert_eq!(receiver.borrow().finalized_number, 24);
+        assert_eq!(calls.load(Ordering::SeqCst), 2);
+        token.cancel();
+        task.await.unwrap().unwrap();
+    }
+
+    #[test]
+    fn initial_batch_refreshes_and_backfilled_requests_cannot_lower_the_required_height() {
+        let (sender, mut receiver) = watch::channel(None);
+        request_refresh(&sender, 20, 0, false);
+        assert!(receiver.has_changed().unwrap());
+        assert_eq!(receiver.borrow_and_update().unwrap().finalized_number, 20);
+        request_refresh(&sender, 15, 0, true);
+        assert!(!receiver.has_changed().unwrap());
+        request_refresh(&sender, 21, 0, true);
+        assert_eq!(receiver.borrow().unwrap().finalized_number, 21);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn event_during_rpc_rejects_the_pre_event_result_and_retries_promptly() {
+        let token = CancellationToken::new();
+        let (sender, mut receiver) = watch::channel(Arc::new(empty_registry_at(10)));
+        let (refresh_tx, refresh_rx) = watch::channel(None);
+        let (release, blocked) = tokio::sync::oneshot::channel();
+        let (release_next, blocked_next) = tokio::sync::oneshot::channel();
+        let mut blocked = Some(blocked);
+        let mut blocked_next = Some(blocked_next);
+        let calls = Arc::new(AtomicUsize::new(0));
+        let loaded = calls.clone();
+        request_refresh(&refresh_tx, 20, 0, true);
+        let task = tokio::spawn(refresh_loop(token.clone(), sender, refresh_rx, move || {
+            let call = loaded.fetch_add(1, Ordering::SeqCst);
+            let blocked = if call == 0 {
+                blocked.take()
+            } else {
+                blocked_next.take()
+            };
+            async move {
+                if let Some(blocked) = blocked {
+                    blocked.await.unwrap();
+                }
+                Ok(empty_registry_at(20 + call as u64))
+            }
+        }));
+        tokio::task::yield_now().await;
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
+        request_refresh(&refresh_tx, 21, 0, true);
+        release.send(()).unwrap();
+        tokio::task::yield_now().await;
+        assert_eq!(receiver.borrow().finalized_number, 10);
+        release_next.send(()).unwrap();
+        receiver.changed().await.unwrap();
+        assert_eq!(receiver.borrow().finalized_number, 21);
+        assert_eq!(calls.load(Ordering::SeqCst), 2);
+        token.cancel();
+        task.await.unwrap().unwrap();
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_lagging_event_refresh_retries_before_the_slow_fallback() {
+        let token = CancellationToken::new();
+        let (sender, mut receiver) = watch::channel(Arc::new(empty_registry_at(10)));
+        let (refresh_tx, refresh_rx) = watch::channel(None);
+        let calls = Arc::new(AtomicUsize::new(0));
+        let loaded = calls.clone();
+        request_refresh(&refresh_tx, 20, 0, true);
+        let task = tokio::spawn(refresh_loop(token.clone(), sender, refresh_rx, move || {
+            let call = loaded.fetch_add(1, Ordering::SeqCst);
+            std::future::ready(Ok(empty_registry_at(if call == 0 { 19 } else { 20 })))
+        }));
+        tokio::task::yield_now().await;
+        assert_eq!(receiver.borrow().finalized_number, 10);
+        let before = tokio::time::Instant::now();
+        receiver.changed().await.unwrap();
+        assert_eq!(tokio::time::Instant::now() - before, LAGGING_RETRY_INTERVAL);
+        assert_eq!(receiver.borrow().finalized_number, 20);
+        token.cancel();
+        task.await.unwrap().unwrap();
+    }
+
+    #[tokio::test]
+    async fn cancellation_stops_an_in_flight_refresh() {
+        let token = CancellationToken::new();
+        let (sender, _receiver) = watch::channel(Arc::new(empty_registry_at(10)));
+        let (refresh_tx, refresh_rx) = watch::channel(None);
+        request_refresh(&refresh_tx, 20, 0, true);
+        let task = tokio::spawn(refresh_loop(token.clone(), sender, refresh_rx, || {
+            std::future::pending::<Result<Registry, Error>>()
+        }));
+        tokio::task::yield_now().await;
+        token.cancel();
+        tokio::time::timeout(Duration::from_secs(1), task)
+            .await
+            .unwrap()
+            .unwrap()
+            .unwrap();
+    }
 
     fn key(seed: u8) -> [u8; 32] {
         networking_keypair(&AttestorSecret::RawSeed([seed; 32]))

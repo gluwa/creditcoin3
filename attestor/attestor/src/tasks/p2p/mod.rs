@@ -254,7 +254,8 @@ pub async fn run(
                     continue;
                 }
                 ensure_local_peer_key(&next, &shared.attestor_id, local_peer_id).map_err(Error::P2p)?;
-                apply_peer_registry(&mut swarm, &mut peers_by_attestor, &next, &cfg.reserved_peers, &mut minimum_registry_number);
+                update_peer_registry(&mut swarm, &mut peers_by_attestor, &peer_registry, &next,
+                    &cfg.reserved_peers, &mut minimum_registry_number);
                 peer_registry = next;
             }
 
@@ -440,6 +441,28 @@ fn ensure_local_peer_key(
         anyhow::bail!("this instance's finalized networking key was rotated; restart with the matching p2p secret");
     }
     Ok(())
+}
+
+/// Advance freshness without rebuilding identical reservations. An eviction since the last
+/// applied view requires reconciliation even if a removal and reactivation coalesced back to
+/// the same membership: that newer state must clear the waiting member's deny binding.
+fn update_peer_registry(
+    swarm: &mut libp2p::Swarm<behavior::P2PBehavior>,
+    bindings: &mut Vec<(AttestorId, libp2p::PeerId)>,
+    current: &crate::peer_registry::Registry,
+    next: &crate::peer_registry::Registry,
+    fallback: &[libp2p::PeerId],
+    minimum_registry_number: &mut u64,
+) -> bool {
+    if next.finalized_number < *minimum_registry_number {
+        return false;
+    }
+    if !current.same_reservations(next) || *minimum_registry_number > current.finalized_number {
+        apply_peer_registry(swarm, bindings, next, fallback, minimum_registry_number)
+    } else {
+        *minimum_registry_number = next.finalized_number;
+        true
+    }
 }
 
 /// Rebuild dynamic reservations from one finalized view. Gossip may fill missing legacy
@@ -1417,7 +1440,8 @@ mod tests {
 
     use super::{
         apply_peer_registry, deny_decision, drain_pending_votes, ensure_local_peer_key,
-        is_bufferable, note_attestor_peer, note_verified_vote_peer, PendingVotes,
+        is_bufferable, note_attestor_peer, note_verified_vote_peer, update_peer_registry,
+        PendingVotes,
     };
     use attestor_primitives::AttestorId;
 
@@ -1848,6 +1872,103 @@ mod tests {
                 |_| false,
             );
             assert!(bindings.is_empty());
+            assert!(swarm.behaviour().admission.is_reserved(&member));
+        }
+    }
+
+    #[tokio::test]
+    async fn unchanged_reservations_still_advance_the_removal_watermark() {
+        let mut swarm = swarm();
+        let member = libp2p::PeerId::random();
+        let mut current = registry(true, vec![(att(1), Some(member))]);
+        current.finalized_number = 10;
+        let mut bindings = Vec::new();
+        let mut minimum = 0;
+        apply_peer_registry(&mut swarm, &mut bindings, &current, &[], &mut minimum);
+        let mut next = current.clone();
+        next.finalized_number = 20;
+        next.finalized_hash = cc_client::H256::repeat_byte(1);
+        assert!(current.same_reservations(&next));
+        assert!(update_peer_registry(
+            &mut swarm,
+            &mut bindings,
+            &current,
+            &next,
+            &[],
+            &mut minimum
+        ));
+        assert_eq!(minimum, 20);
+        // A delayed event already covered by the newer view must not evict its active peer.
+        super::handle_peer_deactivated(
+            &mut swarm,
+            &mut bindings,
+            &next,
+            &mut minimum,
+            &crate::shared::PeerDeactivated {
+                attestor: att(1),
+                finalized_number: 15,
+            },
+            |_| false,
+        );
+        assert!(swarm.behaviour().admission.is_reserved(&member));
+    }
+
+    #[tokio::test]
+    async fn coalesced_removal_and_reactivation_reconcile_even_when_membership_is_identical() {
+        for required in [false, true] {
+            let mut swarm = swarm();
+            let member = libp2p::PeerId::random();
+            let mut current = registry(required, vec![]);
+            current.finalized_number = 10;
+            current.waiting_attestors = vec![(att(1), Some(member))];
+            let mut bindings = Vec::new();
+            let mut minimum = 0;
+            apply_peer_registry(&mut swarm, &mut bindings, &current, &[member], &mut minimum);
+            let removal = crate::shared::PeerDeactivated {
+                attestor: att(1),
+                finalized_number: 20,
+            };
+            super::handle_peer_deactivated(
+                &mut swarm,
+                &mut bindings,
+                &current,
+                &mut minimum,
+                &removal,
+                |_| false,
+            );
+            assert!(!swarm.behaviour().admission.is_reserved(&member));
+            let mut next = current.clone();
+            next.finalized_number = 15;
+            assert!(!update_peer_registry(
+                &mut swarm,
+                &mut bindings,
+                &current,
+                &next,
+                &[member],
+                &mut minimum
+            ));
+            assert!(!swarm.behaviour().admission.is_reserved(&member));
+
+            next.finalized_number = 21;
+            assert!(current.same_reservations(&next));
+            assert!(update_peer_registry(
+                &mut swarm,
+                &mut bindings,
+                &current,
+                &next,
+                &[member],
+                &mut minimum
+            ));
+            assert!(bindings.is_empty());
+            assert!(swarm.behaviour().admission.is_reserved(&member));
+            super::handle_peer_deactivated(
+                &mut swarm,
+                &mut bindings,
+                &next,
+                &mut minimum,
+                &removal,
+                |_| false,
+            );
             assert!(swarm.behaviour().admission.is_reserved(&member));
         }
     }

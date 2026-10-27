@@ -74,6 +74,9 @@ pub struct Shared {
     /// (committee changes) and the p2p task must never block production on backpressure.
     pub peer_deactivated_tx: mpsc::UnboundedSender<PeerDeactivated>,
 
+    /// Coalesced peer-registry invalidations from finalized batches; RPC runs off the swarm.
+    pub peer_registry_refresh_tx: watch::Sender<Option<crate::peer_registry::RefreshRequest>>,
+
     /// The *desired* eligibility, updated synchronously on every eligibility event. Distinct from
     /// `can_attest` (which lags by the warm-up on a disabled→enabled transition): a warm-up-pending
     /// node has `attest_target == true` while `can_attest` is still false. `apply_eligibility` is a

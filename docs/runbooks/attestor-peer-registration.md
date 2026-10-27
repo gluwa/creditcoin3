@@ -2,9 +2,10 @@
 
 Attestors publish an Ed25519 networking public key on CC3. Every node reads the finalized
 committee registry before starting P2P and reserves capacity for those peer identities before
-receiving any votes. The registry refreshes every 15 seconds in a separate task, so RPC retries
-cannot block the swarm. Boot-node addresses still provide discovery; a public key identifies a
-peer without specifying its reachable address.
+receiving any votes. Finalized membership, networking-key and enforcement events request a
+refresh in a separate task, with a two-minute fallback and reconciliation after reconnect.
+RPC retries cannot block the swarm. Boot-node addresses still provide discovery; a public key
+identifies a peer without specifying its reachable address.
 
 ## What is stored and who controls it
 
@@ -127,7 +128,7 @@ from the first-connection bootstrap gap. A partial registry is not a completed r
 
 3. After finalization, start the attestor normally with the new networking secret. Omit
    `--rotate-peer-key` on ordinary starts so an old deployment cannot silently revert the key.
-4. Other nodes pick up the finalized change on their next registry refresh, revoke the old
+4. Other nodes refresh when they observe the finalized key-update event, revoke the old
    reservation and disconnect the obsolete identity. An instance observing that its own
    finalized key changed stops with a configuration error. Update any boot multiaddrs that
    explicitly contained the old Peer ID; identity registration does not rewrite addresses.
@@ -148,8 +149,13 @@ reservation privileges; unknown connections continue to use the bounded unreserv
 | Member chilled, removed or rotated | Finalized refresh rebuilds committee reservations and disconnects peers that lost reserved status |
 | Emergency enforcement rollback | Operator may set the flag to `false`; stored registrations stay authoritative and the configured legacy fallback becomes available again |
 
-The 15-second refresh cadence is eventual reconciliation after finalization, rather than an
-instantaneous cross-network cutover. Keep RPC access healthy and coordinate rotations accordingly.
+Refresh requests coalesce after each finalized block. A first delivered block or a recovered
+connection also requests reconciliation, and the two-minute timer covers missed events.
+Snapshots older than the requesting event are retried promptly without replacing the retained
+view. Unchanged membership advances freshness without rebuilding reservations; a pending
+deactivation still forces reconciliation so a later reactivation can restore its reservation.
+This remains eventual reconciliation after finalization. Keep RPC access healthy and coordinate
+rotations accordingly.
 
 ## Weight and validation notes
 
