@@ -2033,8 +2033,9 @@ pub mod pallet {
             } else {
                 2
             };
-            // The benchmark created `proof_len / 100` checkpoints.
-            let benchmark_checkpoints = proof_len / 100;
+            // Only checkpoints within the measured span are included in the benchmark's
+            // fixed DB writes, even when its execution-time slope is extrapolated further.
+            let benchmark_checkpoints = proof_len.min(COMMIT_BENCHMARK_MAX_SPAN as u64) / 100;
             let extra = estimated_checkpoints.saturating_sub(benchmark_checkpoints);
             weight.saturating_add(T::DbWeight::get().writes(extra.saturating_mul(4)))
         }
@@ -2048,17 +2049,24 @@ pub mod pallet {
         /// Commit weight for an attestation with `own` continuity-proof roots and `m`
         /// attestors, plus `extra` roots walked in queued proofs and the marginal cost of a
         /// checkpointing queue of `q` entries. Each queued entry is read, decoded and removed.
-        /// The own proof is charged through `commit_attestation`, whose `s` slope covers
-        /// everything a commit does per root of its own proof. That benchmark only samples the
-        /// catch-up path (`s` from 200), so its intercept is an extrapolation that moves between
-        /// runs; the own proof is charged at no less than the top of the sampled range, which
-        /// never falls below a measured point. Only a proof past it (a `MaxCatchup` raised above
-        /// the default) is charged along the slope. The extra roots are only walked, so each is
-        /// charged through `continuity_roots` alone and no root is counted twice.
+        /// Charge at least the top of `commit_attestation`'s sampled range: its intercept is
+        /// extrapolated below that range and varies between runs. Beyond it, a noisy fit can
+        /// drop the `s` slope entirely. Keep a floor from `continuity_roots` for those additional
+        /// roots, twice because the own proof is hashed during validation and again when
+        /// building checkpoint digests. That benchmark includes hashing and map insertion, so
+        /// it conservatively covers each pass. Take the larger of this floor and the generated
+        /// commit weight; do not add both estimates. Queued roots are expanded only once.
         pub(crate) fn weight_for(own: u32, extra: u32, m: u32, q: u32) -> Weight {
             let marginal = |f: fn(u32) -> Weight, n: u32| f(n).saturating_sub(f(0));
-            let own = own.max(COMMIT_BENCHMARK_MAX_SPAN);
-            <T as Config>::WeightInfo::commit_attestation(own, m)
+            let overflow = own.saturating_sub(COMMIT_BENCHMARK_MAX_SPAN);
+            let own_floor =
+                <T as Config>::WeightInfo::commit_attestation(COMMIT_BENCHMARK_MAX_SPAN, m)
+                    .saturating_add(
+                        marginal(<T as Config>::WeightInfo::continuity_roots, overflow)
+                            .saturating_mul(2),
+                    );
+            <T as Config>::WeightInfo::commit_attestation(own.max(COMMIT_BENCHMARK_MAX_SPAN), m)
+                .max(own_floor)
                 .saturating_add(marginal(<T as Config>::WeightInfo::continuity_roots, extra))
                 .saturating_add(marginal(
                     <T as Config>::WeightInfo::commit_attestation_queued,
