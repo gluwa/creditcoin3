@@ -709,7 +709,7 @@ impl pallet_staking::Config for Runtime {
     type MaxUnlockingChunks = frame_support::traits::ConstU32<32>;
     type HistoryDepth = frame_support::traits::ConstU32<84>;
     type BenchmarkingConfig = StakingBenchmarkingConfig;
-    type WeightInfo = ();
+    type WeightInfo = pallet_staking::weights::SubstrateWeight<Runtime>;
     type NominationsQuota = pallet_staking::FixedNominationsQuota<16>;
     type EventListeners = (); // TODO: should be pools when nomination pools are added
     type MaxExposurePageSize = MaxExposurePageSize;
@@ -824,12 +824,12 @@ impl pallet_utility::Config for Runtime {
 }
 
 parameter_types! {
-    pub const ProxyDepositBase: u128 = 500;
-    pub const ProxyDepositFactor: u128 = 500;
+    pub const ProxyDepositBase: Balance = CENTS;
+    pub const ProxyDepositFactor: Balance = CENTS;
     pub const MaxProxies: u32 = 64;
     pub const MaxPending: u32 = 64;
-    pub const AnnouncementDepositBase: u128 = 500;
-    pub const AnnouncementDepositFactor: u128 = 500;
+    pub const AnnouncementDepositBase: Balance = CENTS;
+    pub const AnnouncementDepositFactor: Balance = CENTS;
 
 }
 
@@ -915,9 +915,8 @@ pub const fn deposit(items: u32, bytes: u32) -> Balance {
 }
 
 parameter_types! {
-    pub const BasicDeposit: Balance = 500;
-    pub const FieldDeposit: Balance = 500;
-    pub const SubAccountDeposit: Balance = 500;
+    pub const BasicDeposit: Balance = CENTS;
+    pub const SubAccountDeposit: Balance = CENTS;
     pub const MaxSubAccounts: u32 = 10;
     pub const MaxRegistrars: u32 = 15;
     pub const ByteDeposit: Balance = deposit(0, 1); //todo ???
@@ -950,7 +949,7 @@ impl pallet_identity::Config for Runtime {
 }
 
 parameter_types! {
-    pub const FastUnstakeDeposit: u128 = 500;
+    pub const FastUnstakeDeposit: Balance = CENTS;
     pub const FastUnstakeBatchSize: u32 = 100;
     pub const MaxErasToCheckPerBlock: u32 = 100;
 }
