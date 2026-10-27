@@ -412,7 +412,15 @@ impl EthRpcProvider for ArchiverEthProvider {
             }
         };
 
-        let eth_healthy = self.eth_fallback.is_healthy().await.unwrap_or(false);
+        // Keep the cause: reducing it to `false` left "eth RPC chain N is unhealthy" with no
+        // record of whether the tip read timed out, errored, or the provider was unreachable.
+        let eth_healthy = match self.eth_fallback.is_healthy().await {
+            Ok(healthy) => healthy,
+            Err(err) => {
+                warn!(archiver_url = %self.archiver.base_url, err = %format!("{err:#}"), "source tip probe failed");
+                false
+            }
+        };
 
         Ok(archiver_healthy && eth_healthy)
     }
