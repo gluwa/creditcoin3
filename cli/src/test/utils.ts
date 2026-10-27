@@ -237,11 +237,18 @@ export async function startAliceAndBob() {
         'Bob',
         '--bob --tmp --node-key d9cccabf274641a185bc94f9f8c3d791f50514277cb3ba8c2aa4d7d6757c661f --bootnodes /ip4/127.0.0.1/tcp/30333/p2p/12D3KooWKEKymnBDKfa8MkMWiLE6DYbC4aAUciqmYucm7xFKK3Au --port 30335 --rpc-port 9955',
     );
-    await sleep(1000);
-
     if (process.env.CREDITCOIN_SEALING) {
         startSealTicker();
     }
+
+    // Fresh nodes compile the runtime before opening RPC. Wait for both APIs to be usable
+    // here so startup work cannot consume the first test's finalization-check timeout.
+    await Promise.all(
+        ['ws://127.0.0.1:9944', 'ws://127.0.0.1:9955'].map(async (url) => {
+            const { api } = await newApi(url);
+            await api.disconnect();
+        }),
+    );
 }
 
 export function killCreditcoinNodes() {
@@ -260,14 +267,15 @@ export async function expectIsFinalizing() {
     // the test suite and we don't yet have access to an API object :-(
     const api = (await newApi((global as any).CREDITCOIN_API_URL)).api;
 
-    const chainStatus = await getChainStatus(api);
+    try {
+        const chainStatus = await getChainStatus(api);
 
-    // tolerate at most 5 blocks difference
-    expect(chainStatus.bestNumber - chainStatus.bestFinalizedNumber).toBeLessThanOrEqual(5);
-
-    // disconnect b/c Alice will start reporting: Too many connections. Please try again later.
-    // which causes the calling beforeEach() to timeout after the 8th .test.ts file is executed
-    await api.disconnect();
+        // tolerate at most 5 blocks difference
+        expect(chainStatus.bestNumber - chainStatus.bestFinalizedNumber).toBeLessThanOrEqual(5);
+    } finally {
+        // Release the connection even when the finalization assertion fails.
+        await api.disconnect();
+    }
 }
 
 export function randomIntBetween(min: number, max: number) {

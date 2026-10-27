@@ -5,7 +5,7 @@ global.beforeAll(async () => {
     // setup/teardown code in there. But make sure to have a separate function
     // which is only intended to be used at the outer-most layer
     await startAliceAndBob();
-}, 20_000);
+}, 90_000);
 
 global.afterAll(() => {
     killCreditcoinNodes();

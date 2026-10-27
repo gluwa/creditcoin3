@@ -1394,6 +1394,7 @@ jobs:
             2:pallets/operators/reset-members
             2:pallets/operators/swap-member
             2:pallets/randomness/on-initialize
+            2:precompiles/attest-coin-rewards
             2:precompiles/attestor-stash
             2:precompiles/block-prover
             2:precompiles/chain-info
