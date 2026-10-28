@@ -1077,7 +1077,7 @@ impl ContinuityService {
         };
 
         if let Some(&header_number) = header_numbers.iter().find(|h| **h > latest_attested) {
-            tracing::warn!(
+            tracing::debug!(
                 requested_block = header_number,
                 latest_attested,
                 chain_key,
