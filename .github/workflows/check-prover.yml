@@ -123,7 +123,7 @@ jobs:
           path: /var/tmp/${{ steps.test-env.outputs.chain-name }}-ck-${{ matrix.chainKey }}
 
       - name: Report result to Slack
-        if: always()
+        if: failure()
         uses: act10ns/slack@v2
         with:
           webhook-url: ${{ secrets.SLACK_WEBHOOK_URL }}
@@ -131,9 +131,7 @@ jobs:
           inputs: ${{ toJson(matrix) }}
           channel: "#protocol-internal"
           message: >-
-            [${{ github.workflow }}] Checking CK(${{ matrix.chainKey }})@${{ matrix.proverUrl }}:
-            ${{ job.status != 'success' && job.status || steps.random.outputs.status == 'complete' && 'complete' || 'incomplete (rate limited)' }}.
-            ${{ job.status == 'success' && steps.random.outputs.status == 'complete' && 'cc <!subteam^S028FDV6CCV>' || '' }}
+            [${{ github.workflow }}] Checking CK(${{ matrix.chainKey }})@${{ matrix.proverUrl }} FAILED! cc <!subteam^S028FDV6CCV>
 
   submit-verify-and-emit:
     needs:
@@ -313,16 +311,14 @@ jobs:
           echo "status=complete" >> "$GITHUB_OUTPUT"
 
       - name: Report result to Slack
-        if: always()
+        if: failure()
         uses: act10ns/slack@v2
         with:
           webhook-url: ${{ secrets.SLACK_WEBHOOK_URL }}
           status: ${{ job.status }}
           channel: "#protocol-internal"
           message: >-
-            [${{ github.workflow }}] Proofs diff for Sepolia:
-            ${{ job.status != 'success' && job.status || steps.compare.outputs.status == 'complete' && 'complete' || 'incomplete (rate limited)' }}.
-            ${{ job.status == 'success' && steps.compare.outputs.status == 'complete' && 'cc <!subteam^S028FDV6CCV>' || '' }}
+            [${{ github.workflow }}] Proofs diff for Sepolia FAILED! cc <!subteam^S028FDV6CCV>
 
   compare-proofs-ethereum:
     needs:
@@ -385,13 +381,11 @@ jobs:
           echo "status=complete" >> "$GITHUB_OUTPUT"
 
       - name: Report result to Slack
-        if: always()
+        if: failure()
         uses: act10ns/slack@v2
         with:
           webhook-url: ${{ secrets.SLACK_WEBHOOK_URL }}
           status: ${{ job.status }}
           channel: "#protocol-internal"
           message: >-
-            [${{ github.workflow }}] Proofs diff for Ethereum:
-            ${{ job.status != 'success' && job.status || steps.compare.outputs.status == 'complete' && 'complete' || 'incomplete (rate limited)' }}.
-            ${{ job.status == 'success' && steps.compare.outputs.status == 'complete' && 'cc <!subteam^S028FDV6CCV>' || '' }}
+            [${{ github.workflow }}] Proofs diff for Ethereum FAILED! cc <!subteam^S028FDV6CCV>
