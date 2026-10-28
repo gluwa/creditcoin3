@@ -23,10 +23,10 @@ const ATTEST_COIN_PRECOMPILE = '0x0000000000000000000000000000000000000fd5';
 
 const ATTEST_COIN_ASSET_ID = 1;
 
-/** Headroom for ERC-20 subcall + precompile `mint` dispatch (runtime avoids double-counting PoV vs `try_dispatch`). */
+/** Headroom for ERC-20 execution plus the native mint's proof and storage-growth costs. */
 const DEPOSIT_PRECOMPILE_GAS = 8_000_000;
 
-/** Headroom for `pallet-assets` `burn` dispatch + ERC-20 `transfer` subcall (+ rollback mint on failure). */
+/** Headroom for ERC-20 execution plus the native burn's proof and execution costs. */
 const WITHDRAW_PRECOMPILE_GAS = 8_000_000;
 
 /** `claim` includes sr25519 verify + ERC-20 transfer; use a numeric limit (ethers ignores bigint overrides on some paths). */
@@ -244,7 +244,7 @@ describe('Precompile: attest-coin rewards (accrued / claim)', (): void => {
     let vaultAddressCc3: string;
     let vaultCc3: ethers.Contract;
 
-    // These failure cases need stable accrued points. Alice keeps earning from the live
+    // Claim cases need stable accrued points. Alice keeps earning from the live
     // attestor network, so comparing her balance across mined setup transactions races accrual.
     const isolatedClaimStash = async (): Promise<KeyringPair> => {
         const stash = new Keyring({ type: 'sr25519' }).addFromMnemonic(mnemonicGenerate());
@@ -351,16 +351,14 @@ describe('Precompile: attest-coin rewards (accrued / claim)', (): void => {
     });
 
     test('claim transfers MockAttestToken from the treasury vault with sr25519', async () => {
+        const stash = await isolatedClaimStash();
         const precompile = new ethers.Contract(ATTEST_COIN_PRECOMPILE, precompileAbi, evmWalletCc3);
-        const stashU8 = decodeAddress(alice.address);
+        const stashU8 = decodeAddress(stash.address);
         const b32 = zeroPadValue(hexlify(stashU8), 32);
 
         const ptsBefore = await precompile.accrued(b32);
-        // Skip claim test if accrued is 0 (attestors haven't completed a full epoch).
-        if (ptsBefore === 0n) {
-            return;
-        }
-        const claimAmt = ptsBefore / 2n > 0n ? ptsBefore / 2n : ptsBefore;
+        expect(ptsBefore).toEqual(parseEther('10'));
+        const claimAmt = ptsBefore / 2n;
 
         const token = new ethers.Contract(tokenAddressCc3, tokenArtifact.abi, creditcoinEvm);
         await ensureVaultFunded(tokenCc3, vaultCc3, vaultAddressCc3, claimAmt);
@@ -371,7 +369,7 @@ describe('Precompile: attest-coin rewards (accrued / claim)', (): void => {
 
         const claimNonceBn = BigInt(
             (
-                (await (api.query as any).attestCoinRewards.claimNonce(alice.address)) as { toString: () => string }
+                (await (api.query as any).attestCoinRewards.claimNonce(stash.address)) as { toString: () => string }
             ).toString(),
         );
 
@@ -386,7 +384,7 @@ describe('Precompile: attest-coin rewards (accrued / claim)', (): void => {
             claimAmt,
             evmRecipient,
         );
-        const sig = alice.sign(msg);
+        const sig = stash.sign(msg);
         if (sig.length !== 64) {
             throw new Error(`expected 64-byte sr25519 signature, got ${sig.length}`);
         }
@@ -410,6 +408,10 @@ describe('Precompile: attest-coin rewards (accrued / claim)', (): void => {
         // The reward came out of the vault, and the bond bridge's backing was untouched.
         expect(vaultBefore - (await token.balanceOf(vaultAddressCc3))).toEqual(claimAmt);
         expect(await token.balanceOf(ATTEST_COIN_PRECOMPILE)).toEqual(bridgeBefore);
+        expect(await precompile.accrued(b32)).toEqual(ptsBefore - claimAmt);
+        expect((await api.query.attestCoinRewards.claimNonce(stash.address)).toString()).toEqual(
+            (claimNonceBn + 1n).toString(),
+        );
     }, 120_000);
 
     test('deposit bridges ERC-20 into pallet-assets (mint to target creditcoin native account)', async () => {
@@ -841,28 +843,38 @@ describe('Precompile: attest-coin rewards (accrued / claim)', (): void => {
         );
         await forElapsedBlocks(api, { minBlocks: 1 });
 
-        await expect(precompile.withdraw.staticCall(amount, { gasLimit: WITHDRAW_PRECOMPILE_GAS })).rejects.toThrow();
+        try {
+            // Send and mine the failure: eth_call discards all state even if rollback is broken.
+            const tx = await precompile.withdraw(
+                amount,
+                await precompileTxOverrides(creditcoinEvm, WITHDRAW_PRECOMPILE_GAS),
+            );
+            await expect(tx.wait()).rejects.toThrow();
+            const receipt = await creditcoinEvm.getTransactionReceipt(tx.hash);
+            expect(receipt?.status).toBe(0);
+            expect(receipt!.gasUsed).toBeLessThan(BigInt(WITHDRAW_PRECOMPILE_GAS));
 
-        expect(await token.balanceOf(evmWalletCc3.address)).toEqual(erc20Before);
-        expect(await token.balanceOf(ATTEST_COIN_PRECOMPILE)).toEqual(treasuryBefore);
-        const acctAfter = await (api.query as any).assets.account(ATTEST_COIN_ASSET_ID, mapped);
-        expect(BigInt(acctAfter.unwrap().balance.toString())).toEqual(palletBefore);
-
-        await dispatchRootCall(
-            api,
-            root,
-            (api.tx as any).assets.forceAssetStatus(
-                ATTEST_COIN_ASSET_ID,
-                precompileSubstrate,
-                precompileSubstrate,
-                precompileSubstrate,
-                root.address,
-                assetDetails.minBalance,
-                assetDetails.isSufficient,
-                isFrozen,
-            ),
-        );
-        await forElapsedBlocks(api, { minBlocks: 1 });
+            expect(await token.balanceOf(evmWalletCc3.address)).toEqual(erc20Before);
+            expect(await token.balanceOf(ATTEST_COIN_PRECOMPILE)).toEqual(treasuryBefore);
+            const acctAfter = await (api.query as any).assets.account(ATTEST_COIN_ASSET_ID, mapped);
+            expect(BigInt(acctAfter.unwrap().balance.toString())).toEqual(palletBefore);
+        } finally {
+            await dispatchRootCall(
+                api,
+                root,
+                (api.tx as any).assets.forceAssetStatus(
+                    ATTEST_COIN_ASSET_ID,
+                    assetDetails.owner,
+                    assetDetails.issuer,
+                    assetDetails.admin,
+                    assetDetails.freezer,
+                    assetDetails.minBalance,
+                    assetDetails.isSufficient,
+                    isFrozen,
+                ),
+            );
+            await forElapsedBlocks(api, { minBlocks: 1 });
+        }
     }, 180_000);
 
     /**

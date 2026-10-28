@@ -414,21 +414,17 @@ impl frame_support::traits::Get<AccountId> for AttestationBondPoolAccount {
 pub type AssetsForceOrigin = frame_system::EnsureRoot<AccountId>;
 
 parameter_types! {
-    /// The only deposit that needs a non-zero value here.
-    ///
     /// `approve_transfer` is callable by **any** signed account, and `do_approve_transfer` reserves
     /// this from *native* balance without checking that the caller holds any of the asset. Because
     /// `Approvals` is keyed `(asset, owner, delegate)`, a single account can otherwise create
     /// unbounded entries by varying `delegate` — which need not exist — for transaction fees alone.
     ///
-    /// The rest stay at zero because `CreateOrigin = EnsureNever` makes them unreachable or
-    /// governance-only: `AssetDeposit` is charged by `create` only (`force_create` and genesis do
-    /// not), and the metadata deposits are charged by owner-only `set_metadata` (`force_set_metadata`
-    /// and genesis bypass them). `AssetAccountDeposit` is charged only by permissionless `touch`,
-    /// which costs a transaction per entry anyway; keeping it zero also means every attest-coin
-    /// account exists for the same reason (`ExistenceReason::Consumer`, as the precompile's
-    /// `do_mint` path creates them) rather than a mix of `Consumer` and `DepositHeld`.
+    /// Creation and metadata deposits stay at zero: asset creation is root-only and metadata is
+    /// owner/root-only. Permissionless approvals and account creation both need storage deposits.
     pub const AssetApprovalDeposit: Balance = 10 * CENTS;
+    /// `touch_other` can create empty asset accounts for arbitrary, unfunded account IDs. Reserve
+    /// a deposit per entry; bridge minting creates consumer accounts and does not pay this deposit.
+    pub const AssetAccountDeposit: Balance = 10 * CENTS;
 }
 
 impl pallet_assets::Config for Runtime {
@@ -438,9 +434,8 @@ impl pallet_assets::Config for Runtime {
     type AssetIdParameter = u32;
     type Currency = Balances;
     // Attest coin (and any future asset) is provisioned by genesis or a root `force_create`; there
-    // is no use case for user-created assets. With every deposit necessarily 0 for the attest-coin
-    // flows, a signed `CreateOrigin` would let anyone bloat state with assets and metadata for tx
-    // fees alone.
+    // is no use case for user-created assets. A signed `CreateOrigin` with zero creation and
+    // metadata deposits would let anyone bloat state for transaction fees alone.
     type CreateOrigin = frame_system::EnsureNever<AccountId>;
     type ForceOrigin = AssetsForceOrigin;
     type AssetDeposit = ConstU128<0>;
@@ -448,7 +443,7 @@ impl pallet_assets::Config for Runtime {
     type MetadataDepositPerByte = ConstU128<0>;
     type ApprovalDeposit = AssetApprovalDeposit;
     type StringLimit = ConstU32<50>;
-    type AssetAccountDeposit = ConstU128<0>;
+    type AssetAccountDeposit = AssetAccountDeposit;
     type RemoveItemsLimit = ConstU32<1000>;
     type Freezer = ();
     type Extra = ();
@@ -2608,6 +2603,9 @@ mod tests {
         });
     }
 }
+
+#[cfg(test)]
+mod attest_coin_tests;
 
 #[cfg(test)]
 mod grandpa_equivocation_tests {

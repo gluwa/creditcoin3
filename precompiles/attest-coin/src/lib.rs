@@ -20,6 +20,7 @@
 
 #[cfg(test)]
 mod mock;
+mod storage;
 #[cfg(test)]
 mod tests;
 
@@ -32,10 +33,9 @@ use frame_support::dispatch::{GetDispatchInfo, PostDispatchInfo};
 use frame_support::traits::Get;
 use pallet_attest_coin_rewards::Pallet as Rewards;
 use pallet_evm::{AddressMapping, GasWeightMapping};
-use parity_scale_codec::Encode;
-use precompile_utils::evm::handle::using_precompile_handle;
-use precompile_utils::prelude::RuntimeHelper;
-use precompile_utils::substrate::TryDispatchError;
+use parity_scale_codec::{Encode, MaxEncodedLen};
+use precompile_utils::prelude::{PrecompileHandleExt, RuntimeHelper};
+use precompile_utils::solidity::modifier::FunctionModifier;
 use sp_core::{sr25519, H160, U256};
 use sp_io::crypto::sr25519_verify;
 use sp_runtime::traits::{Dispatchable, StaticLookup};
@@ -112,6 +112,11 @@ where
         }
         let mut sel = [0u8; 4];
         sel.copy_from_slice(&input[..4]);
+        handle.check_function_modifier(if sel == SEL_ACCRUED {
+            FunctionModifier::View
+        } else {
+            FunctionModifier::NonPayable
+        })?;
         match sel {
             SEL_ACCRUED => Self::accrued(handle, &input[4..]),
             SEL_CLAIM => Self::claim(handle, &input[4..]),
@@ -143,9 +148,7 @@ where
     <Runtime as pallet_assets::Config>::Balance: From<u128>,
 {
     fn accrued(handle: &mut impl PrecompileHandle, rest: &[u8]) -> PrecompileResult {
-        // One Substrate storage read + u128→U256 marshalling. Pricing aligned to the
-        // `chain-info` precompile's `GAS_STORAGE_LOOKUP = 2_600` baseline plus headroom for
-        // the conversion, so callers can't probe storage at sub-SLOAD prices.
+        // Base ABI parsing/marshalling cost. The native storage read is charged separately.
         handle.record_cost(3_500)?;
         if rest.len() < 32 {
             return Err(bad_input());
@@ -153,6 +156,11 @@ where
         let mut raw = [0u8; 32];
         raw.copy_from_slice(&rest[..32]);
         let stash = Runtime::AccountId::from(raw);
+        storage::record_read::<Runtime>(
+            handle,
+            pallet_attest_coin_rewards::Accrued::<Runtime>::hashed_key_for(&stash).len(),
+            Runtime::RewardPoints::max_encoded_len(),
+        )?;
         let a = Rewards::<Runtime>::accrued_of(&stash);
         let v: u128 = a.into();
         let u = U256::from(v);
@@ -214,7 +222,7 @@ where
         let nonce_u64 = u256_to_u64(nonce_u256)?;
         let chain_key = u256_to_u64(chain_u256)?;
 
-        if !pallet_supported_chains::SupportedChains::<Runtime>::contains_key(chain_key) {
+        if !storage::supported_chain_exists::<Runtime>(handle, chain_key)? {
             return Err(PrecompileFailure::Revert {
                 exit_status: ExitRevert::Reverted,
                 output: b"unsupported chain key".to_vec(),
@@ -223,7 +231,7 @@ where
         let amount_pts = u256_to_reward_points::<Runtime>(amount_u256)?;
         let amount_u128: u128 = amount_pts.into();
 
-        let token = match Rewards::<Runtime>::erc20_token() {
+        let token = match Self::erc20_token(handle)? {
             Some(t) => t,
             None => {
                 return Err(PrecompileFailure::Revert {
@@ -270,6 +278,7 @@ where
         // 2] Otherwise — an sr25519 stash must sign the claim message, exactly as before.
         let caller_is_stash = Runtime::AddressMapping::into_account_id(caller_h160) == stash;
         if !caller_is_stash {
+            storage::record_genesis_hash_read::<Runtime>(handle)?;
             let msg = Rewards::<Runtime>::claim_signing_message(
                 &stash,
                 nonce_u64,
@@ -286,6 +295,7 @@ where
             }
         }
 
+        storage::record_read::<Runtime>(handle, 32, H160::max_encoded_len())?;
         let vault = match Rewards::<Runtime>::reward_vault() {
             Some(v) => v,
             None => {
@@ -296,6 +306,16 @@ where
             }
         };
 
+        storage::record_mutation::<Runtime>(
+            handle,
+            &pallet_attest_coin_rewards::ClaimNonce::<Runtime>::hashed_key_for(&stash),
+            u64::max_encoded_len(),
+        )?;
+        storage::record_mutation::<Runtime>(
+            handle,
+            &pallet_attest_coin_rewards::Accrued::<Runtime>::hashed_key_for(&stash),
+            Runtime::RewardPoints::max_encoded_len(),
+        )?;
         Rewards::<Runtime>::commit_claim(&stash, nonce_u64, amount_pts).map_err(|e| {
             use pallet_attest_coin_rewards::Error as RewardErr;
             let msg: &[u8] = match e {
@@ -384,7 +404,7 @@ where
         }
         let amount_u128 = u256_to_u128_balance(amount_u256)?;
 
-        let token = match Rewards::<Runtime>::erc20_token() {
+        let token = match Self::erc20_token(handle)? {
             Some(t) => t,
             None => {
                 return Err(PrecompileFailure::Revert {
@@ -420,8 +440,13 @@ where
         }
 
         let issuer = Runtime::AddressMapping::into_account_id(precompile_h160);
+        let storage_growth = storage::mint_storage_growth::<Runtime>(
+            handle,
+            &attest_coin_asset_id::<Runtime>().into(),
+            &beneficiary,
+        )?;
 
-        if let Err(failure) = try_dispatch_attest_coin_no_pov::<Runtime, _>(
+        if let Err(failure) = RuntimeHelper::<Runtime>::try_dispatch(
             handle,
             Some(issuer).into(),
             pallet_assets::Call::<Runtime>::mint {
@@ -429,6 +454,7 @@ where
                 beneficiary: Runtime::Lookup::unlookup(beneficiary),
                 amount: amount_u128.into(),
             },
+            storage_growth,
         )
         .map_err(PrecompileFailure::from)
         {
@@ -484,7 +510,7 @@ where
         }
         let amount_u128 = u256_to_u128_balance(amount_u256)?;
 
-        let token = match Rewards::<Runtime>::erc20_token() {
+        let token = match Self::erc20_token(handle)? {
             Some(t) => t,
             None => {
                 return Err(PrecompileFailure::Revert {
@@ -571,7 +597,7 @@ where
             });
         }
 
-        let token = match Rewards::<Runtime>::erc20_token() {
+        let token = match Self::erc20_token(handle)? {
             Some(t) => t,
             None => {
                 return Err(PrecompileFailure::Revert {
@@ -581,6 +607,7 @@ where
             }
         };
 
+        storage::record_genesis_hash_read::<Runtime>(handle)?;
         let msg = Rewards::<Runtime>::withdraw_signing_message(
             &stash,
             nonce_u64,
@@ -597,6 +624,11 @@ where
 
         // Consume the nonce before moving anything, so a concurrent replay of the same signature
         // cannot both pass. Rolled back below if the burn/transfer pair fails.
+        storage::record_mutation::<Runtime>(
+            handle,
+            &pallet_attest_coin_rewards::WithdrawNonce::<Runtime>::hashed_key_for(&stash),
+            u64::max_encoded_len(),
+        )?;
         Rewards::<Runtime>::commit_withdraw(&stash, nonce_u64).map_err(|e| {
             use pallet_attest_coin_rewards::Error as RewardErr;
             let msg: &[u8] = match e {
@@ -649,6 +681,7 @@ where
         let amount_asset: <Runtime as pallet_assets::Config>::Balance = amount_u128.into();
         let asset_id: <Runtime as pallet_assets::Config>::AssetId =
             attest_coin_asset_id::<Runtime>().into();
+        storage::record_asset_account_read::<Runtime>(handle, &asset_id, &beneficiary)?;
         let substrate_balance =
             pallet_assets::Pallet::<Runtime>::balance(asset_id.clone(), &beneficiary);
         if substrate_balance < amount_asset {
@@ -658,6 +691,7 @@ where
             });
         }
 
+        storage::record_system_account_change::<Runtime>(handle, &beneficiary)?;
         let treasury_balance = erc20_balance_of(handle, token, handle.code_address())?;
         if treasury_balance < amount_u256 {
             return Err(PrecompileFailure::Revert {
@@ -685,6 +719,7 @@ where
 
         erc20_transfer(handle, token, recipient, amount_u256)?;
 
+        storage::record_asset_account_read::<Runtime>(handle, &asset_id, &beneficiary)?;
         let balance_after_transfer =
             pallet_assets::Pallet::<Runtime>::balance(asset_id.clone(), &beneficiary);
         if balance_after_transfer < amount_asset {
@@ -694,10 +729,15 @@ where
             });
         }
 
-        try_dispatch_attest_coin_no_pov::<Runtime, _>(handle, Some(admin).into(), burn_call)
+        RuntimeHelper::<Runtime>::try_dispatch(handle, Some(admin).into(), burn_call, 0)
             .map_err(PrecompileFailure::from)?;
 
         Ok(())
+    }
+
+    fn erc20_token(handle: &mut impl PrecompileHandle) -> Result<Option<H160>, ExitError> {
+        storage::record_read::<Runtime>(handle, 32, H160::max_encoded_len())?;
+        Ok(Rewards::<Runtime>::erc20_token())
     }
 }
 
@@ -710,7 +750,7 @@ where
     <Runtime as pallet_attest_coin_rewards::Config>::AttestCoinAssetId::get()
 }
 
-/// EVM gas charged by [`try_dispatch_attest_coin_no_pov`] for a runtime call (matches its pre-dispatch check).
+/// Ref-time gas charged by [`RuntimeHelper::try_dispatch`] for a runtime call.
 fn evm_gas_for_dispatch_call<Runtime>(call: &Runtime::RuntimeCall) -> u64
 where
     Runtime: pallet_evm::Config,
@@ -719,46 +759,6 @@ where
     <Runtime as pallet_evm::Config>::GasWeightMapping::weight_to_gas(
         call.get_dispatch_info().total_weight(),
     )
-}
-
-/// Like [`RuntimeHelper::try_dispatch`], but does **not** reserve `dispatch_info.total_weight().proof_size()` on
-/// the EVM handle. Otherwise Substrate benchmark PoV for `pallet_assets` dispatch is stacked on top of the
-/// same transaction’s Frontier proof meter and exhausts gas (`gasUsed == gasLimit`).
-fn try_dispatch_attest_coin_no_pov<Runtime, Call>(
-    handle: &mut impl PrecompileHandle,
-    origin: <Runtime::RuntimeCall as Dispatchable>::RuntimeOrigin,
-    call: Call,
-) -> Result<PostDispatchInfo, TryDispatchError>
-where
-    Runtime: pallet_evm::Config,
-    Runtime::RuntimeCall: From<Call> + Dispatchable<PostInfo = PostDispatchInfo> + GetDispatchInfo,
-{
-    let call = Runtime::RuntimeCall::from(call);
-    let dispatch_info = call.get_dispatch_info();
-
-    let remaining_gas = handle.remaining_gas();
-    let required_gas = <Runtime as pallet_evm::Config>::GasWeightMapping::weight_to_gas(
-        dispatch_info.total_weight(),
-    );
-    if required_gas > remaining_gas {
-        return Err(TryDispatchError::Evm(ExitError::OutOfGas));
-    }
-
-    handle
-        .record_external_cost(None, None, Some(0u64))
-        .map_err(TryDispatchError::Evm)?;
-
-    let post_dispatch_info = using_precompile_handle(handle, || call.dispatch(origin))
-        .map_err(|e| TryDispatchError::Substrate(e.error))?;
-
-    RuntimeHelper::<Runtime>::refund_weight_v2_cost(
-        handle,
-        dispatch_info.total_weight(),
-        post_dispatch_info.actual_weight,
-    )
-    .map_err(TryDispatchError::Evm)?;
-
-    Ok(post_dispatch_info)
 }
 
 fn erc20_subcall(

@@ -3202,6 +3202,7 @@ dependencies = [
  "precompile-utils",
  "randomness-primitives",
  "scale-info",
+ "serde_json",
  "smallvec",
  "sp-api",
  "sp-block-builder",

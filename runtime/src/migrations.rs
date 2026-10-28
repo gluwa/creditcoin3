@@ -9,10 +9,11 @@
 //! record only, hence its `dead_code` allow.
 
 use frame_support::{
-    dispatch::DispatchResult, pallet_prelude::Blake2_128Concat, storage::migration, storage_alias,
-    traits::OnRuntimeUpgrade, weights::Weight,
+    dispatch::{DispatchResult, GetDispatchInfo},
+    storage::migration,
+    traits::OnRuntimeUpgrade,
+    weights::Weight,
 };
-use parity_scale_codec::{Decode, Encode};
 use sp_runtime::traits::{Dispatchable, Get, StaticLookup};
 use sp_std::marker::PhantomData;
 
@@ -20,10 +21,6 @@ use crate::{
     attest_coin_precompile_account, AccountId, Balance, NativeOrEvmAddressLookup, Runtime,
     RuntimeCall, RuntimeOrigin, ATTEST_COIN_ASSET_ID,
 };
-
-// Used only by `#[storage_alias]` expansion (rustc does not see it as a normal use).
-#[allow(unused_imports)]
-use crate::Assets as AssetsPallet;
 
 /// Initializes `Operators` (pallet_membership Instance1) with the initial operator accounts.
 ///
@@ -155,34 +152,6 @@ pub mod v1_init_operators {
 // --- Attest coin (`pallet-assets` id 1): issuer + admin = precompile (mint/deposit + burn/withdraw);
 //     owner + freezer = sudo or precompile (governance ops; admin must be precompile for precompile `burn`).
 
-/// Mirrors [`pallet_assets::types::AssetDetails`] / asset status SCALE layout so we can decode
-/// storage without relying on `pub(super)` field access in the pallet.
-#[derive(Decode, Encode, Eq, PartialEq)]
-enum MirrorAssetStatus {
-    Live,
-    Frozen,
-    Destroying,
-}
-
-#[derive(Decode, Encode)]
-struct MirrorAssetDetails {
-    owner: AccountId,
-    issuer: AccountId,
-    admin: AccountId,
-    freezer: AccountId,
-    supply: Balance,
-    deposit: Balance,
-    min_balance: Balance,
-    is_sufficient: bool,
-    accounts: u32,
-    sufficients: u32,
-    approvals: u32,
-    status: MirrorAssetStatus,
-}
-
-#[storage_alias]
-type AssetMap = StorageMap<AssetsPallet, Blake2_128Concat, u32, MirrorAssetDetails>;
-
 /// Reads `pallet_sudo::Key`, which is `StorageValue<_, T::AccountId, OptionQuery>`: the stored
 /// value is a **bare** `AccountId`, with `None` represented by absence of the key rather than by
 /// a SCALE `Option` prefix. Decoding as `Option<AccountId>` would read the account's first byte
@@ -207,9 +176,9 @@ fn apply_roles(
     precompile: &AccountId,
     owner: &AccountId,
     freezer: &AccountId,
-    details: &MirrorAssetDetails,
+    details: &pallet_assets::AssetDetails<Balance, AccountId, Balance>,
 ) -> Weight {
-    let is_frozen = details.status == MirrorAssetStatus::Frozen;
+    let is_frozen = details.status == pallet_assets::AssetStatus::Frozen;
     let status = RuntimeCall::Assets(pallet_assets::Call::force_asset_status {
         id: ATTEST_COIN_ASSET_ID,
         owner: NativeOrEvmAddressLookup::unlookup(owner.clone()),
@@ -221,12 +190,13 @@ fn apply_roles(
         is_frozen,
     });
 
+    let weight = status.get_dispatch_info().total_weight();
     if let Err(e) = dispatch_root(status) {
         log::error!(
             target: "runtime::migrations",
             "EnsureAttestCoinAssetRoles: force_asset_status failed: {e:?}"
         );
-        return <Runtime as frame_system::Config>::DbWeight::get().reads_writes(3, 0);
+        return weight;
     }
 
     log::info!(
@@ -234,7 +204,7 @@ fn apply_roles(
         "EnsureAttestCoinAssetRoles: issuer+admin=precompile, owner={owner:?}, freezer={freezer:?}"
     );
 
-    <Runtime as frame_system::Config>::DbWeight::get().reads_writes(4, 4)
+    weight
 }
 
 /// Migrates pre-attest-coin attestor bonds (audit H-1 + H-2).
@@ -339,37 +309,61 @@ impl OnRuntimeUpgrade for EnsureAttestCoinAssetRoles<Runtime> {
     fn on_runtime_upgrade() -> Weight {
         let precompile = attest_coin_precompile_account();
         let sudo = sudo_account();
+        let db = <Runtime as frame_system::Config>::DbWeight::get();
+        let mut weight = db.reads(2); // Sudo key and asset existence.
 
-        if AssetMap::get(ATTEST_COIN_ASSET_ID).is_none() {
+        if pallet_assets::Asset::<Runtime>::get(ATTEST_COIN_ASSET_ID).is_none() {
             let create = RuntimeCall::Assets(pallet_assets::Call::force_create {
                 id: ATTEST_COIN_ASSET_ID,
                 owner: NativeOrEvmAddressLookup::unlookup(precompile.clone()),
                 is_sufficient: false,
                 min_balance: 1u128,
             });
+            weight = weight.saturating_add(create.get_dispatch_info().total_weight());
             if dispatch_root(create).is_err() {
                 log::error!(
                     target: "runtime::migrations",
                     "EnsureAttestCoinAssetRoles: force_create failed for asset {ATTEST_COIN_ASSET_ID}"
                 );
-                return <Runtime as frame_system::Config>::DbWeight::get().reads_writes(2, 0);
+                return weight;
             }
         }
 
-        let Some(details) = AssetMap::get(ATTEST_COIN_ASSET_ID) else {
+        weight = weight.saturating_add(db.reads(1));
+        let Some(details) = pallet_assets::Asset::<Runtime>::get(ATTEST_COIN_ASSET_ID) else {
             log::error!(
                 target: "runtime::migrations",
                 "EnsureAttestCoinAssetRoles: asset {ATTEST_COIN_ASSET_ID} still missing after create"
             );
-            return <Runtime as frame_system::Config>::DbWeight::get().reads_writes(4, 2);
+            return weight;
         };
 
-        if details.status == MirrorAssetStatus::Destroying {
+        if details.status == pallet_assets::AssetStatus::Destroying {
             log::warn!(
                 target: "runtime::migrations",
                 "EnsureAttestCoinAssetRoles: asset {ATTEST_COIN_ASSET_ID} is Destroying; skipping"
             );
-            return <Runtime as frame_system::Config>::DbWeight::get().reads(1);
+            return weight;
+        }
+
+        // Match fresh genesis on upgraded chains, including an asset created by an earlier
+        // migration without metadata. Preserve any metadata already set by governance.
+        weight = weight.saturating_add(db.reads(1));
+        if !pallet_assets::Metadata::<Runtime>::contains_key(ATTEST_COIN_ASSET_ID) {
+            let metadata = RuntimeCall::Assets(pallet_assets::Call::force_set_metadata {
+                id: ATTEST_COIN_ASSET_ID,
+                name: b"Attest Coin".to_vec(),
+                symbol: b"AC".to_vec(),
+                decimals: 18,
+                is_frozen: false,
+            });
+            weight = weight.saturating_add(metadata.get_dispatch_info().total_weight());
+            if let Err(e) = dispatch_root(metadata) {
+                log::error!(
+                    target: "runtime::migrations",
+                    "EnsureAttestCoinAssetRoles: force_set_metadata failed: {e:?}"
+                );
+            }
         }
 
         // With no sudo key there is no governance account to install, so preserve whatever `owner`
@@ -400,9 +394,9 @@ impl OnRuntimeUpgrade for EnsureAttestCoinAssetRoles<Runtime> {
                 target: "runtime::migrations",
                 "EnsureAttestCoinAssetRoles: roles already correct, skipping"
             );
-            return <Runtime as frame_system::Config>::DbWeight::get().reads(1);
+            return weight;
         }
 
-        apply_roles(&precompile, &owner, &freezer, &details)
+        weight.saturating_add(apply_roles(&precompile, &owner, &freezer, &details))
     }
 }

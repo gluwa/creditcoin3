@@ -11,6 +11,8 @@ use pallet_evm::AddressMapping;
 use precompile_utils::testing::{MockHandle, SubcallOutput};
 use sp_core::{sr25519, Pair, H160, U256};
 
+mod metering;
+
 fn precompile_addr() -> H160 {
     H160::from_low_u64_be(PRECOMPILE_ADDRESS_U64)
 }
@@ -252,6 +254,58 @@ fn assert_reverts_with(handle: &mut MockHandle, expected_msg: &[u8]) {
 }
 
 // ── accrued tests ─────────────────────────────────────────────────────────────
+
+#[test]
+fn all_entrypoints_reject_native_value_before_token_calls_or_storage_changes() {
+    ExtBuilder::default().build().execute_with(|| {
+        for selector in [
+            SEL_ACCRUED,
+            SEL_CLAIM,
+            SEL_DEPOSIT,
+            SEL_DEPOSIT_TO,
+            SEL_WITHDRAW,
+            SEL_WITHDRAW_FROM,
+        ] {
+            let mut input = selector.to_vec();
+            input.resize(228, 0);
+            let mut handle = make_handle(H160::repeat_byte(0xAA), input);
+            handle.context.apparent_value = U256::one();
+            let Err(PrecompileFailure::Revert { output, .. }) = execute(&mut handle) else {
+                panic!("non-payable entry accepted value");
+            };
+            assert!(output
+                .windows(b"Function is not payable".len())
+                .any(|w| w == b"Function is not payable"));
+        }
+    });
+}
+
+#[test]
+fn static_context_allows_accrued_and_rejects_all_mutations() {
+    ExtBuilder::default().build().execute_with(|| {
+        let mut view = make_handle(H160::repeat_byte(0xAA), accrued_input([0x42; 32]));
+        view.is_static = true;
+        assert!(execute(&mut view).is_ok());
+        for selector in [
+            SEL_CLAIM,
+            SEL_DEPOSIT,
+            SEL_DEPOSIT_TO,
+            SEL_WITHDRAW,
+            SEL_WITHDRAW_FROM,
+        ] {
+            let mut input = selector.to_vec();
+            input.resize(228, 0);
+            let mut handle = make_handle(H160::repeat_byte(0xAA), input);
+            handle.is_static = true;
+            let Err(PrecompileFailure::Revert { output, .. }) = execute(&mut handle) else {
+                panic!("state-changing entry accepted a static call");
+            };
+            assert!(output
+                .windows(b"static context".len())
+                .any(|w| w == b"static context"));
+        }
+    });
+}
 
 #[test]
 fn accrued_returns_zero_for_unknown_stash() {
