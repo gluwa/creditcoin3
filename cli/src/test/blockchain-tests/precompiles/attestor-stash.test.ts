@@ -4,7 +4,7 @@ import { u8aToHex } from '@polkadot/util';
 
 import { newApi, ApiPromise, BN, MICROUNITS_PER_CTC } from '../../../lib';
 import { evmAddressToSubstrateAddress } from '../../../lib/evm/address';
-import { fundFromSudo, waitEras } from '../../integration-tests/helpers';
+import { fundFromSudo, waitEras, mintAttestCoin, setMinBondRequirement } from '../../integration-tests/helpers';
 import { chain_Anvil2_Key } from '../pallets/supported-chains/consts';
 import { attestorStashAddress } from './consts';
 import { testIf } from '../../utils';
@@ -35,6 +35,9 @@ describe('Precompile: AttestorStash', (): void => {
     // PoV-heavy calls need an explicit gas limit; auto-estimate under-counts the
     // proof-size component (5 KB @ ratio 14.3 → ~72 K PoV gas alone).
     const GAS_LIMIT = 20_000_000;
+    // Unregister reserves a scan of up to MaxAttestationNodes * 8 entries. Its declared
+    // proof exceeds 2 MiB (about 30M PoV gas), even for this suite's single attestor.
+    const UNREGISTER_GAS_LIMIT = 40_000_000;
 
     // Build fee overrides for a state-changing tx. We use EIP-1559 fields rather
     // than a pinned legacy `gasPrice`: pallet-base-fee lets the block base fee
@@ -43,12 +46,12 @@ describe('Precompile: AttestorStash', (): void => {
     // so `tx.wait()` hangs until the jest timeout. `maxFeePerGas` is a ceiling
     // (not the price paid), so the tx stays includable across base-fee drift while
     // still only being charged base fee + tip. Fetched fresh at call time.
-    const feeOverrides = async () => {
+    const feeOverrides = async (gasLimit = GAS_LIMIT) => {
         const fee = await provider.getFeeData();
         return {
             maxFeePerGas: fee.maxFeePerGas ?? fee.gasPrice * 2n,
             maxPriorityFeePerGas: fee.maxPriorityFeePerGas ?? 1_000_000_000n,
-            gasLimit: GAS_LIMIT,
+            gasLimit,
         };
     };
 
@@ -66,6 +69,18 @@ describe('Precompile: AttestorStash', (): void => {
     // The attestor id we register, chill, and unregister across the serial tests.
     const attestorId = randomAttestorId();
 
+    /**
+     * Bond this suite requires, in attest-coin base units (100 units).
+     *
+     * `DefaultMinBondRequirement` is 0, so without setting this the whole suite goes vacuous rather
+     * than merely failing one line: a registered ledger and a never-registered one would both read
+     * `totalStaked == active == 0`, which is exactly the "silently-empty-ledger foot-gun" the
+     * `getLedgerByAddress` / `getCallerLedger` entries were added to catch. `withdrawUnbonded` would
+     * also stop emitting `UnbondedWithdrawn`, because a zero bond queues no unlock chunk.
+     */
+    const TEST_MIN_BOND = new BN('100000000000000000000');
+    let previousMinBond: string | undefined;
+
     beforeAll(async () => {
         ({ api } = await newApi((global as any).CREDITCOIN_API_URL));
         provider = new WebSocketProvider((global as any).CREDITCOIN_API_URL);
@@ -74,18 +89,33 @@ describe('Precompile: AttestorStash', (): void => {
         alith = new ethers.Wallet(privateKey, provider);
 
         // Fund Alith's derived Substrate account (this is the `stash`) with plenty of
-        // CTC. The default min bond is 100 CTC, so 2M is overkill.
+        // native CTC — it pays fees and the per-registration transfer to the attestor key.
         const result = await fundFromSudo(api, alith.address, MICROUNITS_PER_CTC.mul(new BN(2_000_000)));
         expect(result.status).toBe(0);
 
         stashSubstrateAddress = evmAddressToSubstrateAddress(alith.address);
         stashAccountIdHex = u8aToHex(decodeAddress(stashSubstrateAddress));
 
+        // The bond is denominated in attest coin, not CTC, so the stash needs a balance of the
+        // asset before `registerAttestor` can move it into the bond pool. Minted before the
+        // requirement is raised so no registration can observe a bond it cannot pay.
+        const root = (global as any).CREDITCOIN_CREATE_SIGNER('sudo');
+        await mintAttestCoin(api, root, stashSubstrateAddress, TEST_MIN_BOND.muln(4));
+        previousMinBond = await setMinBondRequirement(api, root, chainKey, TEST_MIN_BOND);
+
         contract = new ethers.Contract(attestorStashAddress, contractABI, alith);
-    }, 90_000);
+    }, 120_000);
 
     afterAll(async () => {
-        await api.disconnect();
+        try {
+            // `MinBondRequirement` is chain-wide state shared with every other suite on this node.
+            if (previousMinBond !== undefined) {
+                const root = (global as any).CREDITCOIN_CREATE_SIGNER('sudo');
+                await setMinBondRequirement(api, root, chainKey, previousMinBond);
+            }
+        } finally {
+            await api.disconnect();
+        }
     });
 
     // -----------------------------------------------------------------------------
@@ -223,7 +253,7 @@ describe('Precompile: AttestorStash', (): void => {
     // -----------------------------------------------------------------------------
 
     test('unregisterAttestor succeeds, removes Attestors storage entry, and emits AttestorUnregistered', async () => {
-        const tx = await contract.unregisterAttestor(chainKey, attestorId, await feeOverrides());
+        const tx = await contract.unregisterAttestor(chainKey, attestorId, await feeOverrides(UNREGISTER_GAS_LIMIT));
         const receipt = await tx.wait();
         expect(receipt.status).toBe(1);
 

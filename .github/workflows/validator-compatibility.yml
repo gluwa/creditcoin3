@@ -261,6 +261,9 @@ jobs:
         run: |
           .github/wait-for-creditcoin.sh 'http://127.0.0.1:9944'
 
+      - name: Install Solidity compiler
+        run: sudo .github/install-solidity-compiler.sh
+
       - name: Install CLI dependencies
         uses: actions/setup-node@v7
         with:

@@ -1,7 +1,12 @@
 import { newApi, ApiPromise, KeyringPair } from '../../../../lib';
 import type { EventRecord } from '../../../../lib';
 import { parseAmount } from '../../../../commands/options';
-import { randomTestAccount, TestAccount } from '../../../integration-tests/helpers';
+import {
+    mintAttestCoin,
+    randomTestAccount,
+    setMinBondRequirement,
+    TestAccount,
+} from '../../../integration-tests/helpers';
 import { describeIf, dispatchErrorName, sudoInBlock } from '../../../utils';
 
 // Unregistering an attestor unbonds its stash's bond into the stash's unlocking queue. When that
@@ -19,6 +24,7 @@ describeIf(process.env.SKIP_ON_PURPOSE === undefined, 'Unregister attestor with 
     let chainKey: number;
 
     const CHUNK = parseAmount('1');
+    const MIN_BOND = CHUNK.muln(100);
 
     const currentEra = async (blockHash?: string): Promise<number> => {
         const query = blockHash ? (await api.at(blockHash)).query : api.query;
@@ -60,24 +66,36 @@ describeIf(process.env.SKIP_ON_PURPOSE === undefined, 'Unregister attestor with 
         for (let attempt = 0; attempt < 3; attempt++) {
             const stash = randomTestAccount();
             const attestor = randomTestAccount();
+            const unlockingTotal = CHUNK.muln(maxChunks);
+
+            const funding = await sudoInBlock(
+                api,
+                root,
+                api.tx.balances.forceSetBalance(stash.address, parseAmount('1000').toString()),
+            );
+            expect(dispatchErrorName(api, funding.innerError)).toBeNull();
+            await mintAttestCoin(api, root, stash.address, MIN_BOND.add(unlockingTotal));
 
             const setup = await sudoInBlock(
                 api,
                 root,
                 api.tx.utility.batchAll([
-                    api.tx.balances.forceSetBalance(stash.address, parseAmount('1000').toString()),
                     asStash(stash, api.tx.attestation.registerAttestor(chainKey, attestor.address)),
+                    // Back the synthetic unlocking chunks with real assets in the bond pool.
+                    asStash(stash, api.tx.attestation.bondExtra(unlockingTotal.toString())),
                 ]),
             );
             expect(dispatchErrorName(api, setup.innerError)).toBeNull();
             expect(dispatchedAsError(setup.events)).toBeNull();
 
-            const bond = (await ledgerOf(stash)).active.toBn();
+            const bonded = await ledgerOf(stash);
+            const bond = bonded.active.toBn().sub(unlockingTotal);
+            expect(bond.eq(MIN_BOND)).toBe(true);
             const era = await currentEra();
             const unlocking = chunkEras(era).map((chunkEra) => ({ value: CHUNK, era: chunkEra }));
             const seeded = api.createType('PalletAttestationLedgerAttestorLedger', {
                 stash: stash.address,
-                totalStaked: bond.add(CHUNK.muln(unlocking.length)),
+                totalStaked: bonded.totalStaked,
                 active: bond,
                 unlocking,
             });
@@ -131,6 +149,7 @@ describeIf(process.env.SKIP_ON_PURPOSE === undefined, 'Unregister attestor with 
             }
         }
         expect(chainKey).toBeDefined();
+        await setMinBondRequirement(api, root, chainKey, MIN_BOND);
     }, 60_000);
 
     afterAll(async () => {

@@ -1,5 +1,10 @@
 #![cfg_attr(not(feature = "std"), no_std)]
 
+pub mod commit_observer;
+mod extensions;
+
+pub use commit_observer::{CommittedAttestationObserver, NoopCommittedAttestationObserver};
+pub use extensions::PrevalidateAttestationCommit;
 pub use migrations::{MigrateAttestationContinuityProofV0ToV1, MigrateAttestorsCountV1ToV2};
 pub use pallet::*;
 
@@ -21,12 +26,10 @@ mod benchmarking;
 mod asset;
 pub mod clear_or_revert;
 mod continuity;
-pub mod extensions;
 mod impls;
 mod ledger;
+pub use ledger::AttestorLedger;
 pub mod migrations;
-
-pub use extensions::PrevalidateAttestationCommit;
 
 #[frame_support::pallet]
 pub mod pallet {
@@ -45,7 +48,7 @@ pub mod pallet {
             PostDispatchInfo, WeighData,
         },
         pallet_prelude::{OptionQuery, ValueQuery, *},
-        traits::{ConstU32, Currency, LockableCurrency, OnUnbalanced},
+        traits::{tokens::fungibles, ConstU32, Currency, OnUnbalanced},
         Blake2_128Concat, Twox64Concat,
     };
     use frame_system::pallet_prelude::*;
@@ -58,9 +61,9 @@ pub mod pallet {
     // Amount of blocks tracked in a single checkpoint bucket
     pub const CHECKPOINT_BUCKET_SIZE: u64 = 1000;
 
-    /// The balance type of this pallet.
+    /// The balance type of this pallet (native and bond asset use the same width).
     pub type BalanceOf<T> = <T as Config>::CurrencyBalance;
-    pub type PositiveImbalanceOf<T> = <<T as Config>::Currency as Currency<
+    pub type PositiveImbalanceOf<T> = <<T as Config>::NativeCurrency as Currency<
         <T as frame_system::Config>::AccountId,
     >>::PositiveImbalance;
 
@@ -96,13 +99,16 @@ pub mod pallet {
         #[allow(deprecated)]
         type RuntimeEvent: From<Event<Self>> + IsType<<Self as frame_system::Config>::RuntimeEvent>;
         type WeightInfo: WeightInfo;
-        // TODO: when updating polkadot-sdk we should use `InspectLockableCurrency`
-        type Currency: LockableCurrency<
-            Self::AccountId,
-            Moment = BlockNumberFor<Self>,
-            Balance = Self::CurrencyBalance,
-        >;
-        /// Just the `Currency::Balance` type; we have this item to allow us to constrain it to
+        /// Native currency (e.g. CTC) for small operational transfers (e.g. stash → attestor key).
+        type NativeCurrency: Currency<Self::AccountId, Balance = Self::CurrencyBalance>;
+        /// Fungible used for attestor bond (e.g. Attest Coin on `pallet-assets`).
+        type BondFungibles: fungibles::Inspect<Self::AccountId, AssetId = u32, Balance = Self::CurrencyBalance>
+            + fungibles::Mutate<Self::AccountId, AssetId = u32, Balance = Self::CurrencyBalance>;
+        #[pallet::constant]
+        type BondAssetId: Get<u32>;
+        /// Shared account that holds bonded attest coin for all stashes.
+        type BondPoolAccount: Get<Self::AccountId>;
+        /// Just the balance type; we have this item to allow us to constrain it to
         /// `From<u128>`.
         type CurrencyBalance: sp_runtime::traits::AtLeast32BitUnsigned
             + FullCodec
@@ -215,11 +221,14 @@ pub mod pallet {
         type DefaultAttestationChainGenesisBlockNumber: Get<u64>;
         /// Origin that can perform Operator-only calls
         type OperatorsOrigin: EnsureOrigin<Self::RuntimeOrigin>;
+
+        /// Called after a successful [`Pallet::commit_attestation`] with eligible signers.
+        type CommittedAttestationHook: crate::CommittedAttestationObserver<Self::AccountId>;
     }
 
     pub trait WeightInfo {
         fn register_attestor() -> Weight;
-        fn unregister_attestor() -> Weight;
+        fn unregister_attestor(n: u32) -> Weight;
         fn set_max_attestors() -> Weight;
         fn register_invulnerable() -> Weight;
         fn unregister_invulnerable() -> Weight;
@@ -233,13 +242,13 @@ pub mod pallet {
         fn set_min_bond_requirement() -> Weight;
         fn chill() -> Weight;
         fn attest() -> Weight;
-        fn withdraw_unbonded() -> Weight;
+        fn withdraw_unbonded(n: u32) -> Weight;
         fn import_checkpoints() -> Weight;
         fn set_attestation_chain_genesis_block_number() -> Weight;
         fn set_election_policy() -> Weight;
         fn authorize_attestor() -> Weight;
         fn remove_authorized_attestor() -> Weight;
-        fn kick_active_attestor() -> Weight;
+        fn kick_active_attestor(n: u32) -> Weight;
         /// `a` = attestors registered on the chain (every one is visited; `Waiting`/`Leaving`
         /// ones are rewritten).
         fn force_election(a: u32) -> Weight;
@@ -247,6 +256,8 @@ pub mod pallet {
         fn force_apply_updates() -> Weight;
         fn revert_to() -> Weight;
         fn forward_patch_checkpoints() -> Weight;
+        fn bond_extra() -> Weight;
+        fn unbond_surplus(n: u32) -> Weight;
     }
 
     #[pallet::storage]
@@ -358,6 +369,11 @@ pub mod pallet {
     pub fn MaxInvulernablesDefault<T: Config>() -> u32 {
         T::MaxAttestationNodes::get()
     }
+
+    /// Supported-chain count assumed when pricing [`Pallet::required_bond_for_stash`], which walks
+    /// `Attestors` once per supported chain. This assumption can be changed at any time as the
+    /// protocol adds more supported chains. Only a benchmark rerun would be needed.
+    pub const ASSUMED_MAX_SUPPORTED_CHAINS: u32 = 8;
 
     #[pallet::storage]
     #[pallet::getter(fn attestations)]
@@ -793,7 +809,7 @@ pub mod pallet {
             checkpoint_height: u64,
             checkpoint_digest: Digest,
         },
-        /// Operator forward-patched checkpoints (overwrite / optional suffix wipe).
+        /// A forward checkpoint patch was applied for chain recovery.
         ForwardCheckpointPatchApplied {
             chain_key: ChainKey,
             wiped_suffix: bool,
@@ -848,6 +864,8 @@ pub mod pallet {
         InvalidAttestorAccount,
         // Insufficient balance to bond
         InsufficientBalance,
+        /// Moving bond into or out of the pool failed (asset transfer).
+        BondAssetTransferFailed,
         // Not a stash account
         NotStash,
         // No more unlock chunks
@@ -970,6 +988,12 @@ pub mod pallet {
         /// Tried to set per-chain `MaxInvulnerables` to zero or above the runtime-level
         /// `MaxAttestationNodes` ceiling. Mirrors [`Error::InvalidMaxAttestors`].
         InvalidMaxInvulnerables,
+        /// Reducing this stash's active bond would leave its remaining still-registered
+        /// attestors collectively undercollateralized relative to the current per-chain
+        /// `MinBondRequirement`. Can occur after an operator raises `MinBondRequirement`
+        /// for a chain that the stash still backs with one or more attestors.
+        // Appended to preserve existing SCALE error indices.
+        InsufficientRemainingBond,
     }
 
     #[pallet::hooks]
@@ -1186,7 +1210,9 @@ pub mod pallet {
         }
 
         #[pallet::call_index(3)]
-        #[pallet::weight(<T as Config>::WeightInfo::unregister_attestor())]
+        // `n` = the unbond path consults `required_bond_for_stash`, whose `Attestors` scan
+        // scales with the registry — hence the `n` component, charged at its worst case here.
+        #[pallet::weight(<T as Config>::WeightInfo::unregister_attestor(T::MaxAttestationNodes::get().saturating_mul(ASSUMED_MAX_SUPPORTED_CHAINS)))]
         pub fn unregister_attestor(
             origin: OriginFor<T>,
             chain_key: ChainKey,
@@ -1427,7 +1453,9 @@ pub mod pallet {
         }
 
         #[pallet::call_index(16)]
-        #[pallet::weight(<T as Config>::WeightInfo::withdraw_unbonded())]
+        // `n` = the reap guard walks `Attestors` via `stash_backs_any_attestor` so a stash that still
+        // backs an attestor is never killed; the component prices that walk at its worst case.
+        #[pallet::weight(<T as Config>::WeightInfo::withdraw_unbonded(T::MaxAttestationNodes::get().saturating_mul(ASSUMED_MAX_SUPPORTED_CHAINS)))]
         pub fn withdraw_unbonded(origin: OriginFor<T>) -> DispatchResult {
             let who = ensure_signed(origin)?;
 
@@ -1553,7 +1581,13 @@ pub mod pallet {
         }
 
         #[pallet::call_index(24)]
-        #[pallet::weight(<T as Config>::WeightInfo::kick_active_attestor())]
+        // `unregister: true` runs the full `remove_attestor_and_emit_event` unbond path,
+        // including the `required_bond_for_stash` scan. Charged at the same
+        // `MaxAttestationNodes * ASSUMED_MAX_SUPPORTED_CHAINS` bound as `unregister_attestor`.
+        // `unregister: false` skips the scan, so that variant is over-charged — deliberately,
+        // to keep this in line with the other bond-scan dispatchables rather than introducing a
+        // post-dispatch refund on an operator-only call.
+        #[pallet::weight(<T as Config>::WeightInfo::kick_active_attestor(T::MaxAttestationNodes::get().saturating_mul(ASSUMED_MAX_SUPPORTED_CHAINS)))]
         pub fn kick_active_attestor(
             origin: OriginFor<T>,
             chain_key: ChainKey,
@@ -1699,15 +1733,11 @@ pub mod pallet {
 
         /// Overwrite or insert checkpoints and optionally drop every checkpoint above the batch tip.
         ///
-        /// Clears **[`Attestations`]**, **[`CheckpointingQueues`]**, **[`AttestationRemovalQueues`]**, and
-        /// **[`LastDigest`]** for this `chain_key` first so stale attestations cannot contradict the patched
-        /// ladder (see [`crate::pallet::Pallet::purge_attestations_for_forward_patch`]).
-        ///
-        /// Does **not** unregister attestors or alter bonding ledger entries — attestors resume committing
-        /// attestations after recovery.
+        /// Clears [`Attestations`], [`CheckpointingQueues`], [`AttestationRemovalQueues`], and
+        /// [`LastDigest`] for this `chain_key` first so stale attestations cannot contradict the patched ladder.
         ///
         /// When `wipe_suffix` is true, every checkpoint strictly above the batch tip is removed in this
-        /// dispatch (bounded by [`crate::impls::MAX_CHECKPOINT_SUFFIX_WIPE_TOTAL`]).
+        /// dispatch (bounded by internal forward-patch safety limits).
         #[pallet::call_index(29)]
         #[pallet::weight(<T as Config>::WeightInfo::forward_patch_checkpoints())]
         pub fn forward_patch_checkpoints(
@@ -1721,6 +1751,51 @@ pub mod pallet {
             Self::do_forward_patch_checkpoints(chain_key, wipe_suffix, checkpoints)?;
 
             Ok(())
+        }
+
+        /// Top up the caller's attestor bond by `amount` attest coin, without registering a new
+        /// attestor.
+        ///
+        /// Required to escape the following trap: `MinBondRequirement` is read at its *current*
+        /// value by the aggregate solvency guard in `unregister_attestor`, so raising a chain's
+        /// requirement after registration can leave a stash whose `active` no longer covers its
+        /// still-registered attestors. Before this call the only way to add collateral was to
+        /// register *another* attestor, which raises the aggregate requirement by at least as much
+        /// as it adds — so a multi-attestor stash could neither top up nor unregister, and its
+        /// pooled bond was locked permanently.
+        ///
+        /// Fails with `NotStash` if the caller has no ledger (nothing to top up — a stash with no
+        /// registered attestor exits via `withdraw_unbonded`) and with `InsufficientBalance` if the
+        /// caller's liquid attest-coin balance is below `amount`.
+        #[pallet::call_index(31)]
+        #[pallet::weight(<T as Config>::WeightInfo::bond_extra())]
+        pub fn bond_extra(origin: OriginFor<T>, amount: BalanceOf<T>) -> DispatchResult {
+            let stash = ensure_signed(origin)?;
+
+            Self::do_bond_extra(&stash, amount)
+        }
+
+        /// Release bond above the caller's aggregate collateral requirement into an unlocking
+        /// chunk, withdrawable with `withdraw_unbonded` after `BondingDuration`.
+        ///
+        /// Inverse of [`Self::bond_extra`], and the only way to recover surplus `active` bond:
+        /// `unregister_attestor` releases at most the *current* `MinBondRequirement` per attestor,
+        /// and `withdraw_unbonded` only reaps a stash once `active` is under the existential
+        /// deposit. Without this call, an overshot `bond_extra`, a `MinBondRequirement` *decrease*,
+        /// or a top-up made while no attestor is registered would each strand the remainder in the
+        /// bond pool permanently.
+        ///
+        /// `amount` is capped at the caller's `active` bond, and the resulting `active` may not
+        /// fall below the sum of `MinBondRequirement` across the stash's still-registered
+        /// attestors (`InsufficientRemainingBond` otherwise). With no attestors registered that
+        /// sum is zero, so the full remaining bond can be released and the stash reaped.
+        #[pallet::call_index(32)]
+        // `n` = same `required_bond_for_stash` scan as the two paths above, priced via `n`.
+        #[pallet::weight(<T as Config>::WeightInfo::unbond_surplus(T::MaxAttestationNodes::get().saturating_mul(ASSUMED_MAX_SUPPORTED_CHAINS)))]
+        pub fn unbond_surplus(origin: OriginFor<T>, amount: BalanceOf<T>) -> DispatchResult {
+            let stash = ensure_signed(origin)?;
+
+            Self::do_unbond_surplus(&stash, amount)
         }
     }
 
@@ -1955,8 +2030,9 @@ pub mod pallet {
             } else {
                 2
             };
-            // The benchmark created `proof_len / 100` checkpoints.
-            let benchmark_checkpoints = proof_len / 100;
+            // Only checkpoints within the measured span are included in the benchmark's
+            // fixed DB writes, even when its execution-time slope is extrapolated further.
+            let benchmark_checkpoints = proof_len.min(COMMIT_BENCHMARK_MAX_SPAN as u64) / 100;
             let extra = estimated_checkpoints.saturating_sub(benchmark_checkpoints);
             weight.saturating_add(T::DbWeight::get().writes(extra.saturating_mul(4)))
         }
@@ -1970,17 +2046,24 @@ pub mod pallet {
         /// Commit weight for an attestation with `own` continuity-proof roots and `m`
         /// attestors, plus `extra` roots walked in queued proofs and the marginal cost of a
         /// checkpointing queue of `q` entries. Each queued entry is read, decoded and removed.
-        /// The own proof is charged through `commit_attestation`, whose `s` slope covers
-        /// everything a commit does per root of its own proof. That benchmark only samples the
-        /// catch-up path (`s` from 200), so its intercept is an extrapolation that moves between
-        /// runs; the own proof is charged at no less than the top of the sampled range, which
-        /// never falls below a measured point. Only a proof past it (a `MaxCatchup` raised above
-        /// the default) is charged along the slope. The extra roots are only walked, so each is
-        /// charged through `continuity_roots` alone and no root is counted twice.
+        /// Charge at least the top of `commit_attestation`'s sampled range: its intercept is
+        /// extrapolated below that range and varies between runs. Beyond it, a noisy fit can
+        /// drop the `s` slope entirely. Keep a floor from `continuity_roots` for those additional
+        /// roots, twice because the own proof is hashed during validation and again when
+        /// building checkpoint digests. That benchmark includes hashing and map insertion, so
+        /// it conservatively covers each pass. Take the larger of this floor and the generated
+        /// commit weight; do not add both estimates. Queued roots are expanded only once.
         pub(crate) fn weight_for(own: u32, extra: u32, m: u32, q: u32) -> Weight {
             let marginal = |f: fn(u32) -> Weight, n: u32| f(n).saturating_sub(f(0));
-            let own = own.max(COMMIT_BENCHMARK_MAX_SPAN);
-            <T as Config>::WeightInfo::commit_attestation(own, m)
+            let overflow = own.saturating_sub(COMMIT_BENCHMARK_MAX_SPAN);
+            let own_floor =
+                <T as Config>::WeightInfo::commit_attestation(COMMIT_BENCHMARK_MAX_SPAN, m)
+                    .saturating_add(
+                        marginal(<T as Config>::WeightInfo::continuity_roots, overflow)
+                            .saturating_mul(2),
+                    );
+            <T as Config>::WeightInfo::commit_attestation(own.max(COMMIT_BENCHMARK_MAX_SPAN), m)
+                .max(own_floor)
                 .saturating_add(marginal(<T as Config>::WeightInfo::continuity_roots, extra))
                 .saturating_add(marginal(
                     <T as Config>::WeightInfo::commit_attestation_queued,
