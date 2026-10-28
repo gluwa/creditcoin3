@@ -79,15 +79,29 @@ async fn probe_eth(url: &RpcSecret) -> Result<(), String> {
 }
 
 /// Register a BLS key with the runtime if our status is `Idle`.
+///
+/// `register_attestor` is signed by the stash, not by us, so our attestor record may not exist
+/// yet at startup; waits until it does. Returns [`Error::ShutdownDuringStartup`] if cancellation
+/// fires while we wait.
 pub async fn register_bls(
+    token: &CancellationToken,
     chain_key: ChainKey,
     cc3: &Arc<Client>,
     account_id: &AccountId32,
     bls_key: &bls_signatures::PrivateKey,
 ) -> Result<(), Error> {
-    let status = cc3.get_attestor_status(chain_key).await?;
-    if status != Some(AttestorStatus::Idle) {
-        tracing::info!(?status, %account_id, "ℹ️ skipping attest() — already registered");
+    let status = loop {
+        if let Some(status) = cc3.get_attestor_status(chain_key).await? {
+            break status;
+        }
+        tracing::info!(%account_id, "⏲️ not registered on-chain yet — waiting for register_attestor to finalize");
+        tokio::select! {
+            _ = token.cancelled() => return Err(Error::ShutdownDuringStartup),
+            _ = tokio::time::sleep(std::time::Duration::from_secs(5)) => {}
+        }
+    };
+    if status != AttestorStatus::Idle {
+        tracing::info!(?status, %account_id, "ℹ️ skipping attest() — BLS key already submitted");
         return Ok(());
     }
 
