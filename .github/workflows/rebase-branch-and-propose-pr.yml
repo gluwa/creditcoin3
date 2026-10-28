@@ -117,4 +117,4 @@ jobs:
           webhook-url: ${{ secrets.SLACK_WEBHOOK_URL }}
           status: ${{ job.status }}
           channel: "#protocol-internal"
-          message: "${{ env.LAST_REF }} -> ${{ env.TARGET_BRANCH }}: ${{ steps.open-pr.outputs.pull_number && format('https://github.com/{0}/pull/{1}! Check for results in ~2hrs', github.repository, steps.open-pr.outputs.pull_number) || format('no PR opened, see https://github.com/{0}/actions/runs/{1}', github.repository, github.run_id) }}; cc <@U028EMRHS3S>"
+          message: "${{ env.LAST_REF }} -> ${{ env.TARGET_BRANCH }}: ${{ steps.open-pr.outputs.pull_number && format('{0}/{1}/pull/{2}! Check for results in ~2hrs', github.server_url, github.repository, steps.open-pr.outputs.pull_number) || format('no PR opened, see {0}/{1}/actions/runs/{2}', github.server_url, github.repository, github.run_id) }}; cc <@U028EMRHS3S>"
