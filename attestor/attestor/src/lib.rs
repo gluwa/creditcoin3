@@ -226,7 +226,14 @@ impl Attestor {
 
         // ----------------------------------* register + eligibility *------------------------- //
 
-        startup::register_bls(chain_key, &cc3, &account_id, &bls_key).await?;
+        match startup::register_bls(&token, chain_key, &cc3, &account_id, &bls_key).await {
+            Ok(()) => {}
+            Err(Error::ShutdownDuringStartup) => {
+                tracing::info!("🔌 shutdown during startup (registration wait)");
+                return Ok(());
+            }
+            Err(e) => return Err(e),
+        }
         let attestors = match startup::wait_for_eligible(&token, chain_key, &cc3, &account_id).await
         {
             Ok(a) => a,
