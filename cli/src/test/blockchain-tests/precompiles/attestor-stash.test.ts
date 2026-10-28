@@ -35,6 +35,9 @@ describe('Precompile: AttestorStash', (): void => {
     // PoV-heavy calls need an explicit gas limit; auto-estimate under-counts the
     // proof-size component (5 KB @ ratio 14.3 → ~72 K PoV gas alone).
     const GAS_LIMIT = 20_000_000;
+    // Unregister reserves a scan of up to MaxAttestationNodes * 8 entries. Its declared
+    // proof exceeds 2 MiB (about 30M PoV gas), even for this suite's single attestor.
+    const UNREGISTER_GAS_LIMIT = 40_000_000;
 
     // Build fee overrides for a state-changing tx. We use EIP-1559 fields rather
     // than a pinned legacy `gasPrice`: pallet-base-fee lets the block base fee
@@ -43,12 +46,12 @@ describe('Precompile: AttestorStash', (): void => {
     // so `tx.wait()` hangs until the jest timeout. `maxFeePerGas` is a ceiling
     // (not the price paid), so the tx stays includable across base-fee drift while
     // still only being charged base fee + tip. Fetched fresh at call time.
-    const feeOverrides = async () => {
+    const feeOverrides = async (gasLimit = GAS_LIMIT) => {
         const fee = await provider.getFeeData();
         return {
             maxFeePerGas: fee.maxFeePerGas ?? fee.gasPrice * 2n,
             maxPriorityFeePerGas: fee.maxPriorityFeePerGas ?? 1_000_000_000n,
-            gasLimit: GAS_LIMIT,
+            gasLimit,
         };
     };
 
@@ -250,7 +253,7 @@ describe('Precompile: AttestorStash', (): void => {
     // -----------------------------------------------------------------------------
 
     test('unregisterAttestor succeeds, removes Attestors storage entry, and emits AttestorUnregistered', async () => {
-        const tx = await contract.unregisterAttestor(chainKey, attestorId, await feeOverrides());
+        const tx = await contract.unregisterAttestor(chainKey, attestorId, await feeOverrides(UNREGISTER_GAS_LIMIT));
         const receipt = await tx.wait();
         expect(receipt.status).toBe(1);
 

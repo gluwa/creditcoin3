@@ -244,6 +244,22 @@ describe('Precompile: attest-coin rewards (accrued / claim)', (): void => {
     let vaultAddressCc3: string;
     let vaultCc3: ethers.Contract;
 
+    // These failure cases need stable accrued points. Alice keeps earning from the live
+    // attestor network, so comparing her balance across mined setup transactions races accrual.
+    const isolatedClaimStash = async (): Promise<KeyringPair> => {
+        const stash = new Keyring({ type: 'sr25519' }).addFromMnemonic(mnemonicGenerate());
+        const points = parseEther('10');
+        const key = api.query.attestCoinRewards.accrued.key(stash.address);
+        await dispatchRootCall(
+            api,
+            root,
+            api.tx.system.setStorage([[key, u8aToHex(api.createType('u128', points.toString()).toU8a())]]),
+        );
+        expect((await api.query.attestCoinRewards.accrued(stash.address)).toString()).toEqual(points.toString());
+        await forElapsedBlocks(api, { minBlocks: 1 });
+        return stash;
+    };
+
     beforeAll(async () => {
         await cryptoWaitReady();
         creditcoinWs = (global as any).CREDITCOIN_API_URL as string;
@@ -625,13 +641,16 @@ describe('Precompile: attest-coin rewards (accrued / claim)', (): void => {
     }, 180_000);
 
     test('claim rejects max nonce replay without mutating state', async () => {
+        const claimStash = await isolatedClaimStash();
         const precompile = new ethers.Contract(ATTEST_COIN_PRECOMPILE, precompileAbi, evmWalletCc3);
         const token = new ethers.Contract(tokenAddressCc3, tokenArtifact.abi, creditcoinEvm);
-        const stashU8 = decodeAddress(alice.address);
+        const stashU8 = decodeAddress(claimStash.address);
         const b32 = zeroPadValue(hexlify(stashU8), 32);
         const previousNonce = BigInt(
             (
-                (await (api.query as any).attestCoinRewards.claimNonce(alice.address)) as { toString: () => string }
+                (await (api.query as any).attestCoinRewards.claimNonce(claimStash.address)) as {
+                    toString: () => string;
+                }
             ).toString(),
         );
         const accruedBefore = await precompile.accrued(b32);
@@ -645,10 +664,10 @@ describe('Precompile: attest-coin rewards (accrued / claim)', (): void => {
             1n,
             ethers.getBytes(evmWalletCc3.address),
         );
-        const sig = alice.sign(msg);
+        const sig = claimStash.sign(msg);
 
         try {
-            await setClaimNonce(api, root, alice.address, maxNonce);
+            await setClaimNonce(api, root, claimStash.address, maxNonce);
 
             await expect(
                 precompile.claim.staticCall(
@@ -665,7 +684,7 @@ describe('Precompile: attest-coin rewards (accrued / claim)', (): void => {
             expect(await precompile.accrued(b32)).toEqual(accruedBefore);
             expect(await token.balanceOf(evmWalletCc3.address)).toEqual(balanceBefore);
         } finally {
-            await setClaimNonce(api, root, alice.address, previousNonce);
+            await setClaimNonce(api, root, claimStash.address, previousNonce);
         }
     }, 120_000);
 
@@ -674,15 +693,14 @@ describe('Precompile: attest-coin rewards (accrued / claim)', (): void => {
      * a funding shortfall, and leave both the vault's funds and the attestor's accrued points intact.
      */
     test('claim reverts as paused when the vault revokes the allowance', async () => {
+        const claimStash = await isolatedClaimStash();
         const precompile = new ethers.Contract(ATTEST_COIN_PRECOMPILE, precompileAbi, evmWalletCc3);
         const token = new ethers.Contract(tokenAddressCc3, tokenArtifact.abi, creditcoinEvm);
-        const stashU8 = decodeAddress(alice.address);
+        const stashU8 = decodeAddress(claimStash.address);
         const b32 = zeroPadValue(hexlify(stashU8), 32);
 
         const ptsBefore = await precompile.accrued(b32);
-        if (ptsBefore === 0n) {
-            return;
-        }
+        expect(ptsBefore).toBeGreaterThan(0n);
         const claimAmt = ptsBefore / 2n > 0n ? ptsBefore / 2n : ptsBefore;
         await ensureVaultFunded(tokenCc3, vaultCc3, vaultAddressCc3, claimAmt);
 
@@ -693,7 +711,7 @@ describe('Precompile: attest-coin rewards (accrued / claim)', (): void => {
         try {
             const claimNonceBn = BigInt(
                 (
-                    (await (api.query as any).attestCoinRewards.claimNonce(alice.address)) as {
+                    (await (api.query as any).attestCoinRewards.claimNonce(claimStash.address)) as {
                         toString: () => string;
                     }
                 ).toString(),
@@ -707,7 +725,7 @@ describe('Precompile: attest-coin rewards (accrued / claim)', (): void => {
                 claimAmt,
                 ethers.getBytes(evmWalletCc3.address),
             );
-            const sig = alice.sign(msg);
+            const sig = claimStash.sign(msg);
 
             await expect(
                 precompile.claim.staticCall(
@@ -732,15 +750,14 @@ describe('Precompile: attest-coin rewards (accrued / claim)', (): void => {
 
     /** An approved but empty vault is a different failure from a pause, and must say so. */
     test('claim reverts as underfunded when the vault is empty', async () => {
+        const claimStash = await isolatedClaimStash();
         const precompile = new ethers.Contract(ATTEST_COIN_PRECOMPILE, precompileAbi, evmWalletCc3);
         const token = new ethers.Contract(tokenAddressCc3, tokenArtifact.abi, creditcoinEvm);
-        const stashU8 = decodeAddress(alice.address);
+        const stashU8 = decodeAddress(claimStash.address);
         const b32 = zeroPadValue(hexlify(stashU8), 32);
 
         const ptsBefore = await precompile.accrued(b32);
-        if (ptsBefore === 0n) {
-            return;
-        }
+        expect(ptsBefore).toBeGreaterThan(0n);
         const claimAmt = ptsBefore / 2n > 0n ? ptsBefore / 2n : ptsBefore;
         await ensureVaultFunded(tokenCc3, vaultCc3, vaultAddressCc3, claimAmt);
 
@@ -752,7 +769,7 @@ describe('Precompile: attest-coin rewards (accrued / claim)', (): void => {
         try {
             const claimNonceBn = BigInt(
                 (
-                    (await (api.query as any).attestCoinRewards.claimNonce(alice.address)) as {
+                    (await (api.query as any).attestCoinRewards.claimNonce(claimStash.address)) as {
                         toString: () => string;
                     }
                 ).toString(),
@@ -766,7 +783,7 @@ describe('Precompile: attest-coin rewards (accrued / claim)', (): void => {
                 claimAmt,
                 ethers.getBytes(evmWalletCc3.address),
             );
-            const sig = alice.sign(msg);
+            const sig = claimStash.sign(msg);
 
             await expect(
                 precompile.claim.staticCall(
