@@ -274,6 +274,7 @@ jobs:
               - "Cargo.lock"
               - "**/Cargo.toml"
               - ".github/check-extrinsics.sh"
+              - ".github/network-for-ref.sh"
               - ".github/workflows/ci.yml"
               - ".github/workflows/build-native.yml"
             regenerate_metadata:

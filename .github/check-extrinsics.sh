@@ -22,17 +22,8 @@ runtimes=(
 # belong to another network built from another branch (an asc-devnet tag cut from asc-dev,
 # say) whose runtime carries calls this branch does not have, and every PR then fails on
 # index shifts that are not its own.
-network_for_base_ref() {
-  case "$1" in
-    main) echo "mainnet" ;;
-    usc-testnet) echo "testnet" ;;
-    asc-dev) echo "asc-devnet" ;;
-    *) echo "devnet" ;;
-  esac
-}
-
 OWNER_REPO_SLUG="${OWNER_REPO_SLUG:-gluwa/creditcoin3}"
-network=$(network_for_base_ref "${GITHUB_BASE_REF:-dev}")
+network=$(./.github/network-for-ref.sh "${GITHUB_BASE_REF:-dev}")
 # RELEASE_TAG can be set by the caller to pin the comparison to one release.
 latest_tag="${RELEASE_TAG:-$(GITHUB_REPOSITORY="$OWNER_REPO_SLUG" ./.github/extract-release-tag.sh "$network")}"
 if [ -z "$latest_tag" ]; then

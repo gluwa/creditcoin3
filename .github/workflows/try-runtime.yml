@@ -1,18 +1,47 @@
 ---
 name: Try Runtime
 
+# Checks runtime migrations against a recent snapshot of a live network's state.
+#
+# The snapshots are captured once a day inside each network's cluster, from an archive
+# node, by the try-runtime-snapshot CronJob in cc-networks-iac running
+# .github/try-runtime/capture.sh, and published to Azure Blob Storage. This workflow
+# downloads the latest one instead of scraping state over public RPC, which was slow,
+# rate-limited and could silently drop values.
+#
+# - A pull request that changes the migration surface is tested against the network its
+#   base branch releases to (.github/network-for-ref.sh), with a synthetic version bump.
+# - promote-branch.yml dispatches it with promotion_target before it moves usc-testnet or
+#   main: the exact commit with its own version, plus a baseline check that the snapshot
+#   still matches the live chain. The run name is what the promotion gate looks up.
+# - Anyone can dispatch it with a network to test a branch by hand.
 "on":
   pull_request:
     paths:
       - "**/migrations/**"
       - "**/migrations.rs"
       - "runtime/src/lib.rs"
-  # A run is ~1 h against live state, so a change to this workflow is tested by dispatching it.
+      - "Cargo.lock"
+      - ".github/try-runtime/config.json"
   workflow_dispatch:
+    inputs:
+      network:
+        # checkov:skip=CKV_GHA_7:Only picks which published snapshot to test against
+        description: "Network whose state to test against: devnet, asc-devnet, testnet or mainnet. Implied by promotion_target."
+        type: string
+        default: ""
+      promotion_target:
+        # checkov:skip=CKV_GHA_7:Only picks the network and the stricter rules; the source is still the dispatched ref
+        description: "Check this commit for promotion into usc-testnet or main (set by promote-branch.yml). Empty: an ordinary run."
+        type: string
+        default: ""
+
+run-name: ${{ inputs.promotion_target && format('Try-runtime promotion check into {0}', inputs.promotion_target) || '' }}
 
 concurrency:
-  group: ${{ github.ref }}-${{ github.workflow }}
-  cancel-in-progress: true
+  group: ${{ github.ref }}-${{ github.workflow }}${{ inputs.promotion_target && format('-promotion-{0}', inputs.promotion_target) || '' }}
+  # A promotion check is evidence the gate waits for; never cancel one with a newer push.
+  cancel-in-progress: ${{ !inputs.promotion_target }}
 
 permissions: read-all
 
@@ -26,7 +55,7 @@ jobs:
   # `runtime/src/lib.rs` has to stay in the trigger paths above, because the migration
   # tuples live in it (`SingleBlockMigrations`, `pallet_migrations::Config::Migrations`).
   # But that file also holds the entire rest of the runtime, so triggering on the filename
-  # alone runs this ~1h job for changes that cannot affect migrations at all -- an EVM
+  # alone runs this job for changes that cannot affect migrations at all -- an EVM
   # config constant, a precompile bound, a weight tweak. This gate looks at what actually
   # changed inside the file and only lets the expensive job through when the migration
   # surface moved.
@@ -49,6 +78,8 @@ jobs:
               - "**/migrations.rs"
             runtime_lib:
               - "runtime/src/lib.rs"
+            cargo_lock:
+              - "Cargo.lock"
 
       - name: "Decide whether the migration surface changed"
         id: decide
@@ -63,48 +94,195 @@ jobs:
             exit 0
           fi
 
-          # `runtime/src/lib.rs` changed. Inspect the diff hunks rather than the filename.
-          #
-          # The match is deliberately broad -- case-insensitive `migrat`, plus
-          # `OnRuntimeUpgrade` -- so that `SingleBlockMigrations`, `MultiBlockMigrator`,
-          # `pallet_x::migrations::v2::MigrateToV2` and `LazyMigrationV1ToV2` are all
-          # caught. A false positive only costs a needless run, which is today's status
-          # quo; a false negative would skip validation on a real migration.
-          #
           # The checkout above is `fetch-depth: 0`, so `origin/$base_ref` is already here.
           # Do not re-fetch it with `--depth=1`: that grafts the base branch even in a
           # complete clone, and the three-dot diff then dies with "no merge base" for any
-          # PR whose base has moved ahead. If the diff cannot be taken at all, run the job
+          # PR whose base has moved ahead. If a diff cannot be taken at all, run the job
           # rather than swallow the error -- the whole point of the gate is that a false
           # negative is the one outcome we cannot accept.
-          if [ "${{ github.event_name }}" = "pull_request" ] \
-             && [ "${{ steps.filter.outputs.runtime_lib }}" = "true" ]; then
-            if ! diff_output=$(git diff --unified=0 \
-                 "origin/${{ github.base_ref }}...HEAD" -- runtime/src/lib.rs); then
-              echo "WARN: cannot diff runtime/src/lib.rs against the base -- running to be safe"
-              echo "migrations=true" >> "$GITHUB_OUTPUT"
-              exit 0
+          run_anyway() {
+            echo "WARN: cannot diff $1 against the base -- running to be safe"
+            echo "migrations=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          }
+          changed_lines() { grep -E '^[+-]' | grep -vE '^(\+\+\+|---)' || true; }
+
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            # `runtime/src/lib.rs` changed. Inspect the diff hunks rather than the filename.
+            #
+            # The match is deliberately broad -- case-insensitive `migrat`, plus
+            # `OnRuntimeUpgrade` -- so that `SingleBlockMigrations`, `MultiBlockMigrator`,
+            # `pallet_x::migrations::v2::MigrateToV2` and `LazyMigrationV1ToV2` are all
+            # caught. A false positive only costs a needless run; a false negative would
+            # skip validation on a real migration.
+            if [ "${{ steps.filter.outputs.runtime_lib }}" = "true" ]; then
+              diff_output=$(git diff --unified=0 "origin/${{ github.base_ref }}...HEAD" -- runtime/src/lib.rs) \
+                || run_anyway runtime/src/lib.rs
+              if changed_lines <<<"$diff_output" | grep -qiE 'migrat|OnRuntimeUpgrade'; then
+                echo "INFO: runtime/src/lib.rs changed and the migration surface moved"
+                echo "migrations=true" >> "$GITHUB_OUTPUT"
+                exit 0
+              fi
+              echo "INFO: runtime/src/lib.rs changed, but not the migration surface"
             fi
-            if printf '%s\n' "$diff_output" \
-                 | grep -E '^[+-]' \
-                 | grep -vE '^(\+\+\+|---)' \
-                 | grep -qiE 'migrat|OnRuntimeUpgrade'; then
-              echo "INFO: runtime/src/lib.rs changed and the migration surface moved"
-              echo "migrations=true" >> "$GITHUB_OUTPUT"
-              exit 0
+
+            # A Polkadot SDK or Frontier bump can bring pallet migrations of its own
+            # without touching a file here. Other dependency bumps cannot.
+            if [ "${{ steps.filter.outputs.cargo_lock }}" = "true" ]; then
+              diff_output=$(git diff --unified=0 "origin/${{ github.base_ref }}...HEAD" -- Cargo.lock) \
+                || run_anyway Cargo.lock
+              if changed_lines <<<"$diff_output" | grep -qE 'paritytech/polkadot-sdk|gluwa/frontier'; then
+                echo "INFO: Cargo.lock moved the Polkadot SDK or Frontier"
+                echo "migrations=true" >> "$GITHUB_OUTPUT"
+                exit 0
+              fi
+              echo "INFO: Cargo.lock changed, but not the Polkadot SDK or Frontier"
             fi
-            echo "INFO: runtime/src/lib.rs changed, but not the migration surface -- skipping"
           fi
 
           echo "migrations=false" >> "$GITHUB_OUTPUT"
 
-  try-runtime:
+  # The live-chain baseline compares the storage version of every pallet config.json
+  # lists, so a pallet added to construct_runtime! must be added there too. Cheap, so it
+  # runs whenever the workflow does, including adding a pallet with no migration.
+  pallets:
+    runs-on: ubuntu-26.04
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Check config.json covers every pallet
+        run: .github/try-runtime/check-pallets.sh
+
+  # Which network, and how to build and check against it. Settings live in
+  # .github/try-runtime/config.json, shared with the snapshot capture.
+  select:
     needs: should-run
     # `needs:` alone would skip this job whenever the gate fails, taking the
     # `workflow_dispatch` escape hatch down with it. `!cancelled()` keeps dispatch working
     # regardless of what the gate did.
     if: ${{ !cancelled() && (needs.should-run.outputs.migrations == 'true' || github.event_name == 'workflow_dispatch') }}
     runs-on: ubuntu-26.04
+    outputs:
+      network: ${{ steps.network.outputs.network }}
+      features: ${{ steps.network.outputs.features }}
+      blocktime: ${{ steps.network.outputs.blocktime }}
+      checks: ${{ steps.network.outputs.checks }}
+      cli_repository: ${{ steps.network.outputs.cli_repository }}
+      cli_rev: ${{ steps.network.outputs.cli_rev }}
+      promotion: ${{ steps.network.outputs.promotion }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Select the network
+        id: network
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_REF: ${{ github.base_ref }}
+          INPUT_NETWORK: ${{ inputs.network }}
+          PROMOTION_TARGET: ${{ inputs.promotion_target }}
+        run: |
+          set -euo pipefail
+
+          PROMOTION=false
+          if [ -n "$PROMOTION_TARGET" ]; then
+            case "$PROMOTION_TARGET" in
+              usc-testnet | main) ;;
+              *) echo "FAIL: promotion_target must be empty, usc-testnet or main, not '$PROMOTION_TARGET'"; exit 1 ;;
+            esac
+            PROMOTION=true
+            NETWORK=$(.github/network-for-ref.sh --strict "$PROMOTION_TARGET")
+            if [ -n "$INPUT_NETWORK" ] && [ "$INPUT_NETWORK" != "$NETWORK" ]; then
+              echo "FAIL: promotion into $PROMOTION_TARGET is checked against $NETWORK, not '$INPUT_NETWORK'"
+              exit 1
+            fi
+          elif [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            # No default: a dispatch must say which chain it means.
+            if [ -z "$INPUT_NETWORK" ]; then
+              echo "FAIL: dispatch with a network (devnet, asc-devnet, testnet or mainnet) or a promotion_target"
+              exit 1
+            fi
+            NETWORK="$INPUT_NETWORK"
+          else
+            NETWORK=$(.github/network-for-ref.sh "$BASE_REF")
+          fi
+
+          # Block times are MILLISECS_PER_BLOCK in runtime/src/lib.rs: 15 s in production,
+          # 5 s under the `devnet` feature. Devnet skips try_state: its NominationPools
+          # data fails "No member should have zero points" independently of any change.
+          CONFIG=.github/try-runtime/config.json
+          if ! jq -e --arg n "$NETWORK" '.networks | has($n)' "$CONFIG" >/dev/null; then
+            echo "FAIL: no try-runtime settings for network '$NETWORK' in $CONFIG"
+            exit 1
+          fi
+          setting() { jq -r --arg n "$NETWORK" ".networks[\$n].$1" "$CONFIG"; }
+          FEATURES=$(setting features)
+          BLOCKTIME=$(setting blocktime_ms)
+          CHECKS=$(setting checks)
+
+          echo "INFO: testing against $NETWORK with features $FEATURES, blocktime ${BLOCKTIME} ms, checks $CHECKS (promotion: $PROMOTION)"
+          {
+            echo "network=$NETWORK"
+            echo "features=$FEATURES"
+            echo "blocktime=$BLOCKTIME"
+            echo "checks=$CHECKS"
+            echo "cli_repository=$(jq -r .cli.repository "$CONFIG")"
+            echo "cli_rev=$(jq -r .cli.rev "$CONFIG")"
+            echo "promotion=$PROMOTION"
+          } >> "$GITHUB_OUTPUT"
+
+  # The only job with Azure credentials. It runs no code from the runtime, so a pull
+  # request's build cannot reach the token; the snapshot reaches the next job as an
+  # artifact. Fork pull requests get no OIDC token and stop here as "state unavailable".
+  fetch-snapshot:
+    needs: select
+    runs-on: ubuntu-26.04
+    environment: snapshot
+    permissions:
+      contents: read
+      id-token: write
+    timeout-minutes: 60
+    outputs:
+      spec_version: ${{ steps.fetch.outputs.spec_version }}
+      block_number: ${{ steps.fetch.outputs.block_number }}
+      block_hash: ${{ steps.fetch.outputs.block_hash }}
+      age_minutes: ${{ steps.fetch.outputs.age_minutes }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install azure-cli
+        run: |
+          command -v az >/dev/null || sudo .github/install-azure-cli.sh
+
+      - name: Azure Login with OIDC
+        uses: azure/login@v3
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Fetch the latest ${{ needs.select.outputs.network }} snapshot
+        id: fetch
+        env:
+          NETWORK: ${{ needs.select.outputs.network }}
+        run: |
+          .github/try-runtime/fetch-snapshot.sh "$NETWORK" snapshot
+          ls -l snapshot
+
+      - name: Hand the snapshot to the test job
+        uses: actions/upload-artifact@v7
+        with:
+          name: try-runtime-snapshot
+          path: snapshot/
+          # Already zstd-compressed.
+          compression-level: 0
+          retention-days: 1
+
+  try-runtime:
+    needs: [select, fetch-snapshot]
+    runs-on: ubuntu-26.04
+    timeout-minutes: 120
+    outputs:
+      result: ${{ steps.result.outputs.result }}
     steps:
       - uses: actions/checkout@v7
 
@@ -145,33 +323,186 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
         with:
-          # Restores the warmer's dependencies. This workflow runs on PRs only and builds other
-          # features, so it never saves: nothing would read a PR-scoped entry, and the warmer's
-          # key is for its own build.
+          # Restores the warmer's dependencies. This workflow builds other features, so it
+          # never saves: nothing would read a PR-scoped entry, and the warmer's key is for
+          # its own build.
           shared-key: build-creditcoin-node-${{ steps.runner-family.outputs.id }}
           save-if: false
 
-      - name: Bump version to force try-runtime to attempt to apply migrations
-        id: bump-version
+      # A pull request is tested as an upgrade from what the network runs now, so its
+      # spec_version must step over the snapshot's, which dev may not have reached yet.
+      # A promotion is tested exactly as it will ship: no bump, and its version must
+      # already be above the network's.
+      - name: Set the candidate's version
+        id: version
+        env:
+          PROMOTION: ${{ needs.select.outputs.promotion }}
+          ON_CHAIN_SPEC: ${{ needs.fetch-snapshot.outputs.spec_version }}
         run: |
-          .github/bump-version.sh
-
-          git status
-          git diff
+          set -euo pipefail
+          CANDIDATE_SPEC=$(grep spec_version: runtime/src/version.rs | cut -f2 -d: | tr -d " ,")
+          if [ "$PROMOTION" = "true" ]; then
+            if [ "$CANDIDATE_SPEC" -le "$ON_CHAIN_SPEC" ]; then
+              echo "FAIL: spec_version $CANDIDATE_SPEC is not above the network's $ON_CHAIN_SPEC, so the upgrade would not apply"
+              exit 1
+            fi
+            echo "INFO: promotion candidate spec_version $CANDIDATE_SPEC upgrades the network's $ON_CHAIN_SPEC"
+          else
+            .github/bump-version.sh "0.$ON_CHAIN_SPEC.0"
+            git diff --stat
+          fi
 
       - name: Build runtime with try-runtime
+        id: build
+        env:
+          FEATURES: ${{ needs.select.outputs.features }}
         run: |
-          cargo build --release -p creditcoin3-runtime --features try-runtime
+          cargo build --release -p creditcoin3-runtime --features "$FEATURES"
 
+      # Compiled once per pinned revision and cached; a pull request restores dev's entry.
+      - name: Restore try-runtime-cli
+        id: cli-cache
+        uses: actions/cache@v6
+        with:
+          path: ~/.cargo/bin/try-runtime
+          key: try-runtime-cli-${{ needs.select.outputs.cli_rev }}-${{ runner.os }}-${{ runner.arch }}
+
+      # Pinned in .github/try-runtime/config.json so a run is reproducible and an upstream
+      # change cannot alter the verdict without a commit here. The snapshots are written by
+      # the same revision.
       - name: Install try-runtime-cli
+        if: steps.cli-cache.outputs.cache-hit != 'true'
+        env:
+          CLI_REPOSITORY: ${{ needs.select.outputs.cli_repository }}
+          CLI_REV: ${{ needs.select.outputs.cli_rev }}
         run: |
-          cargo install --git https://github.com/paritytech/try-runtime-cli --locked
+          cargo install --git "$CLI_REPOSITORY" --rev "$CLI_REV" --locked try-runtime-cli
 
-      - name: Run try-runtime on-runtime-upgrade
-        timeout-minutes: 30
+      - name: Download the snapshot
+        uses: actions/download-artifact@v8
+        with:
+          name: try-runtime-snapshot
+          path: snapshot
+
+      - name: Unpack the snapshot
         run: |
-          try-runtime \
-            --runtime ./target/release/wbuild/creditcoin3-runtime/creditcoin3_runtime.wasm \
-            on-runtime-upgrade \
-            --blocktime 15000 \
-            live --uri wss://rpc.cc3-devnet.creditcoin.network
+          .github/try-runtime/unpack-snapshot.sh snapshot
+
+      - name: Check the snapshot still matches the live chain
+        id: baseline
+        if: needs.select.outputs.promotion == 'true'
+        env:
+          NETWORK: ${{ needs.select.outputs.network }}
+        run: |
+          .github/try-runtime/check-baseline.sh snapshot/manifest.json "$NETWORK"
+
+      # Two passes, one with multi-block migration checks off; run.sh says why.
+      # try-runtime-selftest.yml proves the same script catches broken migrations.
+      - name: Run try-runtime on-runtime-upgrade
+        id: run
+        timeout-minutes: 60
+        env:
+          BLOCKTIME: ${{ needs.select.outputs.blocktime }}
+          CHECKS: ${{ needs.select.outputs.checks }}
+        run: |
+          .github/try-runtime/run.sh \
+            ./target/release/wbuild/creditcoin3-runtime/creditcoin3_runtime.wasm \
+            snapshot/state.snap "$CHECKS" "$BLOCKTIME" try-runtime.log
+
+      # A pallet that has existed since genesis being reported as new means its storage was
+      # missing, so the migrations ran against a chain that is not the real one.
+      - name: Reject a run against incomplete state
+        id: complete
+        run: |
+          set -euo pipefail
+          if grep -qE 'New pallet "(System|Balances|Timestamp|Babe|Session|Staking)" detected' try-runtime.log; then
+            echo "FAIL: a pallet that exists on chain was reported as new, so its storage was not in the snapshot"
+            exit 1
+          fi
+          echo "INFO: no sign of incomplete state in the log"
+
+      # What this pass was checked against. check-promotion-try-runtime.sh compares it with
+      # the live chain whenever it reuses this run, so evidence from before a later runtime
+      # upgrade cannot authorise a promotion or release.
+      - name: Keep the snapshot manifest as evidence
+        if: steps.complete.outcome == 'success'
+        uses: actions/upload-artifact@v7
+        with:
+          name: try-runtime-evidence
+          path: snapshot/manifest.json
+          # release.yml accepts a promotion check up to a week old.
+          retention-days: 14
+
+      - name: Classify the result
+        id: result
+        if: always()
+        env:
+          NETWORK: ${{ needs.select.outputs.network }}
+          BLOCK: ${{ needs.fetch-snapshot.outputs.block_number }}
+          AGE: ${{ needs.fetch-snapshot.outputs.age_minutes }}
+          VERSION: ${{ steps.version.outcome }}
+          BUILD: ${{ steps.build.outcome }}
+          BASELINE: ${{ steps.baseline.outcome }}
+          RUN: ${{ steps.run.outcome }}
+          COMPLETE: ${{ steps.complete.outcome }}
+        run: |
+          if [ "$VERSION" = "failure" ] || [ "$BUILD" = "failure" ]; then
+            RESULT="build failed"
+          elif [ "$BASELINE" = "failure" ]; then
+            RESULT="state unavailable: the snapshot no longer matches the live chain"
+          elif [ "$RUN" = "failure" ] || [ "$COMPLETE" = "failure" ]; then
+            RESULT="migration failed"
+          elif [ "$RUN" = "success" ] && [ "$COMPLETE" = "success" ]; then
+            RESULT="validated"
+          else
+            RESULT="incomplete"
+          fi
+          echo "result=$RESULT" >> "$GITHUB_OUTPUT"
+          {
+            echo "### Try-runtime against $NETWORK: $RESULT"
+            echo
+            echo "Snapshot of block #${BLOCK:-?}, ${AGE:-?} min old when fetched."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload the try-runtime log
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: try-runtime-${{ needs.select.outputs.network }}-log
+          path: try-runtime.log
+          if-no-files-found: ignore
+
+  # One line saying why, whichever job stopped. An unavailable snapshot is an
+  # infrastructure problem, not a migration problem, but it is never a pass.
+  report:
+    needs: [should-run, select, fetch-snapshot, try-runtime]
+    if: always()
+    runs-on: ubuntu-26.04
+    steps:
+      - name: Report
+        env:
+          SELECT: ${{ needs.select.result }}
+          FETCH: ${{ needs.fetch-snapshot.result }}
+          TEST: ${{ needs.try-runtime.result }}
+          TEST_RESULT: ${{ needs.try-runtime.outputs.result }}
+          NETWORK: ${{ needs.select.outputs.network }}
+        run: |
+          if [ "$SELECT" = "skipped" ]; then
+            echo "INFO: not required: this change does not touch the migration surface"
+            exit 0
+          fi
+          if [ "$SELECT" != "success" ]; then
+            echo "FAIL: could not decide which network to test against"
+            exit 1
+          fi
+          if [ "$FETCH" != "success" ]; then
+            echo "FAIL: state unavailable: no usable $NETWORK snapshot (see the fetch-snapshot job)"
+            echo "### Try-runtime against $NETWORK: state unavailable" >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
+          if [ "$TEST" = "success" ]; then
+            echo "PASS: $TEST_RESULT against $NETWORK"
+            exit 0
+          fi
+          echo "FAIL: ${TEST_RESULT:-$TEST} against $NETWORK"
+          exit 1
