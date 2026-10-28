@@ -202,6 +202,14 @@ async function precompileTxOverrides(provider: WebSocketProvider, gasLimit: numb
     return { gasLimit, maxFeePerGas, maxPriorityFeePerGas };
 }
 
+/** Check a mined revert so state assertions exercise rollback, rather than eth_call's sandbox. */
+async function expectMinedRevert(tx: ethers.ContractTransactionResponse): Promise<void> {
+    await expect(tx.wait()).rejects.toThrow();
+    const receipt = await tx.provider.getTransactionReceipt(tx.hash);
+    expect(receipt?.status).toBe(0);
+    expect(receipt!.gasUsed).toBeLessThan(tx.gasLimit);
+}
+
 /** Non-sufficient pallet-assets accounts need a native-balance provider on the beneficiary. */
 async function ensureNativeProvider(api: ApiPromise, root: KeyringPair, accountId: Uint8Array | string): Promise<void> {
     const nativeTopUp = new BN('1000000000000000000000000');
@@ -246,17 +254,21 @@ describe('Precompile: attest-coin rewards (accrued / claim)', (): void => {
 
     // Claim cases need stable accrued points. Alice keeps earning from the live
     // attestor network, so comparing her balance across mined setup transactions races accrual.
-    const isolatedClaimStash = async (): Promise<KeyringPair> => {
-        const stash = new Keyring({ type: 'sr25519' }).addFromMnemonic(mnemonicGenerate());
+    const seedAccrued = async (stash: string | Uint8Array): Promise<void> => {
         const points = parseEther('10');
-        const key = api.query.attestCoinRewards.accrued.key(stash.address);
+        const key = api.query.attestCoinRewards.accrued.key(stash);
         await dispatchRootCall(
             api,
             root,
             api.tx.system.setStorage([[key, u8aToHex(api.createType('u128', points.toString()).toU8a())]]),
         );
-        expect((await api.query.attestCoinRewards.accrued(stash.address)).toString()).toEqual(points.toString());
+        expect((await api.query.attestCoinRewards.accrued(stash)).toString()).toEqual(points.toString());
         await forElapsedBlocks(api, { minBlocks: 1 });
+    };
+
+    const isolatedClaimStash = async (): Promise<KeyringPair> => {
+        const stash = new Keyring({ type: 'sr25519' }).addFromMnemonic(mnemonicGenerate());
+        await seedAccrued(stash.address);
         return stash;
     };
 
@@ -414,6 +426,64 @@ describe('Precompile: attest-coin rewards (accrued / claim)', (): void => {
         );
     }, 120_000);
 
+    test('EVM-mapped stash claims its own rewards; another caller and replay are rejected', async () => {
+        const wallet = ethers.Wallet.createRandom().connect(creditcoinEvm);
+        const stash = evmAddressToSubstrateAccountId(wallet.address);
+        await ensureNativeProvider(api, root, stash);
+        await seedAccrued(stash);
+
+        const precompile = new ethers.Contract(ATTEST_COIN_PRECOMPILE, precompileAbi, wallet);
+        const otherCaller = new ethers.Contract(ATTEST_COIN_PRECOMPILE, precompileAbi, evmWalletCc3);
+        const amount = parseEther('5');
+        await ensureVaultFunded(tokenCc3, vaultCc3, vaultAddressCc3, amount);
+
+        const nonce = BigInt((await api.query.attestCoinRewards.claimNonce(stash)).toString());
+        const recipientBefore: bigint = await tokenCc3.balanceOf(wallet.address);
+        const otherBefore: bigint = await tokenCc3.balanceOf(evmWalletCc3.address);
+        const vaultBefore: bigint = await tokenCc3.balanceOf(vaultAddressCc3);
+        const bridgeBefore: bigint = await tokenCc3.balanceOf(ATTEST_COIN_PRECOMPILE);
+        // A mapped stash has no sr25519 signing key: its EVM transaction authorizes the claim.
+        const claimArgs = (recipient: string) =>
+            [
+                accountIdToBytes32(stash),
+                nonce,
+                chain_Anvil1_Key,
+                amount,
+                recipient,
+                ethers.ZeroHash,
+                ethers.ZeroHash,
+            ] as const;
+
+        await expectMinedRevert(
+            await otherCaller.claim(
+                ...claimArgs(evmWalletCc3.address),
+                await precompileTxOverrides(creditcoinEvm, CLAIM_PRECOMPILE_GAS),
+            ),
+        );
+        expect((await api.query.attestCoinRewards.accrued(stash)).toString()).toEqual(parseEther('10').toString());
+        expect((await api.query.attestCoinRewards.claimNonce(stash)).toString()).toEqual(nonce.toString());
+        expect(await tokenCc3.balanceOf(evmWalletCc3.address)).toEqual(otherBefore);
+
+        const tx = await precompile.claim(
+            ...claimArgs(wallet.address),
+            await precompileTxOverrides(creditcoinEvm, CLAIM_PRECOMPILE_GAS),
+        );
+        expect((await tx.wait())?.status).toBe(1);
+
+        // Keep enough accrual for another claim so a replay must fail on the consumed nonce.
+        await expectMinedRevert(
+            await precompile.claim(
+                ...claimArgs(wallet.address),
+                await precompileTxOverrides(creditcoinEvm, CLAIM_PRECOMPILE_GAS),
+            ),
+        );
+        expect(await precompile.accrued(accountIdToBytes32(stash))).toEqual(parseEther('5'));
+        expect((await api.query.attestCoinRewards.claimNonce(stash)).toString()).toEqual((nonce + 1n).toString());
+        expect(await tokenCc3.balanceOf(wallet.address)).toEqual(recipientBefore + amount);
+        expect(await tokenCc3.balanceOf(vaultAddressCc3)).toEqual(vaultBefore - amount);
+        expect(await tokenCc3.balanceOf(ATTEST_COIN_PRECOMPILE)).toEqual(bridgeBefore);
+    }, 180_000);
+
     test('deposit bridges ERC-20 into pallet-assets (mint to target creditcoin native account)', async () => {
         const precompile = new ethers.Contract(ATTEST_COIN_PRECOMPILE, precompileAbi, evmWalletCc3);
         const token = new ethers.Contract(tokenAddressCc3, tokenArtifact.abi, evmWalletCc3);
@@ -456,6 +526,8 @@ describe('Precompile: attest-coin rewards (accrued / claim)', (): void => {
 
         const acctBefore = await (api.query as any).assets.account(ATTEST_COIN_ASSET_ID, mapped);
         const palletBalBefore = acctBefore.isSome ? BigInt(acctBefore.unwrap().balance.toString()) : 0n;
+        const erc20BeforeDeposit: bigint = await token.balanceOf(evmWalletCc3.address);
+        const treasuryBeforeDeposit: bigint = await token.balanceOf(ATTEST_COIN_PRECOMPILE);
 
         await (
             await precompile.deposit(amount, await precompileTxOverrides(creditcoinEvm, DEPOSIT_PRECOMPILE_GAS))
@@ -466,11 +538,9 @@ describe('Precompile: attest-coin rewards (accrued / claim)', (): void => {
         const palletBalAfterDeposit = BigInt(acctAfterDeposit.unwrap().balance.toString());
         expect(palletBalAfterDeposit - palletBalBefore).toEqual(amount);
 
-        // Ensure the precompile treasury can cover the withdraw `transfer`.
-        const treasuryBal: bigint = await token.balanceOf(ATTEST_COIN_PRECOMPILE);
-        if (treasuryBal < amount) {
-            await (await token.mint(ATTEST_COIN_PRECOMPILE, amount - treasuryBal)).wait();
-        }
+        // The deposit itself must supply the withdrawal backing; no treasury top-up can mask it.
+        expect(await token.balanceOf(evmWalletCc3.address)).toEqual(erc20BeforeDeposit - amount);
+        expect(await token.balanceOf(ATTEST_COIN_PRECOMPILE)).toEqual(treasuryBeforeDeposit + amount);
 
         const erc20Before: bigint = await token.balanceOf(evmWalletCc3.address);
 
@@ -491,6 +561,8 @@ describe('Precompile: attest-coin rewards (accrued / claim)', (): void => {
         // ERC-20 balance increased by exactly `amount`.
         const erc20After: bigint = await token.balanceOf(evmWalletCc3.address);
         expect(erc20After - erc20Before).toEqual(amount);
+        expect(erc20After).toEqual(erc20BeforeDeposit);
+        expect(await token.balanceOf(ATTEST_COIN_PRECOMPILE)).toEqual(treasuryBeforeDeposit);
     }, 180_000);
 
     test('withdraw reverts with zero amount', async () => {
@@ -849,10 +921,7 @@ describe('Precompile: attest-coin rewards (accrued / claim)', (): void => {
                 amount,
                 await precompileTxOverrides(creditcoinEvm, WITHDRAW_PRECOMPILE_GAS),
             );
-            await expect(tx.wait()).rejects.toThrow();
-            const receipt = await creditcoinEvm.getTransactionReceipt(tx.hash);
-            expect(receipt?.status).toBe(0);
-            expect(receipt!.gasUsed).toBeLessThan(BigInt(WITHDRAW_PRECOMPILE_GAS));
+            await expectMinedRevert(tx);
 
             expect(await token.balanceOf(evmWalletCc3.address)).toEqual(erc20Before);
             expect(await token.balanceOf(ATTEST_COIN_PRECOMPILE)).toEqual(treasuryBefore);
