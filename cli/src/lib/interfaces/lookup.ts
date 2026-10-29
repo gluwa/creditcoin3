@@ -2971,13 +2971,15 @@ export default {
                 wipeSuffix: 'bool',
                 checkpoints: 'Vec<AttestorPrimitivesAttestationCheckpoint>',
             },
+            force_election: {
+                chainKey: 'u64',
+            },
+            __Unused31: 'Null',
+            __Unused32: 'Null',
             set_attestor_evm_address: {
                 chainKey: 'u64',
                 evmAddress: 'H160',
                 proof: '[u8;65]',
-            },
-            force_election: {
-                chainKey: 'u64',
             },
         },
     },
