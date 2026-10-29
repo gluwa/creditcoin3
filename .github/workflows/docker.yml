@@ -65,10 +65,25 @@ jobs:
             echo "build=false" >> "$GITHUB_OUTPUT"
           fi
 
+  # Opt-in PR checks exercise the same artifact-packaging path as releases, including
+  # the byte-for-byte and executable checks in build-docker.yml. Other events retain
+  # the source build, so both Dockerfile paths continue to be exercised.
+  build-native-for-docker:
+    needs: gate
+    if: ${{ needs.gate.outputs.build == 'true' && github.event_name == 'pull_request' }}
+    uses: ./.github/workflows/build-native.yml
+    with:
+      build-options: "--release --features metadata-hash"
+      git-lfs-checkout: true
+      version-string: docker-test
+      cache-key-name: build-release
+      runs-on: "['ubuntu-26.04']"
+
   docker-build:
     needs:
       - gate
-    if: ${{ needs.gate.outputs.build == 'true' }}
+      - build-native-for-docker
+    if: ${{ !cancelled() && needs.gate.outputs.build == 'true' && (github.event_name != 'pull_request' || needs.build-native-for-docker.result == 'success') }}
     uses: ./.github/workflows/build-docker.yml
     # DO-2336/DO-2338: explicit named pass-through, NOT `secrets: inherit` — this job
     # deliberately has no DOCKER_PUSH_USERNAME/PASSWORD (only release.yml, tag-triggered,
@@ -81,7 +96,8 @@ jobs:
       DOCKERHUB_SCOUT_USERNAME: ${{ secrets.DOCKERHUB_SCOUT_USERNAME }}
       DOCKERHUB_SCOUT_TOKEN: ${{ secrets.DOCKERHUB_SCOUT_TOKEN }}
     with:
-      build-options: "BUILD_ARGS="
+      build-options: ${{ github.event_name == 'pull_request' && 'BUILD_ARGS=--features metadata-hash' || 'BUILD_ARGS=' }}
+      native-binaries-artifact: ${{ github.event_name == 'pull_request' && 'binary-for-docker-test' || '' }}
       version-string: "latest"
       runs-on: "['ubuntu-26.04']"
       build-node-image: true

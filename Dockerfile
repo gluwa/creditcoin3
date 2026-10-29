@@ -1,4 +1,5 @@
 # hadolint global ignore=DL3008,DL3009,DL3013,DL3016,SC3046,DL4006,SC1091,SC2086
+ARG BINARY_SOURCE=rust-builder
 FROM ubuntu:26.04@sha256:f144425ff09be612d6d9ad965196e9cdc23dae1f42110a8a11a3e9a8198759f7 AS runtime-base
 ENV DEBIAN_FRONTEND=noninteractive
 ARG TARGETARCH
@@ -61,6 +62,16 @@ RUN source ~/.cargo/env && \
     cargo build --release ${BUILD_ARGS}
 
 
+# Releases supply this named context from the native build in the same workflow run.
+# Artifact downloads do not preserve executable permissions.
+FROM scratch AS prebuilt-binaries
+# hadolint ignore=DL3022
+COPY --chmod=0755 --from=release-artifacts / /creditcoin-node/target/release/
+COPY chainspecs /creditcoin-node/chainspecs
+
+FROM ${BINARY_SOURCE} AS binaries
+
+
 FROM devel-base AS cli-builder
 WORKDIR /creditcoin-node/precompiles/metadata
 
@@ -78,14 +89,14 @@ EXPOSE 9944 9933 9615
 ENTRYPOINT [ "/bin/creditcoin3-node" ]
 
 COPY --from=cli-builder  --chown=creditcoin:creditcoin /creditcoin-node/cli/creditcoin-v*.tgz /creditcoin-node/
-COPY --from=rust-builder --chown=creditcoin:creditcoin /creditcoin-node/target/release/creditcoin3-node /bin/creditcoin3-node
-COPY --from=rust-builder --chown=creditcoin:creditcoin /creditcoin-node/chainspecs /
+COPY --from=binaries --chown=creditcoin:creditcoin /creditcoin-node/target/release/creditcoin3-node /bin/creditcoin3-node
+COPY --from=binaries --chown=creditcoin:creditcoin /creditcoin-node/chainspecs /
 
-COPY --from=rust-builder --chown=creditcoin:creditcoin /creditcoin-node/target/release/attestor /bin/attestor
-COPY --from=rust-builder --chown=creditcoin:creditcoin /creditcoin-node/target/release/attestor_zombienet /bin/attestor_zombienet
-COPY --from=rust-builder --chown=creditcoin:creditcoin /creditcoin-node/target/release/proof-gen-api-server /bin/proof-gen-api-server
-COPY --from=rust-builder --chown=creditcoin:creditcoin /creditcoin-node/target/release/archiver /bin/archiver
-COPY --from=rust-builder --chown=creditcoin:creditcoin /creditcoin-node/target/release/query-cli /bin/query-cli
+COPY --from=binaries --chown=creditcoin:creditcoin /creditcoin-node/target/release/attestor /bin/attestor
+COPY --from=binaries --chown=creditcoin:creditcoin /creditcoin-node/target/release/attestor_zombienet /bin/attestor_zombienet
+COPY --from=binaries --chown=creditcoin:creditcoin /creditcoin-node/target/release/proof-gen-api-server /bin/proof-gen-api-server
+COPY --from=binaries --chown=creditcoin:creditcoin /creditcoin-node/target/release/archiver /bin/archiver
+COPY --from=binaries --chown=creditcoin:creditcoin /creditcoin-node/target/release/query-cli /bin/query-cli
 
 USER 0
 RUN npm install -g /creditcoin-node/creditcoin-v*.tgz

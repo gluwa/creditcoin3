@@ -16,6 +16,11 @@ name: Reusable workflow to build WASM runtime
       build-subwasm:
         required: false
         type: boolean
+      warm-cache-only:
+        description: Populate missing default-branch caches without uploading release artifacts
+        required: false
+        type: boolean
+        default: false
 
 permissions: read-all
 
@@ -33,26 +38,63 @@ jobs:
 
       - name: Configure rustc version
         run: |
-          RUSTC_VERSION=$(grep channel rust-toolchain.toml | tail -n1 | tr -d " " | cut -f2 -d'"')
-          echo "RUSTC_VERSION=$RUSTC_VERSION" >> "$GITHUB_ENV"
+          # srtool-actions writes its own RUSTC_VERSION; retain our pin separately.
+          SRTOOL_RUST_VERSION=$(grep channel rust-toolchain.toml | tail -n1 | tr -d " " | cut -f2 -d'"')
+          HOST_ABI=$(sha256sum /etc/os-release | cut -c1-12)
+          {
+            echo "SRTOOL_RUST_VERSION=$SRTOOL_RUST_VERSION"
+            echo "SUBWASM_CACHE_KEY=subwasm-0.21.3-${RUNNER_OS}-${RUNNER_ARCH}-${SRTOOL_RUST_VERSION}-${HOST_ABI}"
+          } >> "$GITHUB_ENV"
+
+      - name: Resolve srtool image and cache key
+        id: srtool-key
+        env:
+          BUILD_OPTIONS: ${{ inputs.build-options }}
+          SOURCES: ${{ hashFiles('**/Cargo.toml', 'Cargo.lock', 'rust-toolchain.toml') }}
+          BUILD_ENV: ${{ hashFiles('.github/workflows/build-wasm.yml') }}
+        run: |
+          IMAGE="paritytech/srtool:$SRTOOL_RUST_VERSION"
+          docker pull "$IMAGE"
+          DIGEST=$(docker image inspect --format '{{index .RepoDigests 0}}' "$IMAGE")
+          DIGEST="${DIGEST#*@}"
+          OPTS=$(printf '%s' "$BUILD_OPTIONS" | sha256sum | cut -c1-12)
+          PREFIX="srtool-v1-${RUNNER_OS}-${RUNNER_ARCH}-${DIGEST#sha256:}-${OPTS}-${BUILD_ENV}-"
+          # Pin this invocation to the image used to key the cache, even if its tag moves.
+          {
+            echo "prefix=$PREFIX"
+            echo "key=${PREFIX}${SOURCES}"
+            echo "tag=${SRTOOL_RUST_VERSION}@${DIGEST}"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Restore srtool build dependencies
+        id: srtool-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: runtime/target/srtool
+          key: ${{ steps.srtool-key.outputs.key }}
+          restore-keys: ${{ steps.srtool-key.outputs.prefix }}
 
       - name: Workaround for paritytech/srtool uid/gid mismatch
+        if: ${{ !inputs.warm-cache-only || steps.srtool-cache.outputs.cache-hit != 'true' }}
         run: |
           sudo chown -R 1001:1001 ${{ github.workspace }}
 
       - name: Build WASM runtime
         id: srtool_build
+        # Release builds always invoke srtool, including after a full cache hit.
+        if: ${{ !inputs.warm-cache-only || steps.srtool-cache.outputs.cache-hit != 'true' }}
         uses: chevdor/srtool-actions@v0.8.0
         with:
           chain: "creditcoin"
           runtime_dir: runtime
           package: creditcoin3-runtime
           workdir: ${{ github.workspace }}
-          tag: ${{ env.RUSTC_VERSION }}
+          tag: ${{ steps.srtool-key.outputs.tag }}
         env:
           BUILD_OPTS: "${{ inputs.build-options }}"
 
       - name: DEBUG
+        if: ${{ !inputs.warm-cache-only || steps.srtool-cache.outputs.cache-hit != 'true' }}
         run: |
           # revert workaround for paritytech/srtool uid/gid mismatch
           sudo chown -R "$USER:$USER" ${{ github.workspace }}
@@ -61,26 +103,50 @@ jobs:
           cat creditcoin-srtool-digest.json
           echo "Runtime location: ${{ steps.srtool_build.outputs.wasm_compressed }}"
 
+      # Tag-scoped entries cannot warm the next release and would evict shared caches.
+      - name: Save srtool build dependencies
+        if: ${{ github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && steps.srtool-cache.outputs.cache-hit != 'true' }}
+        uses: actions/cache/save@v4
+        with:
+          path: runtime/target/srtool
+          key: ${{ steps.srtool-key.outputs.key }}
+
       - name: Rename file
+        if: ${{ !inputs.warm-cache-only }}
         run: |
           mv ${{ steps.srtool_build.outputs.wasm_compressed }} creditcoin-${{ inputs.version-string }}-runtime.wasm
 
       - name: Upload binary
+        if: ${{ !inputs.warm-cache-only }}
         uses: actions/upload-artifact@v7
         with:
           name: binary-for-wasm
           path: "*.wasm"
           if-no-files-found: error
 
-      - name: Install subwasm
+      - name: Restore subwasm binary
+        id: subwasm-cache
         if: ${{ inputs.build-subwasm }}
-        uses: gluwa/cargo@dev
+        uses: actions/cache/restore@v4
         with:
-          command: install
-          args: --locked --git https://github.com/chevdor/subwasm --tag v0.21.3
+          path: ~/.cargo/bin/subwasm
+          key: ${{ env.SUBWASM_CACHE_KEY }}
+
+      - name: Install subwasm
+        if: ${{ inputs.build-subwasm && steps.subwasm-cache.outputs.cache-hit != 'true' }}
+        run: |
+          rustup toolchain install "$SRTOOL_RUST_VERSION" --profile minimal
+          rustup run "$SRTOOL_RUST_VERSION" cargo install --locked --git https://github.com/chevdor/subwasm --tag v0.21.3
+
+      - name: Save subwasm binary
+        if: ${{ inputs.build-subwasm && steps.subwasm-cache.outputs.cache-hit != 'true' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
+        uses: actions/cache/save@v4
+        with:
+          path: ~/.cargo/bin/subwasm
+          key: ${{ env.SUBWASM_CACHE_KEY }}
 
       - name: Upload subwasm binary
-        if: ${{ inputs.build-subwasm }}
+        if: ${{ inputs.build-subwasm && !inputs.warm-cache-only }}
         uses: actions/upload-artifact@v7
         with:
           name: subwasm
