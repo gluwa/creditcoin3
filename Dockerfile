@@ -71,24 +71,36 @@ WORKDIR /creditcoin-node/cli
 RUN yarn install && yarn build && yarn pack
 
 
-FROM runtime-base
+FROM runtime-base AS packaged-base
 EXPOSE 30333/tcp
 EXPOSE 30333/udp
 EXPOSE 9944 9933 9615
 ENTRYPOINT [ "/bin/creditcoin3-node" ]
 
 COPY --from=cli-builder  --chown=creditcoin:creditcoin /creditcoin-node/cli/creditcoin-v*.tgz /creditcoin-node/
-COPY --from=rust-builder --chown=creditcoin:creditcoin /creditcoin-node/target/release/creditcoin3-node /bin/creditcoin3-node
-COPY --from=rust-builder --chown=creditcoin:creditcoin /creditcoin-node/chainspecs /
-
-COPY --from=rust-builder --chown=creditcoin:creditcoin /creditcoin-node/target/release/attestor /bin/attestor
-COPY --from=rust-builder --chown=creditcoin:creditcoin /creditcoin-node/target/release/attestor_zombienet /bin/attestor_zombienet
-COPY --from=rust-builder --chown=creditcoin:creditcoin /creditcoin-node/target/release/proof-gen-api-server /bin/proof-gen-api-server
-COPY --from=rust-builder --chown=creditcoin:creditcoin /creditcoin-node/target/release/archiver /bin/archiver
-COPY --from=rust-builder --chown=creditcoin:creditcoin /creditcoin-node/target/release/query-cli /bin/query-cli
+COPY --chown=creditcoin:creditcoin chainspecs /
 
 USER 0
 RUN npm install -g /creditcoin-node/creditcoin-v*.tgz
 
 USER creditcoin
 RUN mkdir /creditcoin-node/data
+
+
+# Releases supply this named context from the native build in the same workflow run.
+# Artifact downloads do not preserve executable permissions.
+FROM packaged-base AS prebuilt-image
+# hadolint ignore=DL3022
+COPY --chmod=0755 --chown=creditcoin:creditcoin --from=release-artifacts \
+    /creditcoin3-node /attestor /attestor_zombienet /proof-gen-api-server /archiver /query-cli /bin/
+
+
+# Keep source compilation as the default for standalone/nightly Docker builds.
+FROM packaged-base AS final
+COPY --chown=creditcoin:creditcoin --from=rust-builder \
+    /creditcoin-node/target/release/creditcoin3-node \
+    /creditcoin-node/target/release/attestor \
+    /creditcoin-node/target/release/attestor_zombienet \
+    /creditcoin-node/target/release/proof-gen-api-server \
+    /creditcoin-node/target/release/archiver \
+    /creditcoin-node/target/release/query-cli /bin/

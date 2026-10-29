@@ -20,6 +20,12 @@ name: Reusable workflow to build docker image
         required: false
         type: boolean
         default: true
+      # Optional: download native binaries from this workflow run and package them without
+      # invoking Rust. The caller must depend on the job producing this exact artifact.
+      native-binaries-artifact:
+        required: false
+        type: string
+        default: ""
     secrets:
       GLUWA_BOT_PR:
         description: gluwa-bot PAT (pull-requests:write only) so Docker Scout can post PR comments — GITHUB_TOKEN's own permissions couldn't be elevated (see DO-2338)
@@ -53,10 +59,19 @@ jobs:
     runs-on: ${{ fromJSON(inputs.runs-on) }}
     # A cold build on a hosted runner is the slow case; well above it, far below the 6 h default.
     timeout-minutes: 120
+    env:
+      IMAGE_BINARIES: "creditcoin3-node attestor attestor_zombienet proof-gen-api-server archiver query-cli"
     steps:
       - uses: actions/checkout@v7
         with:
           lfs: true
+
+      - name: Download native binaries from this run
+        if: ${{ inputs.build-node-image && inputs.native-binaries-artifact != '' }}
+        uses: actions/download-artifact@v8
+        with:
+          name: ${{ inputs.native-binaries-artifact }}
+          path: ${{ runner.temp }}/release-binaries
 
       - name: Start resource monitor
         run: |
@@ -64,9 +79,36 @@ jobs:
 
       - name: Build ${{ github.repository }} docker image
         if: ${{ inputs.build-node-image }}
+        env:
+          BUILD_OPTIONS: ${{ inputs.build-options }}
+          NATIVE_ARTIFACT: ${{ inputs.native-binaries-artifact }}
+          NATIVE_DIR: ${{ runner.temp }}/release-binaries
+          IMAGE: ${{ github.repository }}:${{ inputs.version-string }}
         run: |
-          docker build -t ${{ github.repository }}:${{ inputs.version-string }} --build-arg="${{ inputs.build-options }}" --sbom=true --provenance=mode=max .
+          args=()
+          if [ -n "$NATIVE_ARTIFACT" ]; then
+            for binary in $IMAGE_BINARIES; do
+              test -s "$NATIVE_DIR/$binary" || { echo "Missing native binary: $binary" >&2; exit 1; }
+            done
+            args+=(--target prebuilt-image --build-context "release-artifacts=$NATIVE_DIR")
+          fi
+          docker build -t "$IMAGE" --build-arg="$BUILD_OPTIONS" "${args[@]}" --sbom=true --provenance=mode=max .
           docker images
+
+      - name: Check packaged native binaries
+        if: ${{ inputs.build-node-image && inputs.native-binaries-artifact != '' }}
+        env:
+          NATIVE_DIR: ${{ runner.temp }}/release-binaries
+          IMAGE: ${{ github.repository }}:${{ inputs.version-string }}
+        run: |
+          # Verify byte-for-byte identity with the release downloads, then catch missing
+          # execute bits or incompatible runtime libraries before publishing the image.
+          read -ra binaries <<< "$IMAGE_BINARIES"
+          (cd "$NATIVE_DIR" && sha256sum "${binaries[@]}") > "$RUNNER_TEMP/release-binaries.sha256"
+          docker run --rm -i --entrypoint /bin/bash "$IMAGE" -c 'cd /bin && sha256sum -c -' < "$RUNNER_TEMP/release-binaries.sha256"
+          for binary in "${binaries[@]}"; do
+            docker run --rm --entrypoint "/bin/$binary" "$IMAGE" --help > /dev/null
+          done
 
       - name: Build ${{ github.repository }}:indexer-for-${{ inputs.version-string }} docker image
         run: |

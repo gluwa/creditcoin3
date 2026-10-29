@@ -30,6 +30,7 @@ name: cache-warm
       - "**/Cargo.lock"
       - "rust-toolchain.toml"
       - ".github/workflows/build-native.yml"
+      - ".github/workflows/build-wasm.yml"
       - ".github/workflows/cache-warm.yml"
       - ".github/workflows/deploy-runner.yml"
   # Hosted runners mix the image's preinstalled Rust into the cache key, so an image bump
@@ -81,6 +82,17 @@ jobs:
       build-subxt: true
     secrets: inherit
 
+  # A cache saved under a release tag cannot be restored by the next release. Produce
+  # srtool/subwasm caches here; an exact hit skips the runtime build on later warm runs.
+  warm-build-wasm:
+    uses: ./.github/workflows/build-wasm.yml
+    with:
+      build-options: "--features metadata-hash"
+      version-string: cache-warm-wasm
+      runs-on: "['ubuntu-26.04']"
+      build-subwasm: true
+      warm-cache-only: true
+
   # build-native.yml keys runner families separately (see "Identify runner family"), and
   # benchmarks and runtime-upgrade still build on Linode. This
   # leg keeps their self-hosted family warm. It costs one VM per manifest change or daily
@@ -123,6 +135,7 @@ jobs:
     needs:
       - warm-build-creditcoin-node
       - warm-build-release
+      - warm-build-wasm
       - deploy-runner
       - warm-build-creditcoin-node-linode
     if: ${{ failure() }}
@@ -141,6 +154,7 @@ jobs:
             will compile from cold until this is green again.
             warm-build (hosted): ${{ needs.warm-build-creditcoin-node.result }} |
             warm-build (release): ${{ needs.warm-build-release.result }} |
+            warm-build (srtool): ${{ needs.warm-build-wasm.result }} |
             deploy-runner: ${{ needs.deploy-runner.result }} |
             warm-build (Linode): ${{ needs.warm-build-creditcoin-node-linode.result }}
             Once the cause is fixed, re-run to repopulate the cache:
