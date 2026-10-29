@@ -1,5 +1,4 @@
 # hadolint global ignore=DL3008,DL3009,DL3013,DL3016,SC3046,DL4006,SC1091,SC2086
-ARG BINARY_SOURCE=rust-builder
 FROM ubuntu:26.04@sha256:f144425ff09be612d6d9ad965196e9cdc23dae1f42110a8a11a3e9a8198759f7 AS runtime-base
 ENV DEBIAN_FRONTEND=noninteractive
 ARG TARGETARCH
@@ -62,16 +61,6 @@ RUN source ~/.cargo/env && \
     cargo build --release ${BUILD_ARGS}
 
 
-# Releases supply this named context from the native build in the same workflow run.
-# Artifact downloads do not preserve executable permissions.
-FROM scratch AS prebuilt-binaries
-# hadolint ignore=DL3022
-COPY --chmod=0755 --from=release-artifacts / /creditcoin-node/target/release/
-COPY chainspecs /creditcoin-node/chainspecs
-
-FROM ${BINARY_SOURCE} AS binaries
-
-
 FROM devel-base AS cli-builder
 WORKDIR /creditcoin-node/precompiles/metadata
 
@@ -82,24 +71,36 @@ WORKDIR /creditcoin-node/cli
 RUN yarn install && yarn build && yarn pack
 
 
-FROM runtime-base
+FROM runtime-base AS packaged-base
 EXPOSE 30333/tcp
 EXPOSE 30333/udp
 EXPOSE 9944 9933 9615
 ENTRYPOINT [ "/bin/creditcoin3-node" ]
 
 COPY --from=cli-builder  --chown=creditcoin:creditcoin /creditcoin-node/cli/creditcoin-v*.tgz /creditcoin-node/
-COPY --from=binaries --chown=creditcoin:creditcoin /creditcoin-node/target/release/creditcoin3-node /bin/creditcoin3-node
-COPY --from=binaries --chown=creditcoin:creditcoin /creditcoin-node/chainspecs /
-
-COPY --from=binaries --chown=creditcoin:creditcoin /creditcoin-node/target/release/attestor /bin/attestor
-COPY --from=binaries --chown=creditcoin:creditcoin /creditcoin-node/target/release/attestor_zombienet /bin/attestor_zombienet
-COPY --from=binaries --chown=creditcoin:creditcoin /creditcoin-node/target/release/proof-gen-api-server /bin/proof-gen-api-server
-COPY --from=binaries --chown=creditcoin:creditcoin /creditcoin-node/target/release/archiver /bin/archiver
-COPY --from=binaries --chown=creditcoin:creditcoin /creditcoin-node/target/release/query-cli /bin/query-cli
+COPY --chown=creditcoin:creditcoin chainspecs /
 
 USER 0
 RUN npm install -g /creditcoin-node/creditcoin-v*.tgz
 
 USER creditcoin
 RUN mkdir /creditcoin-node/data
+
+
+# Releases supply this named context from the native build in the same workflow run.
+# Artifact downloads do not preserve executable permissions.
+FROM packaged-base AS prebuilt-image
+# hadolint ignore=DL3022
+COPY --chmod=0755 --chown=creditcoin:creditcoin --from=release-artifacts \
+    /creditcoin3-node /attestor /attestor_zombienet /proof-gen-api-server /archiver /query-cli /bin/
+
+
+# Keep source compilation as the default for standalone/nightly Docker builds.
+FROM packaged-base AS final
+COPY --chown=creditcoin:creditcoin --from=rust-builder \
+    /creditcoin-node/target/release/creditcoin3-node \
+    /creditcoin-node/target/release/attestor \
+    /creditcoin-node/target/release/attestor_zombienet \
+    /creditcoin-node/target/release/proof-gen-api-server \
+    /creditcoin-node/target/release/archiver \
+    /creditcoin-node/target/release/query-cli /bin/

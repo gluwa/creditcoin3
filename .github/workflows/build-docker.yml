@@ -90,7 +90,7 @@ jobs:
             for binary in $IMAGE_BINARIES; do
               test -s "$NATIVE_DIR/$binary" || { echo "Missing native binary: $binary" >&2; exit 1; }
             done
-            args+=(--build-arg BINARY_SOURCE=prebuilt-binaries --build-context "release-artifacts=$NATIVE_DIR")
+            args+=(--target prebuilt-image --build-context "release-artifacts=$NATIVE_DIR")
           fi
           docker build -t "$IMAGE" --build-arg="$BUILD_OPTIONS" "${args[@]}" --sbom=true --provenance=mode=max .
           docker images
