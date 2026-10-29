@@ -1629,7 +1629,7 @@ pub mod pallet {
         /// retired, and `AttestorsElected` is emitted if the resulting set differs from the
         /// current one. Other chains are untouched. The election is labelled with the current
         /// epoch index.
-        #[pallet::call_index(31)]
+        #[pallet::call_index(30)]
         #[pallet::weight(<T as Config>::WeightInfo::force_election(AttestorsCount::<T>::get(chain_key)))]
         pub fn force_election(origin: OriginFor<T>, chain_key: ChainKey) -> DispatchResult {
             T::OperatorsOrigin::ensure_origin(origin)?;
@@ -1781,7 +1781,7 @@ pub mod pallet {
         /// under another identity or chain). Rejected if another attestor on this chain already
         /// holds `evm_address` (mirrors BLS-key uniqueness). The registered address is what the
         /// destination `EOAValidator` attestor set is built from.
-        #[pallet::call_index(30)]
+        #[pallet::call_index(33)]
         #[pallet::weight(<T as Config>::WeightInfo::set_attestor_evm_address())]
         pub fn set_attestor_evm_address(
             origin: OriginFor<T>,
