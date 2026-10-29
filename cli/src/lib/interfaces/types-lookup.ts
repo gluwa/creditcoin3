@@ -3517,15 +3517,15 @@ declare module '@polkadot/types/lookup' {
             readonly wipeSuffix: bool;
             readonly checkpoints: Vec<AttestorPrimitivesAttestationCheckpoint>;
         } & Struct;
+        readonly isForceElection: boolean;
+        readonly asForceElection: {
+            readonly chainKey: u64;
+        } & Struct;
         readonly isSetAttestorEvmAddress: boolean;
         readonly asSetAttestorEvmAddress: {
             readonly chainKey: u64;
             readonly evmAddress: H160;
             readonly proof: U8aFixed;
-        } & Struct;
-        readonly isForceElection: boolean;
-        readonly asForceElection: {
-            readonly chainKey: u64;
         } & Struct;
         readonly type:
             | 'SetChainAttestationInterval'
@@ -3552,8 +3552,8 @@ declare module '@polkadot/types/lookup' {
             | 'ForceApplyUpdates'
             | 'RevertTo'
             | 'ForwardPatchCheckpoints'
-            | 'SetAttestorEvmAddress'
-            | 'ForceElection';
+            | 'ForceElection'
+            | 'SetAttestorEvmAddress';
     }
 
     /** @name AttestorPrimitivesSignedAttestation (343) */
