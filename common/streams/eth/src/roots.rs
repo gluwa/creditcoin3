@@ -449,7 +449,7 @@ async fn stream_rpc(
                 .map(move |(head, mature)| match mature {
                     Ok(mature) => mature,
                     Err(err) => {
-                        tracing::warn!(
+                        tracing::info!(
                             head,
                             %maturity,
                             %err,

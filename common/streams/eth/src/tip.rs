@@ -128,7 +128,7 @@ impl StreamTip {
                             Ok(Some(tip_new)) => tip_new,
                             Ok(None) => continue,
                             Err(err) => {
-                                tracing::warn!(
+                                tracing::info!(
                                     head,
                                     maturity = %config.maturity,
                                     %err,
