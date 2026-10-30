@@ -354,6 +354,7 @@ impl<T: Config> Pallet<T> {
 
         // Remove the attestor (BLS key may remain in [`RetiredAttestorBlsKeys`] until unbond ends)
         Attestors::<T>::remove(chain_key, &attestor_id);
+        Self::clear_attestor_peer_key(chain_key, &attestor_id);
         // Keep [`AttestorsCount`] in lock-step with [`Attestors`]. `saturating_sub`
         // defends against drift if the counter and map ever diverge; the decrement pairs
         // with the attestor removal above.
@@ -481,6 +482,12 @@ impl<T: Config> Pallet<T> {
 
         let mut attestor =
             Attestors::<T>::get(chain_key, &attestor_id).ok_or(Error::<T>::AddressNotAttestor)?;
+
+        ensure!(
+            !PeerRegistrationRequired::<T>::get(chain_key)
+                || AttestorPeerKeys::<T>::contains_key(chain_key, &attestor_id),
+            Error::<T>::PeerKeyNotRegistered
+        );
 
         // Check if attestor has already been registered and if they're not already waiting/active
         if attestor.bls_public_key.is_some() {

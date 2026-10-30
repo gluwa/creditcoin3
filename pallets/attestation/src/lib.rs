@@ -25,6 +25,7 @@ pub mod extensions;
 mod impls;
 mod ledger;
 pub mod migrations;
+mod peer_keys;
 
 pub use extensions::PrevalidateAttestationCommit;
 
@@ -37,7 +38,7 @@ pub mod pallet {
     use attestor_primitives::{
         AttestationChainConfiguration, AttestationCheckpoint, Attestor, AttestorStatus,
         BlsPublicKey, BlsPublicKeyWrapper, BlsSignature, ChainAttestationIntervalType,
-        ChainEncodingVersion, ChainKey, Digest, SignedAttestation,
+        ChainEncodingVersion, ChainKey, Digest, PeerPublicKey, SignedAttestation,
     };
     use frame_support::{
         dispatch::{
@@ -247,6 +248,9 @@ pub mod pallet {
         fn force_apply_updates() -> Weight;
         fn revert_to() -> Weight;
         fn forward_patch_checkpoints() -> Weight;
+
+        fn set_attestor_peer_key() -> Weight;
+        fn set_peer_registration_required(a: u32) -> Weight;
     }
 
     #[pallet::storage]
@@ -270,6 +274,37 @@ pub mod pallet {
     #[pallet::storage]
     #[pallet::getter(fn attestors_count)]
     pub type AttestorsCount<T: Config> = StorageMap<_, Blake2_128Concat, ChainKey, u32, ValueQuery>;
+
+    /// Separate maps preserve the SCALE layout of existing Attestors records. Missing keys
+    /// are allowed during rollout; registration is optional until an operator enables it.
+    #[pallet::storage]
+    #[pallet::getter(fn attestor_peer_key)]
+    pub type AttestorPeerKeys<T: Config> = StorageDoubleMap<
+        _,
+        Twox64Concat,
+        ChainKey,
+        Blake2_128Concat,
+        T::AccountId,
+        PeerPublicKey,
+        OptionQuery,
+    >;
+
+    /// One controller per networking identity on each source chain.
+    #[pallet::storage]
+    pub type PeerKeyOwner<T: Config> = StorageDoubleMap<
+        _,
+        Twox64Concat,
+        ChainKey,
+        Blake2_128Concat,
+        PeerPublicKey,
+        T::AccountId,
+        OptionQuery,
+    >;
+
+    #[pallet::storage]
+    #[pallet::getter(fn peer_registration_required)]
+    pub type PeerRegistrationRequired<T: Config> =
+        StorageMap<_, Twox64Concat, ChainKey, bool, ValueQuery>;
 
     #[pallet::storage]
     #[pallet::getter(fn active_attestor_set)]
@@ -799,6 +834,8 @@ pub mod pallet {
             wiped_suffix: bool,
             tip_block_number: u64,
         },
+        AttestorPeerKeyUpdated(ChainKey, T::AccountId, PeerPublicKey),
+        PeerRegistrationRequiredChanged(ChainKey, bool),
     }
 
     #[pallet::error]
@@ -970,10 +1007,19 @@ pub mod pallet {
         /// Tried to set per-chain `MaxInvulnerables` to zero or above the runtime-level
         /// `MaxAttestationNodes` ceiling. Mirrors [`Error::InvalidMaxAttestors`].
         InvalidMaxInvulnerables,
+        InvalidPeerKeyProof,
+        PeerKeyAlreadyRegistered,
+        PeerKeyNotRegistered,
+        PeerKeyRegistrationChanged,
     }
 
     #[pallet::hooks]
     impl<T: Config> Hooks<BlockNumberFor<T>> for Pallet<T> {
+        #[cfg(feature = "try-runtime")]
+        fn try_state(_now: BlockNumberFor<T>) -> Result<(), sp_runtime::TryRuntimeError> {
+            Self::check_peer_key_invariants()
+        }
+
         /// Initialization
         fn on_initialize(_now: BlockNumberFor<T>) -> Weight {
             let prune_weight = Self::on_init_prune_checkpoints();
@@ -1722,6 +1768,38 @@ pub mod pallet {
 
             Ok(())
         }
+
+        /// Register or rotate the signing controller's Ed25519 networking identity.
+        #[pallet::call_index(31)]
+        #[pallet::weight(<T as Config>::WeightInfo::set_attestor_peer_key())]
+        pub fn set_attestor_peer_key(
+            origin: OriginFor<T>,
+            chain_key: ChainKey,
+            public_key: PeerPublicKey,
+            proof_of_possession: [u8; 64],
+            expected_previous_key: Option<PeerPublicKey>,
+        ) -> DispatchResult {
+            let controller = ensure_signed(origin)?;
+            Self::do_set_attestor_peer_key(
+                chain_key,
+                controller,
+                public_key,
+                proof_of_possession,
+                expected_previous_key,
+            )
+        }
+
+        /// Enable after active/waiting attestors have backfilled their networking keys.
+        #[pallet::call_index(32)]
+        #[pallet::weight(<T as Config>::WeightInfo::set_peer_registration_required(AttestorsCount::<T>::get(chain_key)))]
+        pub fn set_peer_registration_required(
+            origin: OriginFor<T>,
+            chain_key: ChainKey,
+            required: bool,
+        ) -> DispatchResult {
+            T::OperatorsOrigin::ensure_origin(origin)?;
+            Self::do_set_peer_registration_required(chain_key, required)
+        }
     }
 
     impl<T: Config> OnRegisterChainProvider for Pallet<T> {
@@ -1955,8 +2033,9 @@ pub mod pallet {
             } else {
                 2
             };
-            // The benchmark created `proof_len / 100` checkpoints.
-            let benchmark_checkpoints = proof_len / 100;
+            // Only checkpoints within the measured span are included in the benchmark's
+            // fixed DB writes, even when its execution-time slope is extrapolated further.
+            let benchmark_checkpoints = proof_len.min(COMMIT_BENCHMARK_MAX_SPAN as u64) / 100;
             let extra = estimated_checkpoints.saturating_sub(benchmark_checkpoints);
             weight.saturating_add(T::DbWeight::get().writes(extra.saturating_mul(4)))
         }
@@ -1970,17 +2049,24 @@ pub mod pallet {
         /// Commit weight for an attestation with `own` continuity-proof roots and `m`
         /// attestors, plus `extra` roots walked in queued proofs and the marginal cost of a
         /// checkpointing queue of `q` entries. Each queued entry is read, decoded and removed.
-        /// The own proof is charged through `commit_attestation`, whose `s` slope covers
-        /// everything a commit does per root of its own proof. That benchmark only samples the
-        /// catch-up path (`s` from 200), so its intercept is an extrapolation that moves between
-        /// runs; the own proof is charged at no less than the top of the sampled range, which
-        /// never falls below a measured point. Only a proof past it (a `MaxCatchup` raised above
-        /// the default) is charged along the slope. The extra roots are only walked, so each is
-        /// charged through `continuity_roots` alone and no root is counted twice.
+        /// Charge at least the top of `commit_attestation`'s sampled range: its intercept is
+        /// extrapolated below that range and varies between runs. Beyond it, a noisy fit can
+        /// drop the `s` slope entirely. Keep a floor from `continuity_roots` for those additional
+        /// roots, twice because the own proof is hashed during validation and again when
+        /// building checkpoint digests. That benchmark includes hashing and map insertion, so
+        /// it conservatively covers each pass. Take the larger of this floor and the generated
+        /// commit weight; do not add both estimates. Queued roots are expanded only once.
         pub(crate) fn weight_for(own: u32, extra: u32, m: u32, q: u32) -> Weight {
             let marginal = |f: fn(u32) -> Weight, n: u32| f(n).saturating_sub(f(0));
-            let own = own.max(COMMIT_BENCHMARK_MAX_SPAN);
-            <T as Config>::WeightInfo::commit_attestation(own, m)
+            let overflow = own.saturating_sub(COMMIT_BENCHMARK_MAX_SPAN);
+            let own_floor =
+                <T as Config>::WeightInfo::commit_attestation(COMMIT_BENCHMARK_MAX_SPAN, m)
+                    .saturating_add(
+                        marginal(<T as Config>::WeightInfo::continuity_roots, overflow)
+                            .saturating_mul(2),
+                    );
+            <T as Config>::WeightInfo::commit_attestation(own.max(COMMIT_BENCHMARK_MAX_SPAN), m)
+                .max(own_floor)
                 .saturating_add(marginal(<T as Config>::WeightInfo::continuity_roots, extra))
                 .saturating_add(marginal(
                     <T as Config>::WeightInfo::commit_attestation_queued,

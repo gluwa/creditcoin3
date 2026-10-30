@@ -286,9 +286,29 @@ async fn handle_cc3_batch(
     // Steady liveness pulse: a cc3 finalized batch arriving means the connection is live and the
     // production loop is turning. The watchdog reads this to distinguish "alive" from "wedged".
     shared.health.note_progress();
+    let finalized_number = batch.block_number();
+    let mut registry_changed = false;
     while let Some(event) = batch.try_next().await? {
-        handle_one(shared, stream_attestation, latest_cc3, event).await?;
+        registry_changed |= crate::peer_registry::affects_registry(&event);
+        handle_one(
+            shared,
+            stream_attestation,
+            latest_cc3,
+            event,
+            finalized_number,
+        )
+        .await?;
     }
+    // Publish once after the whole block's BLS/eligibility/removal handling. The watch channel
+    // coalesces bursts without blocking production; the registry task does the RPC separately.
+    // First delivery also closes the startup snapshot/subscription gap. A new connection
+    // triggers reconciliation even if reconnect backfill contains no membership events.
+    crate::peer_registry::request_refresh(
+        &shared.peer_registry_refresh_tx,
+        finalized_number,
+        shared.cc3.reconnect_success_count(),
+        registry_changed,
+    );
     Ok(())
 }
 
@@ -438,6 +458,7 @@ async fn handle_one(
     stream_attestation: &mut stream::attestation::StreamAttestation,
     latest_cc3: &mut AttestationInfo,
     event: CcEvent,
+    finalized_number: u64,
 ) -> Result<(), Error> {
     match event {
         // 1] new finalized attestation on cc3
@@ -534,6 +555,9 @@ async fn handle_one(
             }
         }
 
+        // The completed batch requests a finalized networking-registry reload.
+        CcEvent::PeerRegistryChanged(_) => {}
+
         // Chill / kick removes the attestor from `ActiveAttestors` on-chain immediately. Refresh
         // BlsStore and the pool's allow-set on every chill/kick — not just for the local node —
         // so peers stop accepting gossip signed by the removed attestor's still-cached BLS key.
@@ -561,7 +585,10 @@ async fn handle_one(
             if !is_local {
                 let _ = shared
                     .peer_deactivated_tx
-                    .send(attestor_primitives::AttestorId::from_public(who.0));
+                    .send(crate::shared::PeerDeactivated {
+                        attestor: attestor_primitives::AttestorId::from_public(who.0),
+                        finalized_number,
+                    });
             }
         }
 
@@ -686,7 +713,10 @@ async fn wait_for_block_attested(
                 // Keep the watchdog fed during a slow genesis wait (can exceed the startup grace
                 // on a slow chain) — batches are still arriving, so we're alive, not wedged.
                 shared.health.note_progress();
+                let finalized_number = batch.block_number();
+                let mut registry_changed = false;
                 while let Some(event) = batch.try_next().await? {
+                    registry_changed |= crate::peer_registry::affects_registry(&event);
                     match event {
                         // The genesis terminator: the first BlockAttested at/above the genesis
                         // height carries the runtime-committed digest the caller needs. Return it
@@ -697,6 +727,14 @@ async fn wait_for_block_attested(
                                 height = att.header_number,
                                 digest = ?att.digest,
                                 "✅ genesis attestation finalized on-chain"
+                            );
+                            // This early return does not drain the rest of the block. Reload
+                            // its complete registry so a later key/policy event is still covered.
+                            crate::peer_registry::request_refresh(
+                                &shared.peer_registry_refresh_tx,
+                                finalized_number,
+                                shared.cc3.reconnect_success_count(),
+                                true,
                             );
                             return Ok(Some(AttestationInfo {
                                 height: att.header_number,
@@ -712,10 +750,16 @@ async fn wait_for_block_attested(
                         // stale until a later duplicate event. Route them through the same handler
                         // the steady-state loop uses.
                         other => {
-                            handle_one(shared, stream_attestation, &mut scratch, other).await?;
+                            handle_one(shared, stream_attestation, &mut scratch, other, finalized_number).await?;
                         }
                     }
                 }
+                crate::peer_registry::request_refresh(
+                    &shared.peer_registry_refresh_tx,
+                    finalized_number,
+                    shared.cc3.reconnect_success_count(),
+                    registry_changed,
+                );
             }
         }
     }

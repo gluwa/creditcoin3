@@ -11,12 +11,15 @@ struct Config {
     name: String,
     logs: std::path::PathBuf,
     secret: attestor::secret::AttestorSecret,
+    p2p_secret: Option<attestor::secret::AttestorSecret>,
+    rotate_peer_key: bool,
+    mode: RunMode,
     chain_key: attestor_primitives::ChainKey,
     public_addr: Option<String>,
     api_port: u16,
     boot_nodes: Vec<libp2p::Multiaddr>,
+    reserved_peers: Vec<libp2p::PeerId>,
     p2p_port: u16, // Defaults to 9000 if not specified
-    eth_url: attestor::secret::RpcSecret,
     eth_rps: Option<std::num::NonZeroU32>,
     eth_max_concurrency: Option<std::num::NonZeroUsize>,
     eth_head_poll_secs: Option<std::num::NonZeroU64>,
@@ -24,6 +27,13 @@ struct Config {
     start_height: Option<attestor_primitives::Height>,
     attestation_interval: Option<std::num::NonZero<attestor_primitives::Height>>,
     no_mdns: bool,
+}
+
+enum RunMode {
+    Attest {
+        eth_url: attestor::secret::RpcSecret,
+    },
+    RegisterPeerKeyOnly,
 }
 
 #[derive(Debug, Default, serde::Deserialize)]
@@ -64,7 +74,9 @@ struct ConfigFileApi {
 
 #[derive(Debug, Default, serde::Deserialize)]
 struct ConfigFileP2P {
+    secret: Option<String>,
     boot_nodes: Option<Vec<libp2p::Multiaddr>>,
+    reserved_peers: Option<Vec<libp2p::PeerId>>,
     port: Option<u16>,
     #[serde(default)]
     no_mdns: bool,
@@ -185,6 +197,44 @@ impl Config {
                     .value_parser(clap::value_parser!(libp2p::Multiaddr)),
             )
             .arg(
+                clap::arg!(--"reserved-peers" [PEER_ID] ...)
+                    .help("Trusted peer IDs with reserved inbound capacity before their first vote")
+                    .long_help(
+                        "Trusted libp2p peer IDs with reserved inbound capacity from startup. \
+                        Configure committee peers on a public seed that has no boot nodes. \
+                        This does not dial the peers or bypass vote verification.",
+                    )
+                    .env("ATTESTOR_RESERVED_PEERS")
+                    .value_delimiter(',')
+                    .action(clap::ArgAction::Append)
+                    .required(false)
+                    .value_parser(clap::value_parser!(libp2p::PeerId)),
+            )
+            .arg(
+                clap::arg!(--"p2p-secret" <SECRET>)
+                    .help("Separate Ed25519 networking seed/mnemonic; defaults to the attestor secret")
+                    .env("ATTESTOR_P2P_SECRET")
+                    .hide_env_values(true)
+                    .value_parser(clap::value_parser!(String)),
+            )
+            .arg(
+                clap::arg!(--"rotate-peer-key")
+                    .help("Explicitly replace a different on-chain networking key; omit on normal restarts")
+                    .action(clap::ArgAction::SetTrue),
+            )
+            .arg(
+                clap::arg!(--"register-peer-key-only")
+                    .help("Register the networking key and exit; needs CC3 RPC, no source-chain RPC or election")
+                    .long_help(
+                        "Register the networking key and exit after finalization. \
+                        Useful for backfilling keys before enabling mandatory registration, \
+                        or rotating a stopped node's key without starting attestation. \
+                        Normal startup also registers the key, so this mode is optional. \
+                        Needs CC3 RPC, but no source-chain RPC or election.",
+                    )
+                    .action(clap::ArgAction::SetTrue),
+            )
+            .arg(
                 clap::arg!(--"p2p-port" <PORT>)
                     .help("P2P listening port")
                     .long_help(
@@ -220,7 +270,7 @@ impl Config {
                         proxy such as eRPC) follows the head by polling eth_blockNumber",
                     )
                     .env("ATTESTOR_ETH_URL")
-                    .required(config_file.eth.url.is_none())
+                    .required(false)
                     .value_parser(clap::value_parser!(url::Url)),
             )
             .arg(
@@ -390,6 +440,21 @@ impl Config {
             .cloned()
             .or(config_file.attestor.public_addr);
 
+        let p2p_secret = matches
+            .get_one::<String>("p2p-secret")
+            .map(String::as_str)
+            .or(config_file.p2p.secret.as_deref())
+            .map(attestor::secret::AttestorSecret::from_str)
+            .transpose()?;
+        let rotate_peer_key = matches.get_flag("rotate-peer-key");
+        let register_peer_key_only = matches.get_flag("register-peer-key-only");
+
+        let reserved_peers = matches
+            .get_many::<libp2p::PeerId>("reserved-peers")
+            .map(|vals| vals.copied().collect::<Vec<_>>())
+            .or(config_file.p2p.reserved_peers)
+            .unwrap_or_default();
+
         let p2p_port = matches
             .get_one::<u16>("p2p-port")
             .copied()
@@ -398,17 +463,24 @@ impl Config {
 
         let expose_url = matches.get_flag("expose-urls-in-logs");
 
-        let eth_url = match matches.get_one::<url::Url>("eth-url") {
-            Some(url) => url.clone(),
-            None => config_file
-                .eth
-                .url
-                .expect("Eth url is set either in config or by clap"),
-        };
-        let eth_url = if expose_url {
-            attestor::secret::RpcSecret::new_exposed(eth_url)
+        let eth_url = matches
+            .get_one::<url::Url>("eth-url")
+            .cloned()
+            .or(config_file.eth.url);
+        let mode = if register_peer_key_only {
+            RunMode::RegisterPeerKeyOnly
         } else {
-            attestor::secret::RpcSecret::new_opaque(eth_url)
+            let url = eth_url.ok_or_else(|| {
+                anyhow::anyhow!(
+                    "--eth-url / ATTESTOR_ETH_URL / eth.url is required when running the attestor"
+                )
+            })?;
+            let eth_url = if expose_url {
+                attestor::secret::RpcSecret::new_exposed(url)
+            } else {
+                attestor::secret::RpcSecret::new_opaque(url)
+            };
+            RunMode::Attest { eth_url }
         };
 
         let eth_rps = matches
@@ -455,11 +527,14 @@ impl Config {
             logs,
             chain_key,
             secret,
+            p2p_secret,
+            rotate_peer_key,
+            mode,
             boot_nodes,
+            reserved_peers,
             public_addr,
             api_port,
             p2p_port,
-            eth_url,
             eth_rps,
             eth_max_concurrency,
             eth_head_poll_secs,
@@ -594,12 +669,46 @@ async fn main() -> anyhow::Result<()> {
 
     // --------------------------------------* Configuration *-------------------------------------
 
+    let eth_url = match args.mode {
+        RunMode::Attest { eth_url } => eth_url,
+        RunMode::RegisterPeerKeyOnly => {
+            let registration = async {
+                let secret = args.secret.to_secret_uri_string();
+                let controller = cc_client::signer::CC3Signer::new(secret.as_str())?.account_id();
+                let keypair = attestor::peer_registry::networking_keypair(
+                    args.p2p_secret.as_ref().unwrap_or(&args.secret),
+                )?;
+                let cc3 = std::sync::Arc::new(
+                    cc_client::Client::new(args.cc3_url.as_ref().as_ref(), secret.as_str()).await?,
+                );
+                attestor::startup::reconcile_metadata(&cc3).await?;
+                attestor::peer_registry::ensure_registered(
+                    &cc3,
+                    &tokio_util::sync::CancellationToken::new(),
+                    args.chain_key,
+                    &controller,
+                    &keypair,
+                    args.rotate_peer_key,
+                )
+                .await?;
+                tracing::info!(%controller, peer_id = %keypair.public().to_peer_id(), "networking key finalized; registration-only mode complete");
+                Ok::<_, anyhow::Error>(())
+            };
+            return tokio::select! {
+                result = registration => result,
+                _ = tokio::signal::ctrl_c() => Ok(()),
+            };
+        }
+    };
+
     let config = attestor::ConfigBuilder::new()
         .with_name(args.name)
         .with_chain_key(args.chain_key)
+        .with_p2p_secret(args.p2p_secret)
+        .with_rotate_peer_key(args.rotate_peer_key)
         .with_stream(
             attestor::secret::ConfigBuilder::new()
-                .with_url_eth(args.eth_url)
+                .with_url_eth(eth_url)
                 .with_url_cc3(args.cc3_url)
                 .with_secret(args.secret)
                 .with_eth_rps(args.eth_rps)
@@ -617,6 +726,7 @@ async fn main() -> anyhow::Result<()> {
         .with_p2p(
             attestor::tasks::p2p::ConfigBuilder::new()
                 .with_boot_nodes(args.boot_nodes)
+                .with_reserved_peers(args.reserved_peers)
                 .with_public_addr(args.public_addr)
                 .with_port(args.p2p_port)
                 .with_no_mdns(args.no_mdns),
@@ -639,4 +749,25 @@ async fn main() -> anyhow::Result<()> {
     attestor::Attestor::new(config).run().await?;
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::ConfigFile;
+
+    #[test]
+    fn reserved_peer_ids_are_read_from_yaml() {
+        let peer = libp2p::PeerId::random();
+        let config: ConfigFile =
+            serde_yaml::from_str(&format!("p2p:\n  reserved_peers:\n    - {peer}\n")).unwrap();
+        assert_eq!(config.p2p.reserved_peers, Some(vec![peer]));
+    }
+
+    #[test]
+    fn malformed_reserved_peer_id_is_rejected() {
+        assert!(serde_yaml::from_str::<ConfigFile>(
+            "p2p:\n  reserved_peers:\n    - not-a-peer-id\n"
+        )
+        .is_err());
+    }
 }

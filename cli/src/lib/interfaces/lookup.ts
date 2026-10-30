@@ -1136,6 +1136,8 @@ export default {
                 wipedSuffix: 'bool',
                 tipBlockNumber: 'u64',
             },
+            AttestorPeerKeyUpdated: '(u64,AccountId32,[u8;32])',
+            PeerRegistrationRequiredChanged: '(u64,bool)',
         },
     },
     /**
@@ -2956,6 +2958,16 @@ export default {
             force_election: {
                 chainKey: 'u64',
             },
+            set_attestor_peer_key: {
+                chainKey: 'u64',
+                publicKey: '[u8;32]',
+                proofOfPossession: '[u8;64]',
+                expectedPreviousKey: 'Option<[u8;32]>',
+            },
+            set_peer_registration_required: {
+                chainKey: 'u64',
+                required: 'bool',
+            },
         },
     },
     /**
@@ -3483,7 +3495,7 @@ export default {
         _enum: ['Active', 'Idle', 'Waiting', 'Leaving'],
     },
     /**
-     * Lookup437: pallet_attestation::pallet::RetiredAttestorBlsKeyEntry<sp_core::crypto::AccountId32>
+     * Lookup438: pallet_attestation::pallet::RetiredAttestorBlsKeyEntry<sp_core::crypto::AccountId32>
      **/
     PalletAttestationRetiredAttestorBlsKeyEntry: {
         blsPublicKey: '[u8;48]',
@@ -3491,7 +3503,7 @@ export default {
         stash: 'AccountId32',
     },
     /**
-     * Lookup443: pallet_attestation::ledger::AttestorLedger<T>
+     * Lookup444: pallet_attestation::ledger::AttestorLedger<T>
      **/
     PalletAttestationLedgerAttestorLedger: {
         stash: 'AccountId32',
@@ -3500,14 +3512,14 @@ export default {
         unlocking: 'Vec<PalletAttestationLedgerUnlockChunk>',
     },
     /**
-     * Lookup445: pallet_attestation::ledger::UnlockChunk<Balance>
+     * Lookup446: pallet_attestation::ledger::UnlockChunk<Balance>
      **/
     PalletAttestationLedgerUnlockChunk: {
         value: 'Compact<u128>',
         era: 'Compact<u32>',
     },
     /**
-     * Lookup447: pallet_attestation::clear_or_revert::RemovedChainCleanupPhase
+     * Lookup448: pallet_attestation::clear_or_revert::RemovedChainCleanupPhase
      **/
     PalletAttestationClearOrRevertRemovedChainCleanupPhase: {
         _enum: {
@@ -3515,17 +3527,19 @@ export default {
             RetiredKeys: 'Null',
             BlsKeyOwners: 'Null',
             Invulnerables: 'Null',
+            PeerKeys: 'Null',
+            PeerKeyOwners: 'Null',
         },
     },
     /**
-     * Lookup448: pallet_attestation::clear_or_revert::CheckpointPruningState
+     * Lookup449: pallet_attestation::clear_or_revert::CheckpointPruningState
      **/
     PalletAttestationClearOrRevertCheckpointPruningState: {
         stopHeight: 'u64',
         nextPivot: 'u64',
     },
     /**
-     * Lookup449: pallet_attestation::pallet::Error<T>
+     * Lookup450: pallet_attestation::pallet::Error<T>
      **/
     PalletAttestationError: {
         _enum: [
@@ -3598,10 +3612,14 @@ export default {
             'AttestationCleanupInProgress',
             'TooManyAttestationsInBlock',
             'InvalidMaxInvulnerables',
+            'InvalidPeerKeyProof',
+            'PeerKeyAlreadyRegistered',
+            'PeerKeyNotRegistered',
+            'PeerKeyRegistrationChanged',
         ],
     },
     /**
-     * Lookup450: supported_chains_primitives::SupportedChain
+     * Lookup451: supported_chains_primitives::SupportedChain
      **/
     SupportedChainsPrimitivesSupportedChain: {
         chainId: 'u64',
@@ -3610,7 +3628,7 @@ export default {
         maturityStrategy: 'Text',
     },
     /**
-     * Lookup452: pallet_supported_chains::pallet::Error<T>
+     * Lookup453: pallet_supported_chains::pallet::Error<T>
      **/
     PalletSupportedChainsError: {
         _enum: [

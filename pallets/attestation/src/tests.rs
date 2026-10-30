@@ -12223,26 +12223,53 @@ fn commit_weight_charges_own_proof_through_commit_benchmark() {
 }
 
 #[test]
-fn commit_weight_follows_slope_past_benchmarked_span() {
+fn commit_weight_charges_roots_and_checkpoints_past_benchmarked_span() {
     ExtBuilder.build_and_execute(|| {
         let attestor = Attestor::new(STASH_1, ATTESTOR_1);
-        let long = COMMIT_BENCHMARK_MAX_SPAN as u64 * 2;
-        MaxCatchup::<Test>::insert(SUPPORTED_CHAIN_KEY, long as u32);
+        let measured = COMMIT_BENCHMARK_MAX_SPAN;
+        // Exercise both the mock's ceiling and the production runtime's 2,000-root ceiling.
+        // Set storage directly because the mock intentionally configures a smaller ceiling.
+        MaxCatchup::<Test>::insert(SUPPORTED_CHAIN_KEY, 2_000);
+        LastCheckpoint::<Test>::insert(
+            SUPPORTED_CHAIN_KEY,
+            AttestationCheckpoint {
+                block_number: 0,
+                digest: H256::random(),
+            },
+        );
+        LastDigest::<Test>::insert(SUPPORTED_CHAIN_KEY, (0, H256::random()));
         let at_cap = create_signed_attestation(
             vec![attestor.clone()],
             SUPPORTED_CHAIN_KEY,
-            COMMIT_BENCHMARK_MAX_SPAN as u64 + 1,
+            measured as u64 + 1,
             Some(H256::random()),
             None,
         );
-        let past_cap = create_signed_attestation(
-            vec![attestor],
-            SUPPORTED_CHAIN_KEY,
-            long + 1,
-            Some(H256::random()),
-            None,
-        );
-        assert!(commit_weight(&past_cap).ref_time() > commit_weight(&at_cap).ref_time());
+        let baseline = commit_weight(&at_cap);
+        let roots = <Test as Config>::WeightInfo::continuity_roots;
+        for own in [measured + 1, 1_000, 2_000] {
+            let past_cap = create_signed_attestation(
+                vec![attestor.clone()],
+                SUPPORTED_CHAIN_KEY,
+                own as u64 + 1,
+                Some(H256::random()),
+                None,
+            );
+            let extra_passes = roots(own - measured)
+                .saturating_sub(roots(0))
+                .saturating_mul(2);
+            // The benchmark includes five checkpoints. Each additional one needs four writes.
+            let extra_checkpoints = (own / 100 - measured / 100) as u64;
+            let minimum_extra = extra_passes.saturating_add(
+                <Test as frame_system::Config>::DbWeight::get().writes(extra_checkpoints * 4),
+            );
+            assert!(
+                commit_weight(&past_cap)
+                    .saturating_sub(baseline)
+                    .all_gte(minimum_extra),
+                "proof with {own} roots must pay for both passes and additional checkpoints"
+            );
+        }
     })
 }
 

@@ -18,6 +18,7 @@ pub mod attestation;
 pub mod bls;
 pub mod error;
 pub mod health;
+pub mod peer_registry;
 pub mod proof_cache;
 pub mod retry;
 pub mod secret;
@@ -47,6 +48,10 @@ pub struct Config {
     attestation: attestation::Config,
     p2p: tasks::p2p::ConfigIncomplete,
     api: tasks::api::Config,
+    #[default(None)]
+    p2p_secret: Option<secret::AttestorSecret>,
+    #[default(false)]
+    rotate_peer_key: bool,
 }
 
 // ---------------------------------------- [ Attestor ] ---------------------------------------- //
@@ -89,9 +94,13 @@ impl Attestor {
         let account_id = signer.account_id();
         let attestor_id = attestor_primitives::AttestorId::from_public(account_id.0);
 
-        let mut seed = self.config.stream.secret.to_seed_bytes_32();
-        let keypair_p2p =
-            libp2p::identity::Keypair::ed25519_from_bytes(&mut *seed).expect("ed25519 keypair");
+        let keypair_p2p = peer_registry::networking_keypair(
+            self.config
+                .p2p_secret
+                .as_ref()
+                .unwrap_or(&self.config.stream.secret),
+        )
+        .map_err(Error::Init)?;
         let peer_id = libp2p::PeerId::from_public_key(&keypair_p2p.public());
 
         let bls_seed = self.config.stream.secret.to_bls_seed_bytes();
@@ -226,6 +235,19 @@ impl Attestor {
 
         // ----------------------------------* register + eligibility *------------------------- //
 
+        match peer_registry::ensure_registered(
+            &cc3,
+            &token,
+            chain_key,
+            &account_id,
+            &keypair_p2p,
+            self.config.rotate_peer_key,
+        )
+        .await
+        {
+            Err(_) if token.is_cancelled() => return Ok(()),
+            result => result?,
+        }
         startup::register_bls(chain_key, &cc3, &account_id, &bls_key).await?;
         let attestors = match startup::wait_for_eligible(&token, chain_key, &cc3, &account_id).await
         {
@@ -375,7 +397,7 @@ impl Attestor {
         // Production → p2p nudge to evict a chilled/kicked attestor's peer. Unbounded: rare
         // (committee-change) events that must not apply backpressure to the production task.
         let (peer_deactivated_tx, peer_deactivated_rx) =
-            mpsc::unbounded_channel::<attestor_primitives::AttestorId>();
+            mpsc::unbounded_channel::<shared::PeerDeactivated>();
         let (can_attest_tx, can_attest_rx) = watch::channel::<bool>(true);
         // `None` until the production task observes the first BlockAttested event. Validation's
         // `wait_for_finalized` helper waits for `Some(info)` with `info.height >= target`, so it
@@ -388,6 +410,7 @@ impl Attestor {
         let (local_produced_tx, local_produced_rx) =
             watch::channel::<Option<attestor_primitives::Height>>(None);
 
+        let (peer_registry_refresh_tx, peer_registry_refresh_rx) = watch::channel(None);
         let shared = Arc::new(Shared {
             name: self.config.name.clone(),
             chain_key,
@@ -411,6 +434,7 @@ impl Attestor {
             pool_send,
             gossip_tx,
             peer_deactivated_tx,
+            peer_registry_refresh_tx,
 
             attest_target: std::sync::atomic::AtomicBool::new(true),
             eligibility_gen: std::sync::atomic::AtomicU64::new(0),
@@ -438,6 +462,50 @@ impl Attestor {
         //
         // (`set` was created up top so the api task could spawn before the startup waits.)
 
+        // Load networking identities before any gossip or inbound listener is started. During
+        // backfill a root seed can wait for another committee key without requiring a manually
+        // maintained allowlist. Production has not started, so outgoing votes cannot accumulate.
+        let has_boot_route = self.config.p2p.boot_nodes.iter().any(|address| {
+            address.iter().any(|protocol| matches!(protocol, libp2p::multiaddr::Protocol::P2p(peer) if peer != peer_id))
+        });
+        let initial_registry = loop {
+            let registry = match peer_registry::load(&cc3, &token, chain_key).await {
+                Err(_) if token.is_cancelled() => return Ok(()),
+                result => result?,
+            };
+            if self.config.p2p.public_addr.is_none()
+                || tasks::p2p::can_bootstrap_seed(
+                    peer_id,
+                    has_boot_route,
+                    &self.config.p2p.reserved_peers,
+                    &registry,
+                )
+            {
+                break registry;
+            }
+            tracing::info!("waiting for finalized committee networking keys before starting public seed; backfill with --register-peer-key-only");
+            tokio::select! {
+                _ = token.cancelled() => return Ok(()),
+                _ = tokio::time::sleep(std::time::Duration::from_secs(15)) => {}
+            }
+        };
+        let (peer_registry_tx, peer_registry_rx) = watch::channel(Arc::new(initial_registry));
+        {
+            let cc3 = cc3.clone();
+            let token = token.clone();
+            set.spawn(async move {
+                peer_registry::run(
+                    cc3,
+                    token,
+                    chain_key,
+                    peer_registry_tx,
+                    peer_registry_refresh_rx,
+                )
+                .await
+                .map(|_| "peer-registry")
+            });
+        }
+
         // Leave the watchdog's Starting state and re-seed its deadlines: the tasks are about to
         // run, so "no progress yet" starts counting from here, not from construction (which may
         // be days ago if the election wait was long).
@@ -452,9 +520,15 @@ impl Attestor {
                 .with_chain_key(chain_key)
                 .build();
             set.spawn(async move {
-                tasks::p2p::run(shared, cfg, gossip_rx, peer_deactivated_rx)
-                    .await
-                    .map(|_| "p2p")
+                tasks::p2p::run(
+                    shared,
+                    cfg,
+                    gossip_rx,
+                    peer_deactivated_rx,
+                    peer_registry_rx,
+                )
+                .await
+                .map(|_| "p2p")
             });
         }
 
