@@ -1,6 +1,7 @@
 //! A block that no retry can fetch (the node lacks the method, or serves bytes this client cannot
 //! decode) must fail the fetch at once instead of backing off through the full retry budget, and
 //! the startup check must report the endpoint as unusable for that fetch mode.
+use attestcoin_abi_encoding::common::EncodingVersion;
 use eth::{BlockFetchMode, Client, Error};
 use serde_json::{json, Value};
 use std::{
@@ -13,7 +14,6 @@ use std::{
     thread,
     time::Duration,
 };
-use usc_abi_encoding::common::EncodingVersion;
 
 const NUMBER: u64 = 1_000_000;
 

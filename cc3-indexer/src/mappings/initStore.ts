@@ -1,6 +1,8 @@
 import { SubstrateBlock } from '@subql/types';
 import { AttestationChainData, SupportedChain } from '../types';
 import type { ApiPromise } from '@polkadot/api';
+import { discoveryAddress } from './outboxAuthorization';
+import { admitDiscoverySnapshot } from './evmHandlers';
 
 // SubQuery injects a height-scoped ApiPromise into the sandbox
 declare const api: ApiPromise;
@@ -72,6 +74,18 @@ export async function initiateStoreAndDatabase(block: SubstrateBlock): Promise<v
         });
 
         await Promise.all([supported.save(), acd.save()]);
+        // Genesis registry entries do not emit OutboxDiscoveryRegistered. Snapshot them at
+        // the indexed height as well, so membership discovery does not depend on event order.
+        const discovery = await discoveryAddress(chainKey);
+        if (discovery) {
+            await admitDiscoverySnapshot(
+                chainKey,
+                discovery,
+                block.block.header.number.toNumber(),
+                block.timestamp ? BigInt(block.timestamp.getTime()) : BigInt(0),
+                '0x',
+            );
+        }
         logger.info(`Saved ${id}(${name})`);
     }
 }

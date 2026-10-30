@@ -268,7 +268,9 @@ impl pallet_attestation::Config for Runtime {
     type MaxChainAttestationInterval = ConstU64<10_000>;
     type DefaultTargetSampleSize = DefaultTargetSampleSize;
     type DefaultMaxCatchup = ConstU32<500>;
-    type MaxCatchupCeiling = ConstU32<2_000>;
+    // The runtime's devnet/fast ceiling: with this mock's block budget a 2_000-root commit charged per
+    // 500-root benchmark envelope exceeds max_extrinsic.
+    type MaxCatchupCeiling = ConstU32<1_000>;
     type RuntimeEvent = RuntimeEvent;
     type WeightInfo = pallet_attestation::weights::WeightInfo<Runtime>;
     type MaxAttestationNodes = MaxAttestorsDefault;
@@ -463,6 +465,9 @@ impl ExtBuilder {
                 ChainEncodingVersion::V1,
                 MATURITY_FIXED_DELAY_10.to_string(),
             )],
+            write_ability_configs: vec![],
+            outbox_factories: Default::default(),
+            outbox_discoveries: Default::default(),
             _phantom: Default::default(),
         };
         chains.assimilate_storage(&mut t).unwrap();

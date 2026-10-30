@@ -1,6 +1,7 @@
 //! Request pacing and rate-limit handling against a tiny in-process JSON-RPC server: a paced
 //! client spaces its calls out, and a block fetch that is answered with HTTP 429 holds off and
 //! retries instead of failing or hammering the provider.
+use attestcoin_abi_encoding::common::EncodingVersion;
 use eth::Client;
 use serde_json::{json, Value};
 use std::{
@@ -14,7 +15,6 @@ use std::{
     thread,
     time::{Duration, Instant},
 };
-use usc_abi_encoding::common::EncodingVersion;
 
 const ZERO32: &str = "0x0000000000000000000000000000000000000000000000000000000000000000";
 

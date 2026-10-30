@@ -138,7 +138,7 @@ describe('handleEventAttestorRegistered()', () => {
                     expect(node.blsPublicKey).toBeTruthy();
                 }
 
-                // query each node individually to cover this endpoint too
+                // Read back the observed record; this does not wait for a later attestor update.
                 const response2 = await queryIndexedData(
                     `query { attestor(id: "${node.id}") { id, attestorId, stashId, chainKey, lastUpdateBlockNumber, status, blsPublicKey } }`,
                 );

@@ -1,14 +1,66 @@
 import { newApi, ApiPromise, KeyringPair } from '../../lib';
 import { getChainStatus } from '../../lib/chain/status';
-import { forElapsedBlocks, randomIntBetween } from '../utils';
+import { forElapsedBlocks, isManualSealing, randomIntBetween, sealBlock, sleep } from '../utils';
 import { chain_Anvil1_Key, chain_Anvil2_Key } from '../blockchain-tests/pallets/supported-chains/consts';
 import { graphQLQuery, queryIndexedData } from './common';
-import { waitEras } from '../integration-tests/helpers';
+
+export async function waitForAppliedSampleSize(
+    api: ApiPromise,
+    chainKey: bigint,
+    targetSampleSize: number,
+    afterBlock: bigint,
+    timeoutMs = 240_000,
+): Promise<{ blockNumber: bigint; eventId: string }> {
+    const sealing = await isManualSealing(api);
+    const deadline = Date.now() + timeoutMs;
+    let current = -1;
+    while (Date.now() < deadline) {
+        const finalizedHash = await api.rpc.chain.getFinalizedHead();
+        const finalizedState = await api.at(finalizedHash);
+        current = (await finalizedState.query.attestation.targetSampleSize(chainKey)).toNumber();
+        if (current === targetSampleSize) {
+            const finalizedBlock = (await api.rpc.chain.getHeader(finalizedHash)).number.toBigInt();
+            // Correlate the applied value with the exact natural epoch event, excluding the
+            // chain-registration default and unrelated changes from other suites.
+            for (let block = afterBlock + 1n; block <= finalizedBlock; block++) {
+                if (Date.now() >= deadline) {
+                    throw new Error(`timed out locating the sample-size application event after ${afterBlock}`);
+                }
+                const state = await api.at(await api.rpc.chain.getBlockHash(block.toString()));
+                const events = await state.query.system.events();
+                const index = events.findIndex(
+                    ({ event, phase }) =>
+                        phase.isInitialization &&
+                        api.events.attestation.TargetSampleSizeChanged.is(event) &&
+                        event.data[0].toBigInt() === chainKey &&
+                        event.data[1].toNumber() === targetSampleSize,
+                );
+                if (index >= 0) {
+                    if ((await state.query.attestation.targetSampleSize(chainKey)).toNumber() !== targetSampleSize) {
+                        throw new Error(`sample-size event at block ${block} disagrees with its on-chain state`);
+                    }
+                    return { blockNumber: block, eventId: `${block}-${index}` };
+                }
+            }
+            throw new Error(`sample size ${targetSampleSize} applied without its matching event after ${afterBlock}`);
+        }
+        if (sealing) {
+            await sealBlock(api);
+        } else {
+            await sleep(api.consts.babe.expectedBlockTime.toNumber());
+        }
+    }
+    throw new Error(
+        `chain ${chainKey} sample size remained ${current}, expected ${targetSampleSize} after ${timeoutMs}ms`,
+    );
+}
 
 describe('handleEventTargetSampleSizeChanged()', () => {
     let api: ApiPromise;
     let root: KeyringPair;
     let startingBlock: bigint;
+    let applicationBlock: bigint;
+    let applicationEventId: string;
     let targetSampleSize_Anvil1 = 0;
     let targetSampleSize_Anvil2 = 0;
     const newTargetSampleSize = randomIntBetween(250, 512);
@@ -90,11 +142,11 @@ describe('handleEventTargetSampleSizeChanged()', () => {
             await api.tx.sudo
                 .sudo(api.tx.attestation.setTargetSampleSize(newChainKey, newTargetSampleSize))
                 .signAndSend(root, { nonce: await api.rpc.system.accountNextIndex(root.address) });
-            // wait for the pending change to take effect
-            await waitEras(1, api);
-
-            // wait for txn to make it on chain & indexer to ingest the block
-            await forElapsedBlocks(api, { minBlocks: 3 });
+            // Target sample size applies at a BABE epoch, independently of staking eras.
+            // Wait for finalized application; each GraphQL query then waits for indexing.
+            const applied = await waitForAppliedSampleSize(api, newChainKey, newTargetSampleSize, startingBlock);
+            applicationBlock = applied.blockNumber;
+            applicationEventId = applied.eventId;
         }, 300_000);
 
         it('graphQL returns known TargetSampleSizeChanged', async () => {
@@ -110,8 +162,10 @@ describe('handleEventTargetSampleSizeChanged()', () => {
 
             for (const node of response.data.targetSampleSizeChangeds.nodes) {
                 expect(node.id).toBeTruthy();
+                expect(node.id).toEqual(applicationEventId);
 
                 expect(BigInt(node.blockNumber)).toBeGreaterThanOrEqual(startingBlock);
+                expect(BigInt(node.blockNumber)).toEqual(applicationBlock);
                 expect(node.whoId).toHaveLength(0);
                 expect(BigInt(node.chainKey)).toEqual(newChainKey);
                 expect(node.eventNewTargetSampleSize).toEqual(newTargetSampleSize);

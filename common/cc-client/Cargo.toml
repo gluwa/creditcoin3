@@ -31,6 +31,7 @@ supported-chains-primitives = { workspace = true }
 user = { workspace = true }
 
 # workspace deps
+attestcoin-abi-encoding = { workspace = true, optional = true }
 serde = { workspace = true }
 sp-core = { workspace = true, default-features = false }
 thiserror = { workspace = true }
@@ -42,7 +43,6 @@ tokio = { workspace = true, features = [
     "time",
 ] }
 tracing = { workspace = true }
-usc-abi-encoding = { workspace = true, optional = true }
 
 # `ws-fixture` only: an in-process fake Creditcoin WebSocket node for liveness tests.
 futures = { workspace = true, optional = true }
@@ -58,7 +58,7 @@ std = [
     "sp-core/std",
     "attestor-primitives/std",
     "supported-chains-primitives/std",
-    "usc-abi-encoding",
+    "attestcoin-abi-encoding",
 ]
 ws-fixture = [
     "dep:futures",
