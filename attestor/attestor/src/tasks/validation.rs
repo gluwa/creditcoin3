@@ -352,7 +352,7 @@ async fn handle_submission_result(
             .map(|info| info.height >= height)
             .unwrap_or(false);
         if !finalized {
-            tracing::warn!(
+            tracing::info!(
                 height,
                 "🔓 height not finalized after unresolved submission — unlocking"
             );
@@ -383,7 +383,7 @@ async fn handle_submission_result(
                 break;
             }
             None => {
-                tracing::warn!(
+                tracing::info!(
                     digest = ?stash_digest, height = stash_height,
                     "🗑️ stashed quorum went stale while waiting — dropping and unlocking height"
                 );
@@ -1205,7 +1205,7 @@ async fn wait_finalized(shared: &Arc<Shared>, height: Height) {
         tokio::select! {
             _ = shared.token.cancelled() => return,
             _ = tokio::time::sleep_until(deadline) => {
-                tracing::warn!(height, "🏃 finalization timed out");
+                tracing::info!(height, "🏃 finalization timed out");
                 return;
             }
             r = rx.changed() => {
