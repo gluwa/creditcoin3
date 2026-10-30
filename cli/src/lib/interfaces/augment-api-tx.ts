@@ -150,13 +150,17 @@ declare module '@polkadot/api-base/types/submittable' {
              *
              * Clears **[`Attestations`]**, **[`CheckpointingQueues`]**, **[`AttestationRemovalQueues`]**, and
              * **[`LastDigest`]** for this `chain_key` first so stale attestations cannot contradict the patched
-             * ladder (see [`crate::pallet::Pallet::purge_attestations_for_forward_patch`]).
+             * ladder (see [`crate::pallet::Pallet::purge_attestations_for_forward_patch`]). Only one
+             * batch of attestations is cleared here; the rest drains over the following blocks, during
+             * which commits for the chain are rejected and a further patch is refused.
              *
              * Does **not** unregister attestors or alter bonding ledger entries — attestors resume committing
              * attestations after recovery.
              *
-             * When `wipe_suffix` is true, every checkpoint strictly above the batch tip is removed in this
-             * dispatch (bounded by [`crate::impls::MAX_CHECKPOINT_SUFFIX_WIPE_TOTAL`]).
+             * When `wipe_suffix` is true, every checkpoint strictly above the batch tip is removed: those in
+             * the tip's bucket here, the rest by `on_initialize` a bounded batch per block through
+             * [`CheckpointPruningStates`], like `revert_to`. Until that drains, commits for the chain are
+             * rejected and a further patch is refused.
              **/
             forwardPatchCheckpoints: AugmentedSubmittable<
                 (

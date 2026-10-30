@@ -614,6 +614,137 @@ fn register_attestor_without_sufficient_funds_should_fail_2() {
 }
 
 #[test]
+fn register_attestor_requires_funds_for_bond_and_controller_funding() {
+    ExtBuilder.build_and_execute(|| {
+        let free_balance = Attestation::get_free_balance(&STASH_3);
+
+        // Covers the bond but not the controller funding on top of it.
+        assert_ok!(Attestation::set_min_bond_requirement(
+            RuntimeOrigin::root(),
+            SUPPORTED_CHAIN_KEY,
+            free_balance
+        ));
+        let att = Attestor::new(STASH_3, ATTESTOR_1);
+        assert_noop!(
+            Attestation::register_attestor(att.stash.clone(), SUPPORTED_CHAIN_KEY, att.attestor_id),
+            Error::<Test>::InsufficientBalance
+        );
+
+        assert_ok!(Attestation::set_min_bond_requirement(
+            RuntimeOrigin::root(),
+            SUPPORTED_CHAIN_KEY,
+            free_balance - ONE_TENTH_CTC as u128
+        ));
+        assert_ok!(Attestation::register_attestor(
+            att.stash,
+            SUPPORTED_CHAIN_KEY,
+            att.attestor_id,
+        ));
+
+        // The recorded bond is fully backed by the stash balance.
+        let ledger = Ledger::<Test>::get(STASH_3).unwrap();
+        assert!(Balances::free_balance(STASH_3) >= ledger.total_staked);
+    })
+}
+
+#[test]
+fn bond_extra_never_records_a_partial_bond() {
+    ExtBuilder.build_and_execute(|| {
+        let att = Attestor::new(STASH_3, ATTESTOR_1);
+        assert_ok!(Attestation::register_attestor(
+            att.stash,
+            SUPPORTED_CHAIN_KEY,
+            att.attestor_id,
+        ));
+        let before = Ledger::<Test>::get(STASH_3).unwrap();
+
+        // Less free balance than the bond left: nothing is added to the ledger.
+        assert_ok!(Attestation::set_min_bond_requirement(
+            RuntimeOrigin::root(),
+            SUPPORTED_CHAIN_KEY,
+            Balances::free_balance(STASH_3) - before.total_staked + 1
+        ));
+        assert_noop!(
+            Attestation::bond_extra(SUPPORTED_CHAIN_KEY, &STASH_3),
+            Error::<Test>::InsufficientBalance
+        );
+        assert_eq!(
+            Ledger::<Test>::get(STASH_3).unwrap().total_staked,
+            before.total_staked
+        );
+    })
+}
+
+#[test]
+fn unregistering_settles_the_bond_recorded_at_registration() {
+    ExtBuilder.build_and_execute(|| {
+        let att = Attestor::new(STASH_1, ATTESTOR_1);
+        assert_ok!(Attestation::register_attestor(
+            att.stash.clone(),
+            SUPPORTED_CHAIN_KEY,
+            att.attestor_id,
+        ));
+        let bond = Attestation::min_bond_requirement(SUPPORTED_CHAIN_KEY);
+        assert_eq!(
+            Attestation::attestor_collateral(SUPPORTED_CHAIN_KEY, ATTESTOR_1),
+            Some(bond)
+        );
+
+        // Lowering the minimum to zero must not strand the stake.
+        assert_ok!(Attestation::set_min_bond_requirement(
+            RuntimeOrigin::root(),
+            SUPPORTED_CHAIN_KEY,
+            0
+        ));
+        assert_ok!(Attestation::unregister_attestor(
+            att.stash,
+            SUPPORTED_CHAIN_KEY,
+            att.attestor_id,
+        ));
+
+        let ledger = Ledger::<Test>::get(STASH_1).unwrap();
+        assert_eq!(ledger.active, 0);
+        assert_eq!(ledger.unlocking.iter().map(|c| c.value).sum::<u128>(), bond);
+        assert_eq!(
+            Attestation::attestor_collateral(SUPPORTED_CHAIN_KEY, ATTESTOR_1),
+            None
+        );
+    })
+}
+
+#[test]
+fn raising_the_minimum_does_not_release_a_shared_stashes_other_bonds() {
+    ExtBuilder.build_and_execute(|| {
+        let first = Attestor::new(STASH_1, ATTESTOR_1);
+        let second = Attestor::new(STASH_1, ATTESTOR_2);
+        for attestor in [&first, &second] {
+            assert_ok!(Attestation::register_attestor(
+                attestor.stash.clone(),
+                SUPPORTED_CHAIN_KEY,
+                attestor.attestor_id,
+            ));
+        }
+        let bond = Attestation::min_bond_requirement(SUPPORTED_CHAIN_KEY);
+
+        assert_ok!(Attestation::set_min_bond_requirement(
+            RuntimeOrigin::root(),
+            SUPPORTED_CHAIN_KEY,
+            bond * 10
+        ));
+        assert_ok!(Attestation::unregister_attestor(
+            first.stash,
+            SUPPORTED_CHAIN_KEY,
+            first.attestor_id,
+        ));
+
+        // Only the first attestor's own bond is released; the second stays backed.
+        let ledger = Ledger::<Test>::get(STASH_1).unwrap();
+        assert_eq!(ledger.active, bond);
+        assert_eq!(ledger.unlocking.iter().map(|c| c.value).sum::<u128>(), bond);
+    })
+}
+
+#[test]
 fn registering_multiple_attestor_increases_locked_balance() {
     ExtBuilder.build_and_execute(|| {
         let att = Attestor::new(STASH_3, ATTESTOR_1);
@@ -2814,6 +2945,74 @@ fn commit_attestation_should_error_on_oversized_continuity_proof() {
             Attestation::commit_attestation(attestor.attestor_origin, attestation),
             Error::<Test>::OversizedContinuityProof
         );
+    })
+}
+
+/// Builds a genesis attestation (no prev digest) that carries `roots` continuity roots.
+fn genesis_attestation_with_proof(
+    attestor: &Attestor,
+    roots: u64,
+) -> SignedAttestation<H256, mock::AccountId> {
+    let attestation = AttestationPrimitive {
+        chain_key: SUPPORTED_CHAIN_KEY,
+        header_number: 0,
+        header_hash: H256::random(),
+        root: H256::from([0; 32]),
+        prev_digest: None,
+    };
+    let proof = construct_fragment(None, RangeInclusive::new(1, roots));
+    assert_eq!(proof.len() as u64, roots);
+    bls_sign_attestation(vec![attestor.clone()], attestation, proof)
+}
+
+fn setup_registered_attestor() -> Attestor {
+    let attestor = Attestor::new(STASH_1, ATTESTOR_1);
+    assert_ok!(Attestation::register_attestor(
+        attestor.stash.clone(),
+        SUPPORTED_CHAIN_KEY,
+        attestor.attestor_id,
+    ));
+    assert_ok!(Attestation::attest(
+        RuntimeOrigin::signed(attestor.attestor_id),
+        SUPPORTED_CHAIN_KEY,
+        attestor.public_key,
+        attestor.signature
+    ));
+    progress_to_block(5);
+    attestor
+}
+
+#[test]
+fn commit_attestation_should_error_on_non_empty_genesis_continuity_proof() {
+    ExtBuilder.build_and_execute(|| {
+        let attestor = setup_registered_attestor();
+
+        // Below the bound (1 root), at the bound (`max(MaxCatchup, interval)` roots) and above
+        // it: dispatch rejects all of them, so no outer call shape (e.g. a `Utility` wrapper,
+        // which skips `PrevalidateAttestationCommit`) can store a genesis proof.
+        let max_roots = (MaxCatchup::<Test>::get(SUPPORTED_CHAIN_KEY) as u64)
+            .max(Attestation::chain_attestation_interval(SUPPORTED_CHAIN_KEY));
+        for roots in [1, max_roots, max_roots + 1] {
+            assert_err!(
+                Attestation::commit_attestation(
+                    attestor.attestor_origin.clone(),
+                    genesis_attestation_with_proof(&attestor, roots),
+                ),
+                Error::<Test>::OversizedContinuityProof
+            );
+        }
+        assert_eq!(Attestation::last_checkpoint(SUPPORTED_CHAIN_KEY), None);
+    })
+}
+
+#[test]
+fn commit_attestation_should_accept_genesis_with_empty_continuity_proof() {
+    ExtBuilder.build_and_execute(|| {
+        let attestor = setup_registered_attestor();
+        assert_ok!(Attestation::commit_attestation(
+            attestor.attestor_origin.clone(),
+            genesis_attestation_with_proof(&attestor, 0),
+        ));
     })
 }
 
@@ -8779,6 +8978,156 @@ fn forward_patch_checkpoints_suffix_wipe_many_checkpoints_at_once() {
 }
 
 #[test]
+fn forward_patch_wipe_suffix_drains_long_suffix_across_blocks() {
+    ExtBuilder.build_and_execute(|| {
+        let digest = |i: u64| H256::from_low_u64_be(i + 1);
+        let batch_max = CHECKPOINT_BUCKET_SIZE + 500;
+        // Well past the cap the single-dispatch wipe used to enforce.
+        let buckets_above = 41u64;
+        let per_bucket = 100u64;
+
+        // History below the tip, and entries above it in the tip's own bucket.
+        for h in (0..CHECKPOINT_BUCKET_SIZE).step_by(100) {
+            insert_checkpoint_and_bucket_entry::<Test>(SUPPORTED_CHAIN_KEY, h, digest(h));
+        }
+        for h in [batch_max, batch_max + 100, batch_max + 200] {
+            insert_checkpoint_and_bucket_entry::<Test>(SUPPORTED_CHAIN_KEY, h, digest(h));
+        }
+        let mut last_height = batch_max + 200;
+        for bucket in 2..2 + buckets_above {
+            for i in 0..per_bucket {
+                last_height = bucket * CHECKPOINT_BUCKET_SIZE + i * 10;
+                insert_checkpoint_and_bucket_entry::<Test>(
+                    SUPPORTED_CHAIN_KEY,
+                    last_height,
+                    digest(last_height),
+                );
+            }
+        }
+        LastCheckpoint::<Test>::insert(
+            SUPPORTED_CHAIN_KEY,
+            AttestationCheckpoint {
+                block_number: last_height,
+                digest: digest(last_height),
+            },
+        );
+
+        let tip_digest = H256::from([9u8; 32]);
+        let patch = vec![AttestationCheckpoint {
+            block_number: batch_max,
+            digest: tip_digest,
+        }];
+        assert_ok!(Attestation::forward_patch_checkpoints(
+            RuntimeOrigin::root(),
+            SUPPORTED_CHAIN_KEY,
+            true,
+            patch.clone().try_into().unwrap(),
+        ));
+
+        // The tip's bucket is cleaned synchronously; the rest is queued and still untrusted.
+        assert_eq!(
+            Checkpoints::<Test>::get(SUPPORTED_CHAIN_KEY, batch_max),
+            Some(tip_digest)
+        );
+        assert_eq!(
+            Checkpoints::<Test>::get(SUPPORTED_CHAIN_KEY, batch_max + 100),
+            None
+        );
+        assert_eq!(
+            CheckpointPruningStates::<Test>::get(SUPPORTED_CHAIN_KEY),
+            Some(CheckpointPruningState {
+                stop_height: last_height,
+                next_pivot: 2 * CHECKPOINT_BUCKET_SIZE,
+            })
+        );
+        assert_eq!(
+            LastCheckpoint::<Test>::get(SUPPORTED_CHAIN_KEY)
+                .unwrap()
+                .block_number,
+            batch_max
+        );
+        assert!(Checkpoints::<Test>::contains_key(
+            SUPPORTED_CHAIN_KEY,
+            last_height
+        ));
+        assert_eq!(
+            Pallet::<Test>::checkpoint_if_stable(SUPPORTED_CHAIN_KEY, last_height),
+            None
+        );
+        assert!(Pallet::<Test>::commit_blocked_by_cleanup(
+            SUPPORTED_CHAIN_KEY
+        ));
+        assert_noop!(
+            Attestation::forward_patch_checkpoints(
+                RuntimeOrigin::root(),
+                SUPPORTED_CHAIN_KEY,
+                true,
+                patch.try_into().unwrap(),
+            ),
+            Error::<Test>::CheckpointMaintenanceInProgress,
+        );
+
+        let mut blocks = 0u64;
+        while CheckpointPruningStates::<Test>::contains_key(SUPPORTED_CHAIN_KEY) {
+            progress_to_block(System::block_number() + 1);
+            blocks += 1;
+            assert!(blocks < 512, "suffix did not drain in a reasonable window");
+        }
+        // 4100 entries at `MAX_CHECKPOINTS_CLEARED_PER_BLOCK` per block cannot fit in one.
+        assert!(blocks > 100);
+
+        assert!(Checkpoints::<Test>::iter_prefix(SUPPORTED_CHAIN_KEY).all(|(h, _)| h <= batch_max));
+        assert_eq!(
+            CheckpointBuckets::<Test>::iter_prefix((SUPPORTED_CHAIN_KEY,)).count(),
+            Checkpoints::<Test>::iter_prefix(SUPPORTED_CHAIN_KEY).count()
+        );
+        for h in (0..CHECKPOINT_BUCKET_SIZE).step_by(100) {
+            assert_eq!(
+                Checkpoints::<Test>::get(SUPPORTED_CHAIN_KEY, h),
+                Some(digest(h))
+            );
+        }
+    });
+}
+
+#[test]
+fn forward_patch_wipe_suffix_within_tip_bucket_queues_no_drain() {
+    ExtBuilder.build_and_execute(|| {
+        let digest = |i: u64| H256::from_low_u64_be(i + 1);
+        for h in [100u64, 200, 300] {
+            insert_checkpoint_and_bucket_entry::<Test>(SUPPORTED_CHAIN_KEY, h, digest(h));
+        }
+        LastCheckpoint::<Test>::insert(
+            SUPPORTED_CHAIN_KEY,
+            AttestationCheckpoint {
+                block_number: 300,
+                digest: digest(300),
+            },
+        );
+
+        let patch = vec![AttestationCheckpoint {
+            block_number: 100,
+            digest: digest(100),
+        }];
+        assert_ok!(Attestation::forward_patch_checkpoints(
+            RuntimeOrigin::root(),
+            SUPPORTED_CHAIN_KEY,
+            true,
+            patch.try_into().unwrap(),
+        ));
+
+        assert!(CheckpointPruningStates::<Test>::get(SUPPORTED_CHAIN_KEY).is_none());
+        assert!(!Pallet::<Test>::commit_blocked_by_cleanup(
+            SUPPORTED_CHAIN_KEY
+        ));
+        assert_eq!(
+            Checkpoints::<Test>::iter_prefix(SUPPORTED_CHAIN_KEY).count(),
+            1
+        );
+    });
+}
+
+#[test]
 fn forward_patch_checkpoints_empty_patch_errors() {
     ExtBuilder.build_and_execute(|| {
         let empty: BoundedVec<AttestationCheckpoint, MaxCheckpointsImportedPerCall> =
@@ -8886,6 +9235,158 @@ fn forward_patch_clears_attestations_queues_and_last_digest() {
             .is_none());
         assert!(LastDigest::<Test>::get(SUPPORTED_CHAIN_KEY).is_none());
         assert!(CheckpointingQueues::<Test>::get(SUPPORTED_CHAIN_KEY).is_empty());
+    });
+}
+
+/// Seeds `count` attestation rows and runs a forward patch against committed backend storage,
+/// where `clear_prefix` only bounds the work per commit (as it does between blocks).
+fn forward_patch_with_attestations(count: u32, test_ext: &mut TestExternalities) {
+    let attestor = Attestor::new(STASH_1, ATTESTOR_1);
+    test_ext
+        .then_run(|| {
+            for i in 0..u64::from(count) {
+                let a = create_signed_attestation(
+                    vec![attestor.clone()],
+                    SUPPORTED_CHAIN_KEY,
+                    i * 10,
+                    None,
+                    None,
+                );
+                Attestations::<Test>::insert(SUPPORTED_CHAIN_KEY, a.digest(), a);
+            }
+            System::set_block_number(1);
+            Timestamp::set_timestamp(1);
+        })
+        .then_run(|| {
+            let patch = vec![AttestationCheckpoint {
+                block_number: 100,
+                digest: H256::from([9u8; 32]),
+            }];
+            assert_ok!(Attestation::forward_patch_checkpoints(
+                RuntimeOrigin::root(),
+                SUPPORTED_CHAIN_KEY,
+                false,
+                patch.try_into().unwrap(),
+            ));
+        });
+}
+
+/// Regression test: the purge used to retry the same first batch within one dispatch, so any
+/// chain with more rows than one batch failed and rolled back. It now clears one batch and
+/// drains the rest across blocks through `AttestationClearingCursors`.
+#[test]
+fn forward_patch_drains_attestations_beyond_one_batch_across_blocks() {
+    for count in [
+        MAX_ATTESTATIONS_CLEARED_PER_BLOCK - 1,
+        MAX_ATTESTATIONS_CLEARED_PER_BLOCK,
+        MAX_ATTESTATIONS_CLEARED_PER_BLOCK + 1,
+        // 128/129 are the batch size the ticketed repair used to fail at.
+        129,
+    ] {
+        let mut test_ext = ExtBuilder.build();
+        forward_patch_with_attestations(count, &mut test_ext);
+
+        // Rows beyond the first batch survive the dispatch, behind a cursor.
+        test_ext.then_run(|| {
+            let remaining = Attestations::<Test>::iter_prefix(SUPPORTED_CHAIN_KEY).count();
+            assert_eq!(
+                remaining,
+                count.saturating_sub(MAX_ATTESTATIONS_CLEARED_PER_BLOCK) as usize,
+                "count={count}"
+            );
+            assert_eq!(
+                AttestationClearingCursors::<Test>::get(SUPPORTED_CHAIN_KEY).is_some(),
+                remaining > 0,
+                "count={count}"
+            );
+            // The repaired checkpoints are in place from the start.
+            assert_eq!(
+                Checkpoints::<Test>::get(SUPPORTED_CHAIN_KEY, 100),
+                Some(H256::from([9u8; 32]))
+            );
+        });
+
+        // Each block removes at most one batch until the cursor is gone.
+        let blocks_to_drain = count.div_ceil(MAX_ATTESTATIONS_CLEARED_PER_BLOCK);
+        for block in 0..u64::from(blocks_to_drain) {
+            test_ext.run(|| progress_to_block(2 + block));
+        }
+        test_ext.run(|| {
+            assert_eq!(
+                Attestations::<Test>::iter_prefix(SUPPORTED_CHAIN_KEY).count(),
+                0,
+                "count={count}"
+            );
+            assert_eq!(
+                AttestationClearingCursors::<Test>::get(SUPPORTED_CHAIN_KEY),
+                None,
+                "count={count}"
+            );
+            assert!(!Attestation::commit_blocked_by_cleanup(SUPPORTED_CHAIN_KEY));
+        });
+    }
+}
+
+/// While the leftover rows drain, a second repair and new commits are refused, and the stale
+/// rows are not readable.
+#[test]
+fn forward_patch_is_blocked_while_its_own_attestation_drain_is_pending() {
+    let count = MAX_ATTESTATIONS_CLEARED_PER_BLOCK * 2 + 10;
+    let mut test_ext = ExtBuilder.build();
+    forward_patch_with_attestations(count, &mut test_ext);
+
+    test_ext.run(|| {
+        assert!(AttestationClearingCursors::<Test>::get(SUPPORTED_CHAIN_KEY).is_some());
+        assert!(Attestation::commit_blocked_by_cleanup(SUPPORTED_CHAIN_KEY));
+        assert!(!Attestation::attestations_stable(SUPPORTED_CHAIN_KEY));
+
+        let rows_before = Attestations::<Test>::iter_prefix(SUPPORTED_CHAIN_KEY).count();
+        let patch = vec![AttestationCheckpoint {
+            block_number: 200,
+            digest: H256::from([8u8; 32]),
+        }];
+        assert_noop!(
+            Attestation::forward_patch_checkpoints(
+                RuntimeOrigin::root(),
+                SUPPORTED_CHAIN_KEY,
+                false,
+                patch.try_into().unwrap(),
+            ),
+            Error::<Test>::CheckpointMaintenanceInProgress,
+        );
+        assert_eq!(
+            Attestations::<Test>::iter_prefix(SUPPORTED_CHAIN_KEY).count(),
+            rows_before
+        );
+    });
+}
+
+#[test]
+fn forward_patch_checkpoints_rejects_non_operator_without_clearing_attestations() {
+    let mut test_ext = ExtBuilder.build();
+    let attestor = Attestor::new(STASH_1, ATTESTOR_1);
+    test_ext.run(|| {
+        let a =
+            create_signed_attestation(vec![attestor.clone()], SUPPORTED_CHAIN_KEY, 0, None, None);
+        Attestations::<Test>::insert(SUPPORTED_CHAIN_KEY, a.digest(), a);
+
+        let patch = vec![AttestationCheckpoint {
+            block_number: 100,
+            digest: H256::from([9u8; 32]),
+        }];
+        assert_noop!(
+            Attestation::forward_patch_checkpoints(
+                RuntimeOrigin::signed(ATTESTOR_1),
+                SUPPORTED_CHAIN_KEY,
+                false,
+                patch.try_into().unwrap(),
+            ),
+            BadOrigin
+        );
+        assert_eq!(
+            Attestations::<Test>::iter_prefix(SUPPORTED_CHAIN_KEY).count(),
+            1
+        );
     });
 }
 
@@ -12593,4 +13094,193 @@ fn commit_attestation_requires_an_interval_past_the_last_height() {
             Some(second)
         );
     })
+}
+
+/// The epoch hook runs election for every supported chain and drains every pending update in a
+/// mandatory block, so its work is bounded by `MaxSupportedChains` x `MaxAttestors`. These pin the
+/// behaviour at that ceiling and check the weight it reports covers it.
+mod epoch_hook_at_maximum_state {
+    use super::*;
+    use crate::weights::WeightInfo as Weights;
+    use attestor_primitives::Attestor as AttestorRow;
+    use frame_support::weights::Weight;
+    use randomness_primitives::{OnRandomnessUpdate, OnRandomnessUpdateWeight};
+
+    const FILLER_BASE: u64 = 1_000_000;
+
+    fn max_chains() -> u32 {
+        <Test as pallet_supported_chains::Config>::MaxSupportedChains::get()
+    }
+
+    fn max_attestors() -> u32 {
+        <Test as Config>::MaxAttestationNodes::get()
+    }
+
+    /// Registers chains until the cap is reached and returns every supported chain key.
+    fn fill_chains() -> Vec<ChainKey> {
+        for chain_id in 0..u64::from(max_chains()) {
+            // The genesis chain already holds one slot, so the last registration is rejected.
+            let _ = SupportedChains::register_chain(
+                RuntimeOrigin::root(),
+                10_000 + chain_id,
+                format!("MaxStateChain{chain_id}"),
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                ChainEncodingVersion::V1,
+                None,
+            );
+        }
+        let mut chains = <Test as Config>::SupportedChains::supported_chains();
+        chains.sort_unstable();
+        chains
+    }
+
+    /// Seeds `max_attestors()` `Waiting` attestors on every chain (the per-attestor worst case: all
+    /// visited, all rewritten) and one pending value in each of the three pending maps.
+    fn fill_attestors_and_pending(chains: &[ChainKey]) {
+        for (c, chain_key) in chains.iter().enumerate() {
+            for a in 0..u64::from(max_attestors()) {
+                let id = FILLER_BASE + (c as u64) * 1_000 + a;
+                Attestors::<Test>::insert(
+                    chain_key,
+                    id,
+                    AttestorRow {
+                        bls_public_key: None,
+                        status: AttestorStatus::Waiting,
+                        stash: id,
+                    },
+                );
+            }
+            AttestorsCount::<Test>::insert(chain_key, max_attestors());
+            PendingAttestationInterval::<Test>::insert(chain_key, 7u64);
+            PendingTargetSampleSize::<Test>::insert(chain_key, 3u32);
+            PendingMaxCatchup::<Test>::insert(chain_key, 11u32);
+        }
+    }
+
+    #[test]
+    fn the_cap_is_reached_but_not_passed() {
+        ExtBuilder.build_and_execute(|| {
+            System::set_block_number(1);
+            let chains = fill_chains();
+            assert_eq!(chains.len() as u32, max_chains());
+            assert_noop!(
+                SupportedChains::register_chain(
+                    RuntimeOrigin::root(),
+                    99_999,
+                    "OneTooMany".to_string(),
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    ChainEncodingVersion::V1,
+                    None,
+                ),
+                pallet_supported_chains::Error::<Test>::TooManyChains
+            );
+        });
+    }
+
+    #[test]
+    fn epoch_transition_elects_every_chain_and_drains_every_pending_map() {
+        ExtBuilder.build_and_execute(|| {
+            System::set_block_number(1);
+            let chains = fill_chains();
+            fill_attestors_and_pending(&chains);
+
+            <Attestation as OnRandomnessUpdate>::on_new_epoch_randomness(1, [0u8; 32]);
+
+            for chain_key in &chains {
+                assert_eq!(
+                    ActiveAttestors::<Test>::get(chain_key).len() as u32,
+                    max_attestors(),
+                    "chain {chain_key} must have its whole waiting set elected"
+                );
+                assert!(Attestors::<Test>::iter_prefix(chain_key)
+                    .all(|(_, attestor)| attestor.status == AttestorStatus::Active));
+            }
+            assert_eq!(PendingAttestationInterval::<Test>::iter().count(), 0);
+            assert_eq!(PendingTargetSampleSize::<Test>::iter().count(), 0);
+            assert_eq!(PendingMaxCatchup::<Test>::iter().count(), 0);
+        });
+    }
+
+    #[test]
+    fn apply_interval_updates_reports_every_entry_it_applied() {
+        ExtBuilder.build_and_execute(|| {
+            System::set_block_number(1);
+            let chains = fill_chains();
+            fill_attestors_and_pending(&chains);
+
+            assert_eq!(
+                Attestation::apply_interval_updates(),
+                3 * chains.len() as u32
+            );
+            assert_eq!(Attestation::apply_interval_updates(), 0);
+        });
+    }
+
+    #[test]
+    fn reported_weight_is_every_chains_election_plus_the_pending_updates() {
+        ExtBuilder.build_and_execute(|| {
+            System::set_block_number(1);
+            let chains = fill_chains();
+            fill_attestors_and_pending(&chains);
+
+            let expected = chains
+                .iter()
+                .fold(Weight::zero(), |acc, _| {
+                    acc.saturating_add(Weights::<Test>::force_election(max_attestors()))
+                })
+                .saturating_add(Weights::<Test>::force_apply_updates(chains.len() as u32));
+
+            assert_eq!(
+                <Attestation as OnRandomnessUpdateWeight>::on_new_epoch_randomness_weight(),
+                expected
+            );
+        });
+    }
+
+    #[test]
+    fn reported_weight_grows_with_the_number_of_chains() {
+        ExtBuilder.build_and_execute(|| {
+            System::set_block_number(1);
+            let one_chain =
+                <Attestation as OnRandomnessUpdateWeight>::on_new_epoch_randomness_weight();
+
+            fill_chains();
+            let all_chains =
+                <Attestation as OnRandomnessUpdateWeight>::on_new_epoch_randomness_weight();
+
+            assert!(all_chains.all_gt(one_chain));
+        });
+    }
+
+    #[test]
+    fn force_apply_updates_is_charged_for_the_chains_it_may_apply() {
+        ExtBuilder.build_and_execute(|| {
+            System::set_block_number(1);
+            let few = Call::<Test>::force_apply_updates {}
+                .get_dispatch_info()
+                .call_weight;
+
+            fill_chains();
+            let many = Call::<Test>::force_apply_updates {}
+                .get_dispatch_info()
+                .call_weight;
+
+            assert!(many.all_gt(few));
+        });
+    }
+
+    #[test]
+    fn the_benchmarked_chain_range_covers_the_runtime_ceiling() {
+        assert!(max_chains() <= crate::MAX_BENCHMARKED_SUPPORTED_CHAINS);
+    }
 }

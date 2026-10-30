@@ -58,6 +58,11 @@ pub mod pallet {
     // Amount of blocks tracked in a single checkpoint bucket
     pub const CHECKPOINT_BUCKET_SIZE: u64 = 1000;
 
+    /// Largest chain count `force_election` and `force_apply_updates` are benchmarked over. The
+    /// runtime's `MaxSupportedChains` must not exceed it, or the epoch hook's weight is
+    /// extrapolated past what was measured.
+    pub const MAX_BENCHMARKED_SUPPORTED_CHAINS: u32 = 32;
+
     /// The balance type of this pallet.
     pub type BalanceOf<T> = <T as Config>::CurrencyBalance;
     pub type PositiveImbalanceOf<T> = <<T as Config>::Currency as Currency<
@@ -244,7 +249,10 @@ pub mod pallet {
         /// ones are rewritten).
         fn force_election(a: u32) -> Weight;
         fn set_max_catchup() -> Weight;
-        fn force_apply_updates() -> Weight;
+        /// `c` = chains with pending updates applied (each can carry one pending value per
+        /// map). Bounded by the supported-chains `MaxSupportedChains`, up to
+        /// [`MAX_BENCHMARKED_SUPPORTED_CHAINS`].
+        fn force_apply_updates(c: u32) -> Weight;
         fn revert_to() -> Weight;
         fn forward_patch_checkpoints() -> Weight;
     }
@@ -503,6 +511,21 @@ pub mod pallet {
     pub fn DefaultMinBondRequirement<T: Config>() -> BalanceOf<T> {
         T::DefaultMinBondRequirement::get().into()
     }
+
+    /// Stake bonded for each attestor at registration, settled on unregistration. Attestors
+    /// registered before this map existed have no entry and fall back to the current
+    /// [`MinBondRequirement`].
+    #[pallet::storage]
+    #[pallet::getter(fn attestor_collateral)]
+    pub type AttestorCollateral<T: Config> = StorageDoubleMap<
+        _,
+        Twox64Concat,
+        ChainKey,
+        Blake2_128Concat,
+        T::AccountId,
+        BalanceOf<T>,
+        OptionQuery,
+    >;
 
     /// Map from all (unlocked) "controller" accounts to info regarding staking.
     ///
@@ -951,9 +974,11 @@ pub mod pallet {
         CheckpointMaintenanceInProgress,
         /// Operator forward patch contained no checkpoints.
         EmptyCheckpointPatch,
-        /// More checkpoints sit above the patch tip than allowed by [`MAX_CHECKPOINT_SUFFIX_WIPE_TOTAL`].
+        /// No longer returned: the suffix above the patch tip is drained across blocks. Kept so
+        /// later variants keep their SCALE index.
         CheckpointSuffixWipeTooLarge,
-        /// More attestations remain on-chain than this dispatch can clear; splits/recovery tooling needed.
+        /// No longer returned: leftover attestations are drained across blocks. Kept so later
+        /// variants keep their SCALE index.
         TooManyAttestationsForForwardPatchClear,
         // Continuity proof `roots` exceeds `max_catchup * attestation_interval`.
         // Defends `validate_attestation_continuity` against an attacker feeding an unbounded
@@ -1650,7 +1675,7 @@ pub mod pallet {
         /// and max catchup values for all supported chains without waiting
         /// for the next epoch boundary.
         #[pallet::call_index(27)]
-        #[pallet::weight(<T as Config>::WeightInfo::force_apply_updates())]
+        #[pallet::weight(<T as Config>::WeightInfo::force_apply_updates(T::SupportedChains::supported_chains_count()))]
         pub fn force_apply_updates(origin: OriginFor<T>) -> DispatchResult {
             T::OperatorsOrigin::ensure_origin(origin)?;
 
@@ -1701,13 +1726,17 @@ pub mod pallet {
         ///
         /// Clears **[`Attestations`]**, **[`CheckpointingQueues`]**, **[`AttestationRemovalQueues`]**, and
         /// **[`LastDigest`]** for this `chain_key` first so stale attestations cannot contradict the patched
-        /// ladder (see [`crate::pallet::Pallet::purge_attestations_for_forward_patch`]).
+        /// ladder (see [`crate::pallet::Pallet::purge_attestations_for_forward_patch`]). Only one
+        /// batch of attestations is cleared here; the rest drains over the following blocks, during
+        /// which commits for the chain are rejected and a further patch is refused.
         ///
         /// Does **not** unregister attestors or alter bonding ledger entries — attestors resume committing
         /// attestations after recovery.
         ///
-        /// When `wipe_suffix` is true, every checkpoint strictly above the batch tip is removed in this
-        /// dispatch (bounded by [`crate::impls::MAX_CHECKPOINT_SUFFIX_WIPE_TOTAL`]).
+        /// When `wipe_suffix` is true, every checkpoint strictly above the batch tip is removed: those in
+        /// the tip's bucket here, the rest by `on_initialize` a bounded batch per block through
+        /// [`CheckpointPruningStates`], like `revert_to`. Until that drains, commits for the chain are
+        /// rejected and a further patch is refused.
         #[pallet::call_index(29)]
         #[pallet::weight(<T as Config>::WeightInfo::forward_patch_checkpoints())]
         pub fn forward_patch_checkpoints(

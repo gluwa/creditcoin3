@@ -303,6 +303,7 @@ impl pallet_supported_chains::Config for Runtime {
     type ChainRegistrationHandler = Attestation;
     type DefaultMaturityStrategy = DefaultMaturityStrategy;
     type OperatorsOrigin = frame_system::EnsureRoot<AccountId>;
+    type MaxSupportedChains = frame_support::traits::ConstU32<32>;
 }
 
 pub const SLASHING_DISABLING_FACTOR: usize = 3;

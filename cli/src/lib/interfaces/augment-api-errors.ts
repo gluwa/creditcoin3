@@ -69,7 +69,8 @@ declare module '@polkadot/api-base/types/errors' {
              **/
             CheckpointMaintenanceInProgress: AugmentedError<ApiType>;
             /**
-             * More checkpoints sit above the patch tip than allowed by [`MAX_CHECKPOINT_SUFFIX_WIPE_TOTAL`].
+             * No longer returned: the suffix above the patch tip is drained across blocks. Kept so
+             * later variants keep their SCALE index.
              **/
             CheckpointSuffixWipeTooLarge: AugmentedError<ApiType>;
             CheckpointTargetNotFound: AugmentedError<ApiType>;
@@ -171,7 +172,8 @@ declare module '@polkadot/api-base/types/errors' {
              **/
             TooManyAttestations: AugmentedError<ApiType>;
             /**
-             * More attestations remain on-chain than this dispatch can clear; splits/recovery tooling needed.
+             * No longer returned: leftover attestations are drained across blocks. Kept so later
+             * variants keep their SCALE index.
              **/
             TooManyAttestationsForForwardPatchClear: AugmentedError<ApiType>;
             /**
@@ -1017,6 +1019,11 @@ declare module '@polkadot/api-base/types/errors' {
              * archivers is due, and a no-op write would call for a restart that is not needed.
              **/
             MaturityStrategyUnchanged: AugmentedError<ApiType>;
+            /**
+             * [`Config::MaxSupportedChains`] chains are already registered. Remove one before
+             * registering another.
+             **/
+            TooManyChains: AugmentedError<ApiType>;
             /**
              * Generic error
              **/
