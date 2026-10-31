@@ -96,7 +96,8 @@ jobs:
           # This workflow sets the build environment (CXXFLAGS, toolchain setup), and it also
           # holds the workspace-opt-level override generation, which the key covers only
           # through this hash. If that generation moves into a script, add the script here.
-          SELF=$(git ls-files -s -- .github/workflows/build-native.yml | sha256sum | cut -c1-12)
+          # The pinned compiler installer also affects the generated build inputs.
+          SELF=$(git ls-files -s -- .github/workflows/build-native.yml .github/install-protoc.sh | sha256sum | cut -c1-12)
           OPTS=$(printf '%s' "$BUILD_OPTIONS" | sha256sum | cut -c1-12)
           echo "key=native-bins-v1-${RUNNER_OS}-${RUNNER_ARCH}-${OPTS}-${SELF}-${SOURCES}" >> "$GITHUB_OUTPUT"
 
@@ -110,9 +111,7 @@ jobs:
 
       - name: Install protobuf
         if: ${{ steps.bin-cache.outputs.cache-hit != 'true' }}
-        uses: arduino/setup-protoc@v3
-        with:
-          repo-token: ${{ secrets.GITHUB_TOKEN }}
+        run: bash .github/install-protoc.sh
 
       - name: Install libclang
         if: ${{ steps.bin-cache.outputs.cache-hit != 'true' }}

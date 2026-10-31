@@ -8,6 +8,8 @@ pub struct Config {
     pub(crate) url_eth: RpcSecret,
     pub(crate) url_cc3: RpcSecret,
     pub(crate) secret: AttestorSecret,
+    /// Optional source-chain family. `None` defaults to Ethereum for every chain ID.
+    pub(crate) eth_chain_family: Option<eth::ChainFamily>,
     /// Cap on source-chain RPC requests per second. `None` leaves requests unpaced.
     #[default(None)]
     pub(crate) eth_rps: Option<std::num::NonZeroU32>,

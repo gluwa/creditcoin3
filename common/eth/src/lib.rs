@@ -1,11 +1,14 @@
 use alloy::{
     consensus::{
-        proofs::{calculate_receipt_root, calculate_transaction_root},
-        Block as ConsensusBlock, ReceiptEnvelope, Transaction as ConsensusTransaction, TxEnvelope,
+        proofs::ordered_trie_root_with_encoder, Block as ConsensusBlock, ReceiptEnvelope,
+        Transaction as ConsensusTransaction, TxEnvelope,
     },
-    eips::eip2718::Decodable2718,
+    eips::eip2718::{Decodable2718, Encodable2718 as _},
     hex::ToHexExt,
-    network::{Ethereum, EthereumWallet},
+    network::{
+        AnyHeader, AnyNetwork, AnyReceiptEnvelope, AnyRpcBlock, AnyRpcHeader, AnyRpcTransaction,
+        AnyTransactionReceipt, AnyTxEnvelope, Ethereum, EthereumWallet,
+    },
     primitives::{keccak256, BlockHash, Bytes, TxHash},
     providers::{
         ext::DebugApi,
@@ -24,6 +27,7 @@ use alloy::{
             ConversionError, Log as RpcLog, Transaction, TransactionReceipt,
         },
     },
+    serde::WithOtherFields,
     signers::{k256::ecdsa::SigningKey, local::PrivateKeySigner},
     transports::{http::reqwest::Url, ws::WebSocketConfig, TransportErrorKind},
 };
@@ -44,10 +48,15 @@ use utils::block_item_traits::BlockItem;
 
 pub use alloy::core::primitives::Address;
 
+pub mod chain_family;
 pub mod continuity;
 pub mod evm;
 pub mod maturity;
 pub mod mem_block_cache;
+pub mod op_stack;
+
+pub use chain_family::ChainFamily;
+pub use op_stack::DepositTransaction;
 pub mod pacer;
 
 pub use maturity::{BlockTag, Maturity};
@@ -68,6 +77,28 @@ pub enum Error {
     TransactionsReceiptsMismatch(u64),
     #[error("Not full transactions fetched for block {0}")]
     NotFullTransactionsFetched(u64),
+    #[error(
+        "Block {block} contains a type {ty:#x} transaction which the `{family}` chain family does \
+         not support (hint: OP-Stack chains such as Base need the `op-stack` chain family)"
+    )]
+    UnsupportedTransactionType {
+        block: u64,
+        ty: u8,
+        family: ChainFamily,
+    },
+    #[error("Block {block}: receipt type {receipt_ty:#x} does not match transaction type {tx_ty:#x} at index {index}")]
+    ReceiptTypeMismatch {
+        block: u64,
+        index: usize,
+        tx_ty: u8,
+        receipt_ty: u8,
+    },
+    #[error("Block {block}: {0}", .source)]
+    Deposit {
+        block: u64,
+        #[source]
+        source: op_stack::DepositError,
+    },
     #[error(
         "Receipts for block {number} carry block hash {receipts:?} but the fetched block is {block:?} \
          (the two RPC calls were answered from different sides of a reorg)"
@@ -128,6 +159,14 @@ pub enum Error {
         provider: String,
         mode: BlockFetchMode,
         cause: Box<Error>,
+    },
+    /// The configured fetch mode cannot serve the configured chain family. Raw RLP is decoded
+    /// with alloy's Ethereum envelopes, which reject the `0x7e` deposit every OP-Stack block
+    /// opens with; such chains need the JSON fetch mode.
+    #[error("{mode} block fetch mode is not supported for the {family} chain family")]
+    FetchModeFamilyUnsupported {
+        mode: BlockFetchMode,
+        family: ChainFamily,
     },
 }
 
@@ -196,6 +235,8 @@ impl Error {
             Error::BlockHeaderRootsMismatch(_)
                 | Error::TransactionsReceiptsMismatch(_)
                 | Error::NotFullTransactionsFetched(_)
+                | Error::ReceiptTypeMismatch { .. }
+                | Error::Deposit { .. }
                 | Error::ReceiptsBlockMismatch { .. }
         )
     }
@@ -230,13 +271,18 @@ impl Error {
     /// stores a block's bytes once, so a decode or sender-recovery failure repeats on every
     /// attempt. A block fetch still tries the other endpoints, but stops once every endpoint
     /// failed this way, and callers should fail rather than reconnect and fetch it again.
+    /// A chain-family misconfiguration ([`Error::UnsupportedTransactionType`],
+    /// [`Error::FetchModeFamilyUnsupported`]) is the same: every block of an OP-Stack source
+    /// opens with a deposit, so an Ethereum-family client fails on each of them.
     pub fn is_unrecoverable(&self) -> bool {
         use alloy::transports::RpcError;
         match self {
             Error::RawBlockDecode(..)
             | Error::RawReceiptDecode(..)
             | Error::SenderRecovery(..)
-            | Error::FetchModeUnsupported { .. } => true,
+            | Error::FetchModeUnsupported { .. }
+            | Error::FetchModeFamilyUnsupported { .. }
+            | Error::UnsupportedTransactionType { .. } => true,
             Error::EthError(RpcError::ErrorResp(payload)) => {
                 payload.code == JSON_RPC_METHOD_NOT_FOUND
             }
@@ -251,6 +297,7 @@ impl Error {
             | Error::TransactionsReceiptsMismatch(n)
             | Error::NotFullTransactionsFetched(n)
             | Error::ReceiptsBlockMismatch { number: n, .. } => Some(*n),
+            Error::ReceiptTypeMismatch { block, .. } | Error::Deposit { block, .. } => Some(*block),
             _ => None,
         }
     }
@@ -309,50 +356,144 @@ pub fn anyhow_chain_inconsistent_block_number_hint(err: &anyhow::Error) -> Optio
     })
 }
 
+/// One (transaction, receipt) pair of a source block: the unit the attestor merkleizes.
+///
+/// Which variant a block yields depends on the chain's [`ChainFamily`]: Ethereum-family chains
+/// only ever produce [`TxRx::Ethereum`]; OP-Stack chains additionally produce
+/// [`TxRx::OpDeposit`] for their `0x7e` deposit transactions.
 #[derive(Debug, Clone)]
-pub struct TxRx {
-    tx: Transaction,
-    rx: TransactionReceipt,
-    encoding: EncodingVersion,
+pub enum TxRx {
+    /// A standard Ethereum transaction (types `0x0`–`0x4`) and its receipt.
+    ///
+    /// Both variants box their payloads: alloy's transaction and receipt types are ~1 KiB inline,
+    /// a block holds one `TxRx` per transaction, and keeping the enum small keeps `Vec<TxRx>`
+    /// moves and clones cheap.
+    Ethereum {
+        tx: Box<Transaction>,
+        rx: Box<TransactionReceipt>,
+        encoding: EncodingVersion,
+    },
+    /// An OP-Stack deposit transaction (type `0x7e`) and its receipt.
+    OpDeposit {
+        tx: Box<op_stack::DepositTransaction>,
+        /// `gas_used` is canonicalized from authenticated cumulative receipt gas by
+        /// [`OrderedBlock::try_from_fetched_block`], never copied from RPC metadata.
+        rx: Box<TransactionReceipt<AnyReceiptEnvelope<RpcLog>>>,
+        deposit_fields: op_stack::DepositReceiptFields,
+        encoding: EncodingVersion,
+    },
 }
 
 impl TxRx {
+    /// Build an Ethereum-family pair. Kept for callers that already hold alloy `Ethereum`
+    /// types; block fetching goes through [`OrderedBlock::try_from_fetched_block`].
     pub fn try_create(
         tx: Transaction,
         rx: TransactionReceipt,
         encoding: EncodingVersion,
     ) -> Result<Self, ConversionError> {
-        Ok(Self { tx, rx, encoding })
+        Ok(Self::Ethereum {
+            tx: Box::new(tx),
+            rx: Box::new(rx),
+            encoding,
+        })
     }
 
-    pub fn tx(&self) -> &Transaction {
-        &self.tx
+    /// The Ethereum transaction, if this is a standard (non-deposit) pair.
+    pub fn eth_tx(&self) -> Option<&Transaction> {
+        match self {
+            Self::Ethereum { tx, .. } => Some(tx),
+            Self::OpDeposit { .. } => None,
+        }
     }
 
-    pub fn rx(&self) -> &TransactionReceipt {
-        &self.rx
+    /// The Ethereum receipt, if this is a standard (non-deposit) pair.
+    pub fn eth_rx(&self) -> Option<&TransactionReceipt> {
+        match self {
+            Self::Ethereum { rx, .. } => Some(rx),
+            Self::OpDeposit { .. } => None,
+        }
+    }
+
+    /// The deposit transaction, if this is an OP-Stack deposit pair.
+    pub fn deposit(&self) -> Option<&op_stack::DepositTransaction> {
+        match self {
+            Self::Ethereum { .. } => None,
+            Self::OpDeposit { tx, .. } => Some(tx),
+        }
     }
 
     pub fn tx_hash(&self) -> BlockHash {
-        self.tx.tx_hash()
+        match self {
+            Self::Ethereum { tx, .. } => tx.tx_hash(),
+            Self::OpDeposit { tx, .. } => tx.hash,
+        }
+    }
+
+    /// EIP-2718 type byte of the transaction (`0` for legacy).
+    pub fn tx_type_byte(&self) -> u8 {
+        match self {
+            Self::Ethereum { tx, .. } => tx.inner.tx_type() as u8,
+            Self::OpDeposit { .. } => op_stack::DEPOSIT_TX_TYPE,
+        }
+    }
+
+    /// Encode the transaction as it goes into the header's `transactionsRoot` trie.
+    fn encode_tx_2718(&self, out: &mut Vec<u8>) {
+        match self {
+            Self::Ethereum { tx, .. } => tx.inner.encode_2718(out),
+            Self::OpDeposit { tx, .. } => tx.encode_2718(out),
+        }
+    }
+
+    /// Encode the receipt as it goes into the header's `receiptsRoot` trie.
+    fn encode_rx_2718(&self, out: &mut Vec<u8>) -> Result<(), op_stack::DepositError> {
+        match self {
+            Self::Ethereum { rx, .. } => {
+                rx.inner.clone().into_primitives_receipt().encode_2718(out);
+                Ok(())
+            }
+            Self::OpDeposit {
+                tx,
+                rx,
+                deposit_fields,
+                ..
+            } => op_stack::encode_deposit_receipt_2718(&rx.inner, *deposit_fields, tx.hash, out),
+        }
     }
 }
 
 impl BlockItem for TxRx {
     fn payload_bytes(&self) -> Vec<u8> {
-        usc_abi_encoding::abi::abi_encode(self.tx().clone(), self.rx().clone(), self.encoding)
-            .expect("Transaction and receipt should be encodable.")
-            .abi()
-            .to_vec()
+        match self {
+            Self::Ethereum { tx, rx, encoding } => {
+                usc_abi_encoding::abi::abi_encode((**tx).clone(), (**rx).clone(), *encoding)
+                    .expect("Transaction and receipt should be encodable.")
+                    .abi()
+                    .to_vec()
+            }
+            // The deposit leaf layout is versioned alongside V1 (additive: types 0–4 are
+            // byte-identical). Matching exhaustively on `encoding` makes a future encoding
+            // version a compile error here instead of a silently V1-shaped deposit leaf.
+            Self::OpDeposit {
+                tx, rx, encoding, ..
+            } => match encoding {
+                EncodingVersion::V1 => op_stack::abi_encode_deposit_leaf(tx, rx)
+                    .expect("Deposit transaction and receipt should be encodable."),
+            },
+        }
     }
 
     fn tx_type(&self) -> Option<u8> {
-        match self.tx.inner.clone() {
-            TxEnvelope::Legacy(_) => None,
-            TxEnvelope::Eip2930(_) => Some(1),
-            TxEnvelope::Eip1559(_) => Some(2),
-            TxEnvelope::Eip4844(_) => Some(3),
-            TxEnvelope::Eip7702(_) => Some(4),
+        match self {
+            Self::Ethereum { tx, .. } => match tx.inner {
+                TxEnvelope::Legacy(_) => None,
+                TxEnvelope::Eip2930(_) => Some(1),
+                TxEnvelope::Eip1559(_) => Some(2),
+                TxEnvelope::Eip4844(_) => Some(3),
+                TxEnvelope::Eip7702(_) => Some(4),
+            },
+            Self::OpDeposit { .. } => Some(op_stack::DEPOSIT_TX_TYPE),
         }
     }
 }
@@ -375,14 +516,19 @@ const ETHEREUM_MAINNET_CHAIN_ID: u64 = 1;
 const ETHEREUM_BYZANTIUM_BLOCK: u64 = 4_370_000;
 
 impl OrderedBlock {
-    /// Builds an [`OrderedBlock`] from RPC-fetched [`Block`] and receipts. Verifies that
+    /// Builds an [`OrderedBlock`] from RPC-fetched `AnyNetwork` block and receipts. Verifies that
     /// recomputed transaction and receipt Merkle roots match the header (so a reorg between
     /// `eth_getBlockByNumber` and `eth_getBlockReceipts` cannot produce a mismatched attestation).
     /// Sorts transactions and receipts by `transaction_index` once.
+    ///
+    /// `family` decides which transaction types are admitted and how deposits are handled; see
+    /// [`ChainFamily`]. A transaction type the family does not support is a hard
+    /// [`Error::UnsupportedTransactionType`] — a misconfigured chain family, not a flaky peer.
     pub fn try_from_fetched_block(
         chain_id: u64,
-        block: Block,
-        mut receipts: Vec<TransactionReceipt>,
+        family: ChainFamily,
+        block: AnyRpcBlock,
+        mut receipts: Vec<AnyTransactionReceipt>,
         expected_number: u64,
         encoding: EncodingVersion,
     ) -> Result<Self, Error> {
@@ -438,7 +584,9 @@ impl OrderedBlock {
             return Err(Error::TransactionsReceiptsMismatch(expected_number));
         }
 
-        let mut txs: Vec<Transaction> = block.transactions.into_transactions().collect();
+        let header = block.header.clone();
+        let mut txs: Vec<AnyRpcTransaction> =
+            block.inner.transactions.into_transactions().collect();
 
         if txs.iter().any(|t| t.transaction_index.is_none()) {
             return Err(Error::NotFullTransactionsFetched(expected_number));
@@ -450,9 +598,18 @@ impl OrderedBlock {
         txs.sort_by_key(|tx| tx.transaction_index);
         receipts.sort_by_key(|rx| rx.transaction_index);
 
-        let tx_inners: Vec<_> = txs.iter().map(|t| t.inner.clone()).collect();
-        let computed_tx_root = calculate_transaction_root(&tx_inners);
-        if computed_tx_root != block.header.transactions_root {
+        let mut items = txs
+            .into_iter()
+            .zip(receipts)
+            .enumerate()
+            .map(|(index, (tx, rx))| {
+                Self::pair_into_item(family, expected_number, index, tx, rx, encoding)
+            })
+            .collect::<Result<Vec<TxRx>, Error>>()?;
+
+        let computed_tx_root =
+            ordered_trie_root_with_encoder(&items, |item, buf| item.encode_tx_2718(buf));
+        if computed_tx_root != header.transactions_root {
             return Err(Error::BlockHeaderRootsMismatch(expected_number));
         }
 
@@ -461,8 +618,9 @@ impl OrderedBlock {
         // so a recomputed receipt root will not match the canonical header root even though the body
         // is consistent. Skip only the receipt-root check for that range; the transaction-root check
         // above still guards against reorg-induced cross-fetch mismatches.
-        let skip_receipt_root =
-            chain_id == ETHEREUM_MAINNET_CHAIN_ID && expected_number < ETHEREUM_BYZANTIUM_BLOCK;
+        let skip_receipt_root = family == ChainFamily::Ethereum
+            && chain_id == ETHEREUM_MAINNET_CHAIN_ID
+            && expected_number < ETHEREUM_BYZANTIUM_BLOCK;
 
         if skip_receipt_root {
             trace!(
@@ -470,23 +628,49 @@ impl OrderedBlock {
                 "Skipping receipt root check for pre-Byzantium Ethereum mainnet block"
             );
         } else {
-            let inner_receipts: Vec<_> = receipts
-                .iter()
-                .map(|r| r.clone().into_primitives_receipt().inner)
-                .collect();
-            let computed_receipt_root = calculate_receipt_root(&inner_receipts);
-
-            if computed_receipt_root != block.header.receipts_root {
+            let mut receipt_err: Option<op_stack::DepositError> = None;
+            let computed_receipt_root = ordered_trie_root_with_encoder(&items, |item, buf| {
+                if let Err(e) = item.encode_rx_2718(buf) {
+                    receipt_err.get_or_insert(e);
+                }
+            });
+            if let Some(source) = receipt_err {
+                return Err(Error::Deposit {
+                    block: expected_number,
+                    source,
+                });
+            }
+            if computed_receipt_root != header.receipts_root {
                 return Err(Error::BlockHeaderRootsMismatch(expected_number));
             }
         }
 
-        let items = txs
-            .into_iter()
-            .zip(receipts.into_iter())
-            .map(|tx_rx| TxRx::try_create(tx_rx.0, tx_rx.1, encoding))
-            .collect::<Result<Vec<_>, _>>()
-            .map_err(Error::TransactionConversion)?;
+        // RPC `gasUsed` is not part of receiptsRoot. Deposits must use the difference
+        // between consecutive authenticated cumulative gas values before building a leaf.
+        // This also preserves pre-Regolith accounting: system deposits contribute zero,
+        // while user deposits contribute their entire gas limit. Do not infer the fork
+        // from unauthenticated `depositNonce` metadata.
+        let mut previous_cumulative_gas_used = 0;
+        for item in &mut items {
+            let cumulative_gas_used = match item {
+                TxRx::Ethereum { rx, .. } => rx.inner.cumulative_gas_used(),
+                TxRx::OpDeposit { tx, rx, .. } => {
+                    let cumulative = rx.inner.cumulative_gas_used();
+                    rx.gas_used = cumulative.checked_sub(previous_cumulative_gas_used).ok_or(
+                        Error::Deposit {
+                            block: expected_number,
+                            source: op_stack::DepositError::DecreasingCumulativeGas {
+                                hash: tx.hash,
+                                previous: previous_cumulative_gas_used,
+                                cumulative,
+                            },
+                        },
+                    )?;
+                    cumulative
+                }
+            };
+            previous_cumulative_gas_used = cumulative_gas_used;
+        }
 
         Ok(Self {
             chain_id,
@@ -495,6 +679,87 @@ impl OrderedBlock {
             items,
         })
     }
+
+    /// Turn one sorted (tx, receipt) pair into a [`TxRx`] according to `family`.
+    fn pair_into_item(
+        family: ChainFamily,
+        block: u64,
+        index: usize,
+        tx: AnyRpcTransaction,
+        rx: AnyTransactionReceipt,
+        encoding: EncodingVersion,
+    ) -> Result<TxRx, Error> {
+        let receipt_ty = rx.inner.inner.r#type;
+        match tx.inner.inner {
+            AnyTxEnvelope::Ethereum(envelope) => {
+                let tx_ty = envelope.tx_type() as u8;
+                if receipt_ty != tx_ty {
+                    return Err(Error::ReceiptTypeMismatch {
+                        block,
+                        index,
+                        tx_ty,
+                        receipt_ty,
+                    });
+                }
+                let tx = Transaction {
+                    inner: envelope,
+                    block_hash: tx.inner.block_hash,
+                    block_number: tx.inner.block_number,
+                    transaction_index: tx.inner.transaction_index,
+                    effective_gas_price: tx.inner.effective_gas_price,
+                    from: tx.inner.from,
+                };
+                let rx = rx.inner.map_inner(|any| {
+                    let inner = any.inner;
+                    match any.r#type {
+                        1 => ReceiptEnvelope::Eip2930(inner),
+                        2 => ReceiptEnvelope::Eip1559(inner),
+                        3 => ReceiptEnvelope::Eip4844(inner),
+                        4 => ReceiptEnvelope::Eip7702(inner),
+                        // Type equality with the tx was checked above, so this is 0.
+                        _ => ReceiptEnvelope::Legacy(inner),
+                    }
+                });
+                Ok(TxRx::Ethereum {
+                    tx: Box::new(tx),
+                    rx: Box::new(rx),
+                    encoding,
+                })
+            }
+            AnyTxEnvelope::Unknown(ref unknown) => {
+                let ty = unknown.inner.ty.0;
+                if !family.supports_tx_type(ty) {
+                    return Err(Error::UnsupportedTransactionType { block, ty, family });
+                }
+                // The only non-Ethereum type any family admits today is the OP-Stack deposit.
+                debug_assert_eq!(ty, op_stack::DEPOSIT_TX_TYPE);
+                if receipt_ty != ty {
+                    return Err(Error::ReceiptTypeMismatch {
+                        block,
+                        index,
+                        tx_ty: ty,
+                        receipt_ty,
+                    });
+                }
+                let deposit_fields =
+                    op_stack::DepositReceiptFields::from_other_fields(&rx.other, unknown.hash)
+                        .map_err(|source| Error::Deposit { block, source })?;
+                let deposit = op_stack::DepositTransaction::try_from_unknown(
+                    unknown,
+                    tx.inner.from,
+                    deposit_fields,
+                )
+                .map_err(|source| Error::Deposit { block, source })?;
+                Ok(TxRx::OpDeposit {
+                    tx: Box::new(deposit),
+                    rx: Box::new(rx.inner),
+                    deposit_fields,
+                    encoding,
+                })
+            }
+        }
+    }
+
     pub fn chain_id(&self) -> u64 {
         self.chain_id
     }
@@ -671,7 +936,44 @@ pub fn rpc_block_from_raw(
     Ok((rpc_block, receipts))
 }
 
-type AlloyProvider = FillProvider<ExeFiller, RootProvider<Ethereum>, Ethereum>;
+/// Lifts the Ethereum-typed pair the raw-RLP decoder yields into the [`AnyNetwork`] shapes the
+/// block pipeline consumes. Raw RLP is decoded with alloy's Ethereum envelopes, so every
+/// transaction becomes [`AnyTxEnvelope::Ethereum`] and every receipt keeps its EIP-2718 type tag.
+pub fn ethereum_pair_into_any(
+    block: Block,
+    receipts: Vec<TransactionReceipt>,
+) -> (AnyRpcBlock, Vec<AnyTransactionReceipt>) {
+    let block = block
+        .map_header(|header| RpcHeader {
+            hash: header.hash,
+            inner: AnyHeader::from(header.inner),
+            total_difficulty: header.total_difficulty,
+            size: header.size,
+        })
+        .map_transactions(|tx| WithOtherFields::new(tx.map(AnyTxEnvelope::Ethereum)));
+    let receipts = receipts
+        .into_iter()
+        .map(|receipt| {
+            WithOtherFields::new(receipt.map_inner(|envelope| {
+                let r#type = envelope.tx_type() as u8;
+                let inner = match envelope {
+                    ReceiptEnvelope::Legacy(r)
+                    | ReceiptEnvelope::Eip2930(r)
+                    | ReceiptEnvelope::Eip1559(r)
+                    | ReceiptEnvelope::Eip4844(r)
+                    | ReceiptEnvelope::Eip7702(r) => r,
+                };
+                AnyReceiptEnvelope { inner, r#type }
+            }))
+        })
+        .collect();
+    (WithOtherFields::new(block), receipts)
+}
+
+/// Read-side provider. Typed on [`AnyNetwork`] so blocks of every supported [`ChainFamily`] parse:
+/// alloy's `Ethereum` network rejects any transaction type outside `0x0`–`0x4`, which would make
+/// every OP-Stack block (each opens with a `0x7e` deposit) fail to deserialize.
+type AlloyProvider = FillProvider<ExeFiller, RootProvider<AnyNetwork>, AnyNetwork>;
 pub type AlloyB256 = BlockHash;
 
 /// What one provider said about the candidate block in [`Client::get_block_by_tag`].
@@ -774,6 +1076,9 @@ pub struct Client {
     // what chain id is implied here? Maybe need to define internal chain ids for different attestation chains
     // and not rely on ethereum chain ids?
     chain_id: u64,
+    /// Execution-layer dialect of the source chain. Defaults to Ethereum unless configured with
+    /// [`Client::with_chain_family`]. Preserved across [`Client::reconnect`].
+    family: ChainFamily,
     /// Optional in-process cache of finalized blocks (opt-in via [`Client::with_block_cache`]).
     /// `None` = no caching (default). Survives [`Client::reconnect`] since cached finalized
     /// blocks are immutable.
@@ -845,14 +1150,14 @@ impl Client {
                 let transport = Http::with_client(http_client, url.clone());
                 let is_local = guess_local_url(url.as_str());
                 ProviderBuilder::new()
-                    .network::<Ethereum>()
+                    .network::<AnyNetwork>()
                     .on_client(AlloyRpcClient::new(transport, is_local))
             }
 
             "ws" | "wss" => {
                 let ws = ws_connect(url.clone());
                 ProviderBuilder::new()
-                    .network::<Ethereum>()
+                    .network::<AnyNetwork>()
                     .on_ws(ws)
                     .await?
             }
@@ -884,12 +1189,48 @@ impl Client {
             rpc_provider,
             fallback_providers: Vec::new(),
             chain_id,
+            family: ChainFamily::default(),
             mem_cache: None,
             call_timeout: DEFAULT_CALL_TIMEOUT,
             fallback_urls: Vec::new(),
             pacer: std::sync::Arc::new(pacer::Pacer::unlimited()),
             fetch_mode: BlockFetchMode::default(),
         })
+    }
+
+    /// Set the source [`ChainFamily`]. All OP-Stack chains require explicit configuration,
+    /// including Base and OP Mainnet; chain IDs never select a family automatically.
+    #[must_use]
+    pub fn with_chain_family(self, family: ChainFamily) -> Self {
+        self.with_chain_family_override(Some(family))
+    }
+
+    /// Apply operator configuration, or restore the Ethereum default when it is omitted.
+    /// The selected family is retained across reconnects for primary and fallback providers.
+    #[must_use]
+    pub fn with_chain_family_override(mut self, family: Option<ChainFamily>) -> Self {
+        let resolved = family.unwrap_or_default();
+        if resolved != self.family {
+            info!(
+                chain_id = self.chain_id,
+                previous = %self.family,
+                configured = %resolved,
+                "🔧 Configuring source-chain family"
+            );
+            // Clones may share a cache populated under the previous family. Detach it so
+            // resetting to Ethereum cannot return cached deposit blocks from an OP client.
+            self.mem_cache = self
+                .mem_cache
+                .as_ref()
+                .map(|cache| std::sync::Arc::new(cache.empty_with_same_capacity()));
+        }
+        self.family = resolved;
+        self
+    }
+
+    /// The [`ChainFamily`] this client reads blocks with.
+    pub fn chain_family(&self) -> ChainFamily {
+        self.family
     }
 
     /// Enable an in-process [`MemBlockCache`](mem_block_cache::MemBlockCache) holding up to
@@ -994,6 +1335,7 @@ impl Client {
             rpc_provider,
             fallback_providers,
             chain_id,
+            family: ChainFamily::default(),
             mem_cache: None,
             call_timeout: DEFAULT_CALL_TIMEOUT,
             fallback_urls: fallback_urls.to_vec(),
@@ -1314,6 +1656,7 @@ impl Client {
                     Ok((block, receipts)) => {
                         match OrderedBlock::try_from_fetched_block(
                             self.chain_id,
+                            self.family,
                             block,
                             receipts,
                             number,
@@ -1487,7 +1830,7 @@ impl Client {
         &self,
         provider: &AlloyProvider,
         number: u64,
-    ) -> Result<(Block, Vec<TransactionReceipt>), Error> {
+    ) -> Result<(AnyRpcBlock, Vec<AnyTransactionReceipt>), Error> {
         let block_id = BlockId::Number(BlockNumberOrTag::Number(number));
         let block_fut = async {
             self.pacer.acquire().await;
@@ -1512,15 +1855,24 @@ impl Client {
         &self,
         provider: &AlloyProvider,
         number: u64,
-    ) -> Result<(Block, Vec<TransactionReceipt>), Error> {
+    ) -> Result<(AnyRpcBlock, Vec<AnyTransactionReceipt>), Error> {
         match self.fetch_mode {
             BlockFetchMode::Json => {
                 self.fetch_block_and_receipts_from_provider(provider, number)
                     .await
             }
             BlockFetchMode::RawRlp => {
+                // The raw decoder only knows Ethereum envelopes; refuse up front instead of
+                // reporting an opaque RLP decode failure on the first 0x7e deposit.
+                if self.family != ChainFamily::Ethereum {
+                    return Err(Error::FetchModeFamilyUnsupported {
+                        mode: self.fetch_mode,
+                        family: self.family,
+                    });
+                }
                 self.fetch_raw_block_and_receipts_from_provider(provider, number)
                     .await
+                    .map(|(block, receipts)| ethereum_pair_into_any(block, receipts))
             }
         }
     }
@@ -1579,14 +1931,16 @@ impl Client {
         Ok(block)
     }
 
+    /// Subscribe to new heads. Headers are the `AnyNetwork` flavour; `header.number` and friends
+    /// are reachable through `Deref` exactly as with the Ethereum header type.
     pub async fn subscribe(
         &self,
-    ) -> std::result::Result<alloy::pubsub::SubscriptionStream<alloy::rpc::types::Header>, Error>
-    {
+    ) -> std::result::Result<alloy::pubsub::SubscriptionStream<AnyRpcHeader>, Error> {
         Ok(self.rpc_provider.subscribe_blocks().await?.into_stream())
     }
 
-    pub async fn get_eth_block(&self, number: u64) -> Result<Block, Error> {
+    /// Fetch a full block (with transactions) without receipt pairing or root verification.
+    pub async fn get_eth_block(&self, number: u64) -> Result<AnyRpcBlock, Error> {
         let providers = self.providers_with_labels();
         let mut got_definitive_none = false;
         let mut errors: Vec<(String, Error)> = Vec::new();
@@ -2379,6 +2733,29 @@ mod error_classifier_tests {
         assert!(Error::BlockHeaderRootsMismatch(42).inconsistent_block_payload_for_fallback());
         assert!(Error::TransactionsReceiptsMismatch(42).inconsistent_block_payload_for_fallback());
         assert!(Error::NotFullTransactionsFetched(42).inconsistent_block_payload_for_fallback());
+        for error in [
+            Error::ReceiptTypeMismatch {
+                block: 42,
+                index: 0,
+                tx_ty: 126,
+                receipt_ty: 2,
+            },
+            Error::Deposit {
+                block: 42,
+                source: super::op_stack::DepositError::ReceiptMissingNonce {
+                    hash: Default::default(),
+                },
+            },
+        ] {
+            assert!(error.inconsistent_block_payload_for_fallback());
+            assert_eq!(error.inconsistent_block_number_hint(), Some(42));
+            let wrapped = anyhow::Error::new(error).context("fetch source block");
+            assert!(super::anyhow_chain_is_inconsistent_block_payload(&wrapped));
+            assert_eq!(
+                super::anyhow_chain_inconsistent_block_number_hint(&wrapped),
+                Some(42)
+            );
+        }
     }
 
     #[test]
@@ -2469,6 +2846,100 @@ mod error_classifier_tests {
 }
 
 #[cfg(test)]
+mod chain_family_block_tests {
+    //! End-to-end check of the block pipeline on a real OP-Stack block: parse, pair, recompute
+    //! both header roots, and build leaves. Uses the Base Sepolia fixture shared with
+    //! [`crate::op_stack`]'s tests.
+    use super::*;
+
+    const BLOCK_JSON: &str = include_str!("../tests/fixtures/base_sepolia_46388021_block.json");
+    const RECEIPTS_JSON: &str =
+        include_str!("../tests/fixtures/base_sepolia_46388021_receipts.json");
+    const BLOCK_NUMBER: u64 = 46_388_021;
+
+    fn fixture() -> (AnyRpcBlock, Vec<AnyTransactionReceipt>) {
+        (
+            serde_json::from_str(BLOCK_JSON).expect("block fixture parses as AnyRpcBlock"),
+            serde_json::from_str(RECEIPTS_JSON).expect("receipts fixture parses"),
+        )
+    }
+
+    #[test]
+    fn op_stack_family_verifies_roots_and_builds_leaves_for_base_block() {
+        let (block, receipts) = fixture();
+        let ordered = OrderedBlock::try_from_fetched_block(
+            chain_family::BASE_SEPOLIA_CHAIN_ID,
+            ChainFamily::OpStack,
+            block,
+            receipts,
+            BLOCK_NUMBER,
+            EncodingVersion::V1,
+        )
+        .expect("deposit-aware root recomputation matches the header");
+
+        assert_eq!(ordered.number(), BLOCK_NUMBER);
+        assert_eq!(ordered.items().len(), 11);
+        // Index 0 is the L1-attributes deposit; the rest are plain Ethereum types.
+        assert!(ordered.items()[0].deposit().is_some());
+        assert_eq!(ordered.items()[0].tx_type(), Some(0x7e));
+        assert!(ordered.items()[1..].iter().all(|i| i.eth_tx().is_some()));
+
+        // Every item yields a leaf and the block merkleizes.
+        let leaves: Vec<Vec<u8>> = ordered.items().iter().map(|i| i.to_bytes()).collect();
+        assert!(leaves.iter().all(|l| !l.is_empty()));
+        let _root = simple_merkle_tree(&ordered).root();
+    }
+
+    #[test]
+    fn ethereum_family_rejects_base_block_with_a_clear_error() {
+        let (block, receipts) = fixture();
+        let err = OrderedBlock::try_from_fetched_block(
+            chain_family::BASE_SEPOLIA_CHAIN_ID,
+            ChainFamily::Ethereum,
+            block,
+            receipts,
+            BLOCK_NUMBER,
+            EncodingVersion::V1,
+        )
+        .unwrap_err();
+        assert!(
+            matches!(
+                err,
+                Error::UnsupportedTransactionType {
+                    block: BLOCK_NUMBER,
+                    ty: 0x7e,
+                    family: ChainFamily::Ethereum,
+                }
+            ),
+            "{err}"
+        );
+        // Not a per-peer inconsistency: switching RPC endpoints would not help.
+        assert!(!err.inconsistent_block_payload_for_fallback());
+    }
+
+    #[test]
+    fn tampered_deposit_receipt_fails_the_receipt_root_check() {
+        let (block, mut receipts) = fixture();
+        // Flip cumulative gas on the deposit receipt: the tx root still matches, the receipt
+        // root must not.
+        receipts[0].inner.inner.inner.receipt.cumulative_gas_used += 1;
+        let err = OrderedBlock::try_from_fetched_block(
+            chain_family::BASE_SEPOLIA_CHAIN_ID,
+            ChainFamily::OpStack,
+            block,
+            receipts,
+            BLOCK_NUMBER,
+            EncodingVersion::V1,
+        )
+        .unwrap_err();
+        assert!(
+            matches!(err, Error::BlockHeaderRootsMismatch(BLOCK_NUMBER)),
+            "{err}"
+        );
+    }
+}
+
+#[cfg(test)]
 mod error_classification_tests {
     use super::*;
 
@@ -2546,6 +3017,17 @@ mod error_classification_tests {
         assert!(Error::RawBlockDecode(7, "unexpected end".into()).is_unrecoverable());
         assert!(Error::RawReceiptDecode(7, 0, "unexpected end".into()).is_unrecoverable());
         assert!(Error::SenderRecovery(7, 0, "bad signature".into()).is_unrecoverable());
+        assert!(Error::UnsupportedTransactionType {
+            block: 7,
+            ty: 0x7e,
+            family: ChainFamily::Ethereum,
+        }
+        .is_unrecoverable());
+        assert!(Error::FetchModeFamilyUnsupported {
+            mode: BlockFetchMode::RawRlp,
+            family: ChainFamily::OpStack,
+        }
+        .is_unrecoverable());
     }
 
     #[test]
@@ -2593,7 +3075,9 @@ mod raw_rlp_tests {
     use super::*;
     use alloy::{
         consensus::{
-            BlockBody, Header as ConsensusHeader, Receipt, SignableTransaction, TxEip1559, TxLegacy,
+            proofs::{calculate_receipt_root, calculate_transaction_root},
+            BlockBody, Header as ConsensusHeader, Receipt, SignableTransaction, TxEip1559,
+            TxLegacy,
         },
         eips::eip2718::Encodable2718,
         primitives::{address, Log as PrimitiveLog, LogData, TxKind, B256, U256},
@@ -2815,8 +3299,10 @@ mod raw_rlp_tests {
             withdrawals: None,
         };
 
+        let (json_block, json_receipts) = ethereum_pair_into_any(json_block, json_receipts);
         let via_json = OrderedBlock::try_from_fetched_block(
             CHAIN_ID,
+            ChainFamily::Ethereum,
             json_block,
             json_receipts,
             number,
@@ -2825,8 +3311,10 @@ mod raw_rlp_tests {
         .unwrap();
         let (rpc_block, rpc_receipts) =
             rpc_block_from_raw(number, &raw_block, &raw_receipts).unwrap();
+        let (rpc_block, rpc_receipts) = ethereum_pair_into_any(rpc_block, rpc_receipts);
         let via_raw = OrderedBlock::try_from_fetched_block(
             CHAIN_ID,
+            ChainFamily::Ethereum,
             rpc_block,
             rpc_receipts,
             number,
