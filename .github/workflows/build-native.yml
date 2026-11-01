@@ -103,7 +103,7 @@ jobs:
       - name: Restore binaries built from the same sources
         id: bin-cache
         if: ${{ steps.bin-key.outputs.key != '' }}
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@v6
         with:
           path: ${{ env.NATIVE_OUTPUTS }}
           key: ${{ steps.bin-key.outputs.key }}
@@ -181,7 +181,7 @@ jobs:
 
       - name: Restore the wasm build
         if: ${{ steps.bin-cache.outputs.cache-hit != 'true' }}
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@v6
         with:
           path: target/*/wbuild
           key: ${{ steps.wasm-key.outputs.key }}
@@ -243,14 +243,14 @@ jobs:
 
       - name: Save the wasm build
         if: ${{ steps.bin-cache.outputs.cache-hit != 'true' && github.event_name != 'pull_request' && github.ref_type != 'tag' }}
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@v6
         with:
           path: target/*/wbuild
           key: ${{ steps.wasm-key.outputs.key }}
 
       - name: Save the binaries for identical source trees
         if: ${{ inputs.reuse-binaries && steps.bin-cache.outputs.cache-hit != 'true' && github.event_name != 'pull_request' && github.ref_type != 'tag' }}
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@v6
         with:
           path: ${{ env.NATIVE_OUTPUTS }}
           key: ${{ steps.bin-key.outputs.key }}
@@ -274,7 +274,7 @@ jobs:
       - name: Restore subxt binary
         id: subxt-cache
         if: ${{ inputs.build-subxt }}
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ~/.cargo/bin/subxt
           key: subxt-cli-0.44.3-${{ runner.os }}-${{ runner.arch }}-${{ env.RUSTC_VERSION }}
