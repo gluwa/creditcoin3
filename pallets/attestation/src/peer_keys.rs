@@ -34,12 +34,14 @@ impl<T: Config> Pallet<T> {
             &controller.encode(),
             &public_key,
         );
+        // `verify_strict`, as in the ed25519-verifier precompile: the host function's cofactored
+        // check accepts a trivial proof for small-order keys that nobody controls.
         ensure!(
-            sp_io::crypto::ed25519_verify(
-                &sp_core::ed25519::Signature::from_raw(proof),
-                &message,
-                &sp_core::ed25519::Public::from_raw(public_key),
-            ),
+            ed25519_dalek::VerifyingKey::from_bytes(&public_key)
+                .and_then(|key| {
+                    key.verify_strict(&message, &ed25519_dalek::Signature::from_bytes(&proof))
+                })
+                .is_ok(),
             Error::<T>::InvalidPeerKeyProof
         );
         ensure!(
@@ -303,6 +305,41 @@ mod tests {
                         SUPPORTED_CHAIN_KEY,
                         key.public().0,
                         key.sign(&message).0,
+                        None,
+                    ),
+                    Error::<Test>::InvalidPeerKeyProof
+                );
+            }
+        });
+    }
+
+    /// The 8 small-order ed25519 points (compressed), as in the ed25519-verifier precompile tests.
+    const SMALL_ORDER_POINTS: [[u8; 32]; 8] = [
+        hex_literal::hex!("0000000000000000000000000000000000000000000000000000000000000000"),
+        hex_literal::hex!("0100000000000000000000000000000000000000000000000000000000000000"),
+        hex_literal::hex!("ecffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7f"),
+        hex_literal::hex!("eeffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7f"),
+        hex_literal::hex!("0000000000000000000000000000000000000000000000000000000000000080"),
+        hex_literal::hex!("0100000000000000000000000000000000000000000000000000000000000080"),
+        hex_literal::hex!("26e8958fc2b227b045c3f489f2ef98f0d5dfac05d3c63339b13802886d53fc05"),
+        hex_literal::hex!("c7176a703d4dd84fba3c0b760d10670f2a2053fa2c39ccc64ec7fd7792ac037a"),
+    ];
+
+    #[test]
+    fn small_order_key_cannot_be_registered_without_a_private_key() {
+        ExtBuilder.build_and_execute(|| {
+            register(STASH_1, ATTESTOR_1);
+            // R = identity, S = 0 satisfies the cofactored check for any small-order key and
+            // message, so it proves nothing about possession.
+            let mut forged = [0u8; 64];
+            forged[0] = 1;
+            for public in SMALL_ORDER_POINTS {
+                assert_noop!(
+                    Attestation::set_attestor_peer_key(
+                        RuntimeOrigin::signed(ATTESTOR_1),
+                        SUPPORTED_CHAIN_KEY,
+                        public,
+                        forged,
                         None,
                     ),
                     Error::<Test>::InvalidPeerKeyProof
