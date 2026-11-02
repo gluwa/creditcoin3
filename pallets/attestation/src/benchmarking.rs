@@ -596,7 +596,8 @@ mod benchmarks {
             DEV_CHAIN_KEY,
             controller.clone()
         ));
-        // Rotation takes the maximum storage-write path.
+        // Rotation takes the maximum storage-write path. The proof is checked in WASM with
+        // `verify_strict`, not a host call, so this benchmark prices the curve arithmetic too.
         // Use the benchmark host's keystore so WASM does not enable native full_crypto.
         let old = sp_io::crypto::ed25519_generate(PEER_KEY_TYPE, None).0;
         AttestorPeerKeys::<T>::insert(DEV_CHAIN_KEY, &controller, old);
