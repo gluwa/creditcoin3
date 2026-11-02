@@ -33,7 +33,7 @@ mod anvil_integration {
         let signer = PrivateKeySigner::from(anvil.keys()[0].clone());
         let provider = ProviderBuilder::new()
             .wallet(EthereumWallet::from(signer))
-            .on_http(url);
+            .connect_http(url);
 
         let from = anvil.addresses()[0];
         let to = Address::ZERO;

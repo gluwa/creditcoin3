@@ -1,9 +1,9 @@
 use anyhow::Result;
 use async_trait::async_trait;
 
+use attestcoin_query_builder::abi::{models::QueryBuilderError, query_builder::AbiProvider};
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
-use usc_query_builder::abi::{models::QueryBuilderError, query_builder::AbiProvider};
 
 use crate::Network;
 

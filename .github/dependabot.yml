@@ -64,6 +64,7 @@ updates:
       - "/common/prometheus"
       - "/common/indexer-client"
       - "/common/builder"
+      - "/common/write-ability"
       - "/common/streams/eth"
       - "/common/streams/cc3"
       - "/common/streams/attestation"
@@ -124,6 +125,8 @@ updates:
       - "/docs/smart-contract-development/with-ethers.js"
       - "/scripts"
       - "/scripts/changelog-warnings"
+      - "/usc-messaging"
+      - "/usc-messaging/contracts"
     groups:
       # The @polkadot/* packages must move in lockstep: bumping only some of them installs two
       # copies of @polkadot/types and the cli stops type-checking. Listed first so it takes

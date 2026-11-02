@@ -20,6 +20,11 @@ name: CI
         description: Run the nightly attestor-network soak instead of the PR suites
         type: boolean
         default: false
+      writeability-e2e:
+        # checkov:skip=CKV_GHA_7:Selects an existing testing suite and refreshes its native artifact.
+        description: Build testing binaries and run writability E2E, even without a PR diff
+        type: boolean
+        default: false
 
 concurrency:
   group: ${{ github.ref }}-${{ github.workflow }}
@@ -36,6 +41,7 @@ jobs:
       # The nightly or dispatched soak: one definition, which every soak check reads.
       soak: ${{ steps.mode.outputs.soak }}
       changes: ${{ steps.filter.outputs.changes }}
+      writeability_e2e: ${{ steps.mode.outputs.soak != 'true' && (steps.mode.outputs.writeability_e2e == 'true' || steps.filter.outputs.writeability_e2e == 'true') }}
       archiver: ${{ steps.mode.outputs.soak != 'true' && steps.filter.outputs.archiver || 'false' }}
       attestor_cli_testing: ${{ steps.mode.outputs.soak != 'true' && steps.filter.outputs.attestor_cli_testing || 'false' }}
       attestor_network_testing: ${{ steps.mode.outputs.soak == 'true' && 'true' || steps.filter.outputs.attestor_network_testing }}
@@ -54,7 +60,14 @@ jobs:
         id: mode
         env:
           SOAK: ${{ github.event_name == 'schedule' || inputs.soak }}
-        run: echo "soak=${SOAK}" >> "$GITHUB_OUTPUT"
+          WRITEABILITY_E2E: ${{ github.event_name == 'workflow_dispatch' && inputs.writeability-e2e }}
+        run: |
+          if [[ "$SOAK" == true && "$WRITEABILITY_E2E" == true ]]; then
+            echo "::error::Select either soak or writability E2E; the builds use different optimization levels."
+            exit 1
+          fi
+          echo "soak=${SOAK}" >> "$GITHUB_OUTPUT"
+          echo "writeability_e2e=${WRITEABILITY_E2E}" >> "$GITHUB_OUTPUT"
 
       - uses: actions/checkout@v7
 
@@ -90,6 +103,25 @@ jobs:
             # those are built from outside its own directories: node/**, the root manifest,
             # the lockfile (a dependency bump can change RPC or EVM behaviour without touching
             # a crate here) and the toolchain.
+            writeability_e2e:
+              - "attestor/**"
+              - "common/**"
+              - "usc-messaging/**"
+              - "pallets/supported-chains/**"
+              - "pallets/attestation/**"
+              - "precompiles/chain-info/**"
+              - "primitives/supported-chains/**"
+              - "runtime/**"
+              - "node/**"
+              - "Cargo.toml"
+              - "Cargo.lock"
+              - "rust-toolchain.toml"
+              - ".github/workflows/ci.yml"
+              - ".github/workflows/write-ability-e2e.yml"
+              - ".github/workflows/build-native.yml"
+              - ".github/scripts/testing-artifact.py"
+              - ".github/scripts/test_testing_artifact.py"
+              - ".github/actions/install-foundry/**"
             archiver:
               - "archiver/**"
               - "common/**"
@@ -282,6 +314,10 @@ jobs:
               - ".github/workflows/ci.yml"
               - ".github/workflows/build-native.yml"
 
+      - name: Test native artifact provenance validation
+        if: ${{ steps.mode.outputs.writeability_e2e == 'true' || steps.filter.outputs.writeability_e2e == 'true' }}
+        run: python3 -m unittest discover -s .github/scripts -p test_testing_artifact.py -v
+
       - name: Devnet ENV
         id: devnet-env
         run: |
@@ -296,7 +332,7 @@ jobs:
     needs:
       - should-run
     # Any matching filter needs the binaries, the extrinsics check among them.
-    if: ${{ needs.should-run.outputs.changes != '[]' || needs.should-run.outputs.soak == 'true' }}
+    if: ${{ needs.should-run.outputs.changes != '[]' || needs.should-run.outputs.soak == 'true' || needs.should-run.outputs.writeability_e2e == 'true' }}
     uses: ./.github/workflows/build-native.yml
     with:
       build-options: "--release --features=fast-runtime"
@@ -311,6 +347,16 @@ jobs:
       # binaries build-cache.yml made from the same sources on dev. The soaks build at the
       # release level, which build-cache.yml does not save, so they compile and save nothing.
       reuse-binaries: ${{ needs.should-run.outputs.soak != 'true' }}
+    secrets: inherit
+
+  writeability-e2e:
+    needs: [should-run, build-creditcoin-node-for-testing-ci]
+    if: ${{ needs.should-run.outputs.writeability_e2e == 'true' }}
+    uses: ./.github/workflows/write-ability-e2e.yml
+    with:
+      creditcoin-ref: ${{ needs.build-creditcoin-node-for-testing-ci.outputs.native-source-sha }}
+      creditcoin-run-id: ${{ github.run_id }}
+      creditcoin-artifact-id: ${{ needs.build-creditcoin-node-for-testing-ci.outputs.native-artifact-id }}
     secrets: inherit
 
   integration-test-check-extrinsics:
@@ -415,7 +461,7 @@ jobs:
           ls -lh anvil10k_blocks.json
 
       - name: Install Foundry
-        uses: foundry-rs/foundry-toolchain@v1
+        uses: ./.github/actions/install-foundry
         with:
           # Pinned: v1.6.x changed the anvil --dump-state JSON format,
           # which breaks --load-state on the existing anvil10k_blocks.json
@@ -532,13 +578,12 @@ jobs:
         uses: actions/setup-node@v7
         with:
           node-version: 24
-          cache: 'npm'
+          cache: "npm"
           cache-dependency-path: |
             attestor/scripts/package.json
             checkpoint-verifier/yarn.lock
             cli/yarn.lock
       - run: npm install -g yarn
-
       - name: Install Solidity compiler
         run: |
           sudo .github/install-solidity-compiler.sh
@@ -889,10 +934,14 @@ jobs:
         run: |
           # This test deliberately restarts the eth (anvil) WebSocket node to exercise recovery,
           # so the archiver logs "connection reset by peer" / "connection refused" as it drops and
-          # reconnects — benign, expected transport noise. Two sources emit it during that window:
-          #   * the alloy WS consumer itself, under alloy_transport_ws / alloy_pubsub; and
+          # reconnects — benign, expected transport noise. Several sources emit it during that window:
+          #   * the alloy WS consumer itself, under alloy_transport_ws / alloy_pubsub;
           #   * stream_eth's reconnect path, which logs "Eth connection error" wrapping the same
-          #     "IO error: Connection reset by peer (os error 104)" / "... refused (os error 111)".
+          #     "IO error: Connection reset by peer (os error 104)" / "... refused (os error 111)";
+          #     and
+          #   * archiver's own root-stream reconnect loop (main.rs), which retries
+          #     `eth::Client::new` on a backoff and logs each failed attempt as "failed to connect
+          #     WS client: ..." wrapping the same underlying IO error while anvil is still down.
           # Killing anvil mid-connection also surfaces one step *above* the socket layer: when the
           # peer vanishes without sending a WS close frame, tungstenite reports the protocol error
           # "Connection reset without closing handshake" instead of a raw os error, and
@@ -910,7 +959,7 @@ jobs:
           # everywhere else (e.g. the archiver-testing job, which never restarts eth). Any other
           # error from those sources still fails the gate; functional correctness is asserted
           # separately (checkpoint compare).
-          export ERROR_ALLOWLIST='(alloy_transport_ws|alloy_pubsub|stream_eth|Eth connection error|Creditcoin reconnect failed).*(Connection reset by peer \(os error 104\)|Connection refused \(os error 111\)|Connection reset without closing handshake)'
+          export ERROR_ALLOWLIST='(alloy_transport_ws|alloy_pubsub|stream_eth|Eth connection error|failed to connect WS client|Creditcoin reconnect failed).*(Connection reset by peer \(os error 104\)|Connection refused \(os error 111\)|Connection reset without closing handshake)'
           .github/check-logs-for-error.sh /var/tmp/integration-test-attestor-network/archiver.log
 
       - name: Check attestor logs for errors
@@ -927,7 +976,24 @@ jobs:
           # deliberately kill the CC3 node and Anvil, and riding those out loudly is the
           # designed behavior — the gate is for everything else (task failures, submission
           # errors, invalid event mappings).
-          ALLOWLIST='Failed to reconnect to CC3|Reconnected but at_latest failed|connection (error|lost)|Subscription error while fetching next block|Failed to start finalized-block subscription|ping failed'
+          # The last three entries are the write-ability resolver riding out those same deliberate
+          # outages: its periodic ERROR escalation ("still failing after prolonged retrying"), the
+          # restart-to-rebuild path after a sustained failure budget ("N consecutive times"), and
+          # alloy's close-frame notice when the ws endpoint is bounced. All three are designed
+          # loud-recovery behavior during the induced outages, not faults.
+          # Deliberately NOT allowlisted: "outbox poll stalled". The Outbox listener used to die on
+          # a sustained stall and surface here as a `task failed` ERROR, which this gate waved
+          # through. It now rebuilds its provider in place at WARN level, so any ERROR carrying that
+          # phrase again is a regression the gate must catch.
+          ALLOWLIST='Failed to reconnect to CC3|Reconnected but at_latest failed|connection (error|lost)|Subscription error while fetching next block|Failed to start finalized-block subscription|ping failed|Outbox resolution still failing after prolonged retrying|Outbox resolution failed [0-9]+ consecutive times|Received close frame'
+          # Same family, new in alloy >=1.0: 0.11 sent keepalive pings but never tracked the
+          # reply, so an unresponsive-but-open socket went unnoticed. 1.6 added an
+          # `expecting_pong` watchdog (alloy-transport-ws native.rs:219) that errors and
+          # recycles the connection when the previous ping is unanswered after the 10s
+          # keepalive interval. Anvil and the CC3 node routinely stall past that under CI load,
+          # so the attestors log it while reconnecting normally. Scoped to the alloy transport
+          # that emits it, so the same message from anywhere else still fails the gate.
+          ALLOWLIST="$ALLOWLIST"'|WS server missed a pong.*alloy_transport_ws'
           shopt -s nullglob
           LOGS=(./logs/attestor-*.json.*)
           if [ "${#LOGS[@]}" -eq 0 ]; then
@@ -1080,7 +1146,7 @@ jobs:
         uses: actions/setup-node@v7
         with:
           node-version: 24
-          cache: 'yarn'
+          cache: "yarn"
           cache-dependency-path: cli/yarn.lock
       - run: npm install -g yarn
 
@@ -1231,7 +1297,7 @@ jobs:
         uses: actions/setup-node@v7
         with:
           node-version: 24
-          cache: 'yarn'
+          cache: "yarn"
           cache-dependency-path: cli/yarn.lock
       - run: npm install -g yarn
 
@@ -1249,7 +1315,7 @@ jobs:
             --base-path ./alice-data >/var/tmp/integration-test-blockchain/creditcoin3-node.log 2>&1 &
 
       - name: Install Foundry
-        uses: foundry-rs/foundry-toolchain@v1
+        uses: ./.github/actions/install-foundry
         with:
           # Pinned: v1.6.x changed the anvil --dump-state JSON format,
           # which breaks --load-state on the existing anvil10k_blocks.json
@@ -1362,6 +1428,9 @@ jobs:
             1:pallets/supported-chains/register-chain
             1:pallets/supported-chains/register-chain-roster-limits
             1:pallets/supported-chains/remove-chain
+            1:pallets/supported-chains/set-core-fee
+            1:pallets/supported-chains/set-outbox-factory-addr
+            1:pallets/supported-chains/set-write-ability-config
             2:block-hash-block-param
             2:danger-will-brick-the-blockchain
             2:eth-estimate-gas-shortcut
@@ -1489,7 +1558,7 @@ jobs:
         uses: actions/setup-node@v7
         with:
           node-version: 24
-          cache: 'npm'
+          cache: "npm"
           cache-dependency-path: docs/smart-contract-development/with-hardhat/package-lock.json
 
       - name: Install dependencies
@@ -1549,7 +1618,7 @@ jobs:
           .github/wait-for-creditcoin.sh 'http://127.0.0.1:9944'
 
       - name: Install Foundry
-        uses: foundry-rs/foundry-toolchain@v1
+        uses: ./.github/actions/install-foundry
         with:
           # Pinned: v1.6.x changed the anvil --dump-state JSON format,
           # which breaks --load-state on the existing anvil10k_blocks.json
@@ -1697,7 +1766,7 @@ jobs:
             --base-path ./alice-data >/var/tmp/cc3-indexer-testing/creditcoin3-node.log 2>&1 &
 
       - name: Install Foundry
-        uses: foundry-rs/foundry-toolchain@v1
+        uses: ./.github/actions/install-foundry
         with:
           # Pinned: v1.6.x changed the anvil --dump-state JSON format,
           # which breaks --load-state on the existing anvil10k_blocks.json
@@ -1725,7 +1794,7 @@ jobs:
         uses: actions/setup-node@v7
         with:
           node-version: 24
-          cache: 'yarn'
+          cache: "yarn"
           cache-dependency-path: |
             cc3-indexer/yarn.lock
             cli/yarn.lock
@@ -1974,7 +2043,7 @@ jobs:
           ./.github/wait-for-creditcoin.sh 'http://127.0.0.1:9944'
 
       - name: Install Foundry
-        uses: foundry-rs/foundry-toolchain@v1
+        uses: ./.github/actions/install-foundry
         with:
           # Pinned: v1.6.x changed the anvil --dump-state JSON format,
           # which breaks --load-state on the existing anvil10k_blocks.json
@@ -1991,7 +2060,7 @@ jobs:
         uses: actions/setup-node@v7
         with:
           node-version: 24
-          cache: 'yarn'
+          cache: "yarn"
           cache-dependency-path: cli/yarn.lock
       - run: npm install -g yarn
 
@@ -2098,7 +2167,7 @@ jobs:
         uses: actions/setup-node@v7
         with:
           node-version: 24
-          cache: 'yarn'
+          cache: "yarn"
           cache-dependency-path: cli/yarn.lock
       - run: npm install -g yarn
 
@@ -2368,7 +2437,7 @@ jobs:
             --base-path ./alice-data >/var/tmp/archiver-testing/creditcoin3-node.log 2>&1 &
 
       - name: Install Foundry
-        uses: foundry-rs/foundry-toolchain@v1
+        uses: ./.github/actions/install-foundry
         with:
           # Pinned: v1.6.x changed the anvil --dump-state JSON format,
           # which breaks --load-state on the existing anvil10k_blocks.json
@@ -2391,7 +2460,7 @@ jobs:
         uses: actions/setup-node@v7
         with:
           node-version: 24
-          cache: 'yarn'
+          cache: "yarn"
           cache-dependency-path: cli/yarn.lock
 
       - name: Run native token transfers in background

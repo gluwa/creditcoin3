@@ -33,6 +33,8 @@ pub enum RemovedChainCleanupPhase {
     RetiredKeys,
     BlsKeyOwners,
     Invulnerables,
+    EvmAddresses,
+    EvmAddressOwners,
 }
 
 #[derive(Encode, Decode, Clone, PartialEq, Eq, RuntimeDebug, TypeInfo, MaxEncodedLen)]
@@ -199,7 +201,7 @@ impl<T: Config> Pallet<T> {
     pub(crate) fn removal_cleanup_step_weight() -> Weight {
         let items = u64::from(MAX_REMOVAL_CLEANUP_ITEMS_PER_BLOCK);
         T::DbWeight::get().reads_writes(
-            items.saturating_mul(3).saturating_add(6),
+            items.saturating_mul(3).saturating_add(8),
             items.saturating_mul(3).saturating_add(1),
         )
     }
@@ -260,9 +262,25 @@ impl<T: Config> Pallet<T> {
                 }
                 RemovedChainCleanupPhase::Invulnerables => {
                     let cleared = Invulnerables::<T>::clear_prefix(chain_key, budget, None);
+                    budget = budget.saturating_sub(cleared.unique);
+                    if cleared.maybe_cursor.is_some() {
+                        return Some(RemovedChainCleanupPhase::Invulnerables);
+                    }
+                    RemovedChainCleanupPhase::EvmAddresses
+                }
+                RemovedChainCleanupPhase::EvmAddresses => {
+                    let cleared = AttestorEvmAddress::<T>::clear_prefix(chain_key, budget, None);
+                    budget = budget.saturating_sub(cleared.unique);
+                    if cleared.maybe_cursor.is_some() {
+                        return Some(RemovedChainCleanupPhase::EvmAddresses);
+                    }
+                    RemovedChainCleanupPhase::EvmAddressOwners
+                }
+                RemovedChainCleanupPhase::EvmAddressOwners => {
+                    let cleared = EvmAddressOwner::<T>::clear_prefix(chain_key, budget, None);
                     return cleared
                         .maybe_cursor
-                        .map(|_| RemovedChainCleanupPhase::Invulnerables);
+                        .map(|_| RemovedChainCleanupPhase::EvmAddressOwners);
                 }
             };
         }

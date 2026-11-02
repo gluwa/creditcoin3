@@ -7,6 +7,7 @@ name: typescript-checks
     paths:
       - '**.ts'
       - '**.js'
+      - '**.cjs'
       - '**.json'
       - '**package.json'
       - '**package-lock.json'
@@ -35,6 +36,9 @@ jobs:
           # note: add also in .github/hooks/pre-commit
           [cc3-indexer, cli, docs/smart-contract-development/with-hardhat, scripts, scripts/changelog-warnings, checkpoint-verifier]
         command: [lint, typecheck, check-format]
+        include:
+          - directory: cc3-indexer
+            command: test:outbox-authorization
 
     steps:
       - uses: actions/checkout@v7

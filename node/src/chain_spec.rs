@@ -26,6 +26,8 @@ use creditcoin3_runtime::{
     RuntimeGenesisConfig, SS58Prefix, SessionConfig, Signature, StakingConfig,
     SupportedChainsConfig, WASM_BINARY,
 };
+// Writability
+use write_ability::protocol::chain_key_to_bytes32;
 
 // The URL for the telemetry server.
 // const STAGING_TELEMETRY_URL: &str = "wss://telemetry.polkadot.io/submit/";
@@ -336,6 +338,12 @@ fn asc_devnet_genesis() -> RuntimeGenesisConfig {
         // Chains are registered after launch by the runbook, not baked into genesis.
         supported_chains: SupportedChainsConfig {
             supported_chains: vec![],
+            // Write-ability state follows the chains: registered post-genesis through
+            // `set_write_ability_config`, `set_outbox_factory_addr` and
+            // `set_outbox_discovery_addr` once each chain and its contracts exist.
+            write_ability_configs: vec![],
+            outbox_factories: vec![],
+            outbox_discoveries: vec![],
             _phantom: Default::default(),
         },
         ..devnet_genesis(
@@ -540,6 +548,21 @@ fn devnet_genesis(
                     MATURITY_EVM_SAFE.to_string(),
                 ),
             ],
+            write_ability_configs: vec![
+                (1, *chain_key_to_bytes32(1), true),
+                (2, *chain_key_to_bytes32(2), true),
+                (3, *chain_key_to_bytes32(3), true),
+                (4, *chain_key_to_bytes32(4), true),
+                (5, *chain_key_to_bytes32(5), true),
+                (6, *chain_key_to_bytes32(6), true),
+            ],
+            // Left empty on purpose: factories are registered post-genesis via
+            // `set_outbox_factory_addr` once deployed (the extrinsic rejects zero addresses, so
+            // seeding zeros here would create entries that look registered but are invalid).
+            outbox_factories: vec![],
+            // Same reasoning as `outbox_factories`: registered post-genesis via
+            // `set_outbox_discovery_addr` once the registry contract is deployed.
+            outbox_discoveries: vec![],
             _phantom: Default::default(),
         },
         operators: Default::default(),
@@ -687,6 +710,9 @@ fn testnet_genesis(
                     MATURITY_EVM_SAFE.to_string(),
                 ),
             ],
+            write_ability_configs: Default::default(),
+            outbox_factories: Default::default(),
+            outbox_discoveries: Default::default(),
             _phantom: Default::default(),
         },
         operators: Default::default(),

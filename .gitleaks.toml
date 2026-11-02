@@ -14,9 +14,28 @@ paths = [
     '''cli/src/test''',
     # Chain specs: "key" fields (e.g. sudo) are SS58 addresses, not API secrets
     '''chainspecs/.*\.json$''',
+    # Public bridge-UI runtime config, served verbatim to browsers: contains only
+    # public contract addresses and RPC URLs (flagged hits were contract addresses).
+    '''usc-messaging/bridge-ui/public/bridge-config\.json$''',
 ]
 regexes = [
     # Well-known public dev node key (Alice). Not a secret; used across CI
     # workflows to get a deterministic local bootnode peer id.
     '''d182d503b7dd97e7c055f33438c7717145840fd66b2a055284ee8d768241a463''',
+    # Anvil/Hardhat dev account #0 — the canonical, universally published local-EVM
+    # test key (address 0xf39F...2266). Used in .env.example / example configs only.
+    '''ac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80''',
+    # "Alith" — Frontier/Moonbeam well-known dev account, pre-funded in --dev
+    # genesis (address 0xf24FF3a9...66cac). Published in upstream docs; not a secret.
+    '''5fb92d6e98884f76de468fa3f6278f8807c48bebc13595d45af5bdc4da702133''',
+    # "Baltathar" — Frontier/Moonbeam well-known dev account (published in upstream
+    # docs; pre-funded in --dev genesis). Used by the write-ability e2e fee stack as
+    # the Creditcoin-side test key. Not a secret.
+    '''8075991ce870b93a8870eca0c0f91913d12f47948ca0fd25b49c6fa7cdbeee8b''',
+    # "Charleth" — Frontier/Moonbeam well-known dev account (published upstream). Used
+    # by the write-ability e2e as the quoter service's EIP-712 signing test key.
+    '''2a871d0798f97d79848a013d4936a73bf4cc922c825d33c1cf7073dff6d409c6''',
+    # Anvil/Hardhat dev account #9 — canonical, universally published local-EVM test
+    # key. Used by the write-ability e2e destination-chain fee stack. Not a secret.
+    '''dbda1821b80551c9d65939329250298aa3472ba22feea921c0cf5d620ea67b97''',
 ]

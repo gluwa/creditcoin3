@@ -247,6 +247,13 @@ impl frame_system::Config for Runtime {
         // executed on devnet/testnet (version 1). Remove once mainnet runs a runtime that
         // includes it.
         pallet_randomness::migrations::MigrateRandomnessByEpochIndexV0ToV1<Runtime>,
+        // Write-ability storage migration (v0 -> v1: WriteAbilityConfigs / OutboxFactories).
+        // Version-guarded, so it no-ops on chains where it already ran (e.g. usc-dev).
+        pallet_supported_chains::migrations::MigrateV0ToV1<Runtime>,
+        // Write-ability storage migration (v1 -> v2: CoreFeeConfig loses its `token` field, so any
+        // legacy entry would mis-decode). Clears CoreFees, which is empty on every network today
+        // (no genesis field, write-ability undeployed). Version-guarded like the one above.
+        pallet_supported_chains::migrations::MigrateV1ToV2<Runtime>,
         // NOTE: all other historical migrations are intentionally NOT registered:
         // - pallet_attestation::MigrateAttestationContinuityProofV0ToV1 and
         //   MigrateAttestorsCountV1ToV2: executed everywhere (on-chain storage version 2
@@ -1025,7 +1032,10 @@ parameter_types! {
     pub const DefaultMaxCatchup: u32 = 500;
     /// Ceiling for the per-chain `MaxCatchup`. A catch-up commit's declared weight grows with it,
     /// and must fit the smallest `Normal` extrinsic limit; `integrity_test` checks that.
-    pub const MaxCatchupCeiling: u32 = 2_000;
+    /// Devnet and fast builds have a 1_666 ms block budget instead of 5_000 ms: there a 2_000-root
+    /// commit, charged one benchmark envelope per 500 own roots, exceeds `max_extrinsic`, so they
+    /// keep the ceiling the attestation pallet's mock uses.
+    pub const MaxCatchupCeiling: u32 = prod_devnet_fast!(2_000, 1_000, 1_000);
     /// Per-chain ceiling on the attestor set (`MaxAttestationNodes`).
     ///
     /// Sits below RFC-0174's ~120 committee-sortition floor, so a committee large enough to need
@@ -1747,6 +1757,18 @@ impl_runtime_apis! {
 
         fn chain_key_by_chain_id_and_name(chain_id: ChainId, chain_name: Vec<u8>) -> Option<ChainKey>{
             SupportedChains::chain_key_by_chain_id_and_name(chain_id, chain_name)
+        }
+
+        fn write_ability_config(chain_key: ChainKey) -> Option<supported_chains_primitives::WriteAbilityConfig> {
+            SupportedChains::get_write_ability_config(chain_key)
+        }
+
+        fn outbox_factory_address(chain_key: ChainKey) -> Option<H160> {
+            SupportedChains::get_outbox_factory_address(chain_key)
+        }
+
+        fn outbox_discovery_address(chain_key: ChainKey) -> Option<H160> {
+            SupportedChains::get_outbox_discovery_address(chain_key)
         }
     }
 

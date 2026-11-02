@@ -60,6 +60,7 @@ runtime-benchmarks = [
     "sp-runtime/runtime-benchmarks",
     "sp-staking/runtime-benchmarks",
     "pallet-membership/runtime-benchmarks",
+    "pallet-staking/runtime-benchmarks",
 ]
 std = [
     "frame-support/std",

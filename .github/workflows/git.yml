@@ -152,8 +152,10 @@ jobs:
         run: |
           TARGET_BRANCH="${{ github.base_ref }}"
 
-          # usc-dev is being renamed to dev; accept both until the cleanup lands.
-          if [ "$TARGET_BRANCH" == "usc-dev" ] || [ "$TARGET_BRANCH" == "dev" ]; then
+          # Accept both development tracks and the legacy usc-dev spelling.
+          if [ "$TARGET_BRANCH" == "usc-dev" ] ||
+             [ "$TARGET_BRANCH" == "dev" ] ||
+             [ "$TARGET_BRANCH" == "asc-dev" ]; then
             exit 0
           fi
 
