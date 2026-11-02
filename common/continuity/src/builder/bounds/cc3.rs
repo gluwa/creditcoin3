@@ -42,7 +42,7 @@ impl<'a> BoundsFinder for Cc3BoundsFinder<'a> {
             .builder
             .fetch_attestations()
             .await
-            .map_err(|e| ContinuityError::Rpc(e.to_string()))?;
+            .map_err(|e| ContinuityError::Rpc(format!("{e:#}")))?;
 
         info!(
             attestation_count = attestations.len(),
