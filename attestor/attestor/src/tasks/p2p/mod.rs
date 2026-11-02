@@ -1029,12 +1029,14 @@ fn is_peer_denied(
 }
 
 /// Remove a peer from the Kademlia routing table and force-close any live connection to it.
-/// Takes the [`PeerId`] by value because `disconnect_peer_id` consumes it and `PeerId` is not
-/// `Copy`.
+/// Only the vote-learned reservation is released: the deny gate reads `bls_store`, which can
+/// trail the finalized registry, so finalized committee capacity is revoked solely by
+/// [`handle_peer_deactivated`] and registry refreshes. Takes the [`PeerId`] by value because
+/// `disconnect_peer_id` consumes it and `PeerId` is not `Copy`.
 ///
 /// [`PeerId`]: libp2p::PeerId
 fn evict_peer(swarm: &mut libp2p::Swarm<behavior::P2PBehavior>, peer_id: libp2p::PeerId) {
-    swarm.behaviour_mut().admission.revoke(&peer_id);
+    swarm.behaviour_mut().admission.unreserve(&peer_id);
     swarm.behaviour_mut().kad.remove_peer(&peer_id);
     if swarm.disconnect_peer_id(peer_id).is_ok() {
         tracing::info!(%peer_id, "✂️  closed connection to denied peer");
@@ -1079,16 +1081,18 @@ fn handle_peer_deactivated(
     is_active: impl Fn(&AttestorId) -> bool,
 ) {
     // A registry at/after this event already contains its post-block state. Replaying an old
-    // removal must not revoke a subsequent reactivation (including one in the same block).
-    if event.finalized_number <= registry.finalized_number {
-        return;
-    }
-    *minimum_registry_number = (*minimum_registry_number).max(event.finalized_number);
+    // removal must not revoke a subsequent reactivation (including one in the same block), but
+    // a peer that redialed before `bls_store` caught up is still evicted when neither view
+    // keeps it.
+    let covered = event.finalized_number <= registry.finalized_number;
     let attestor = &event.attestor;
-    // Waiting members have a reservation before any vote, but deliberately do not enter the
-    // inactive-voter deny map. An explicit deactivation now supplies that missing binding.
-    if let Some(peer) = registry.peer(attestor) {
-        note_attestor_peer(peers_by_attestor, attestor.clone(), peer);
+    if !covered {
+        *minimum_registry_number = (*minimum_registry_number).max(event.finalized_number);
+        // Waiting members have a reservation before any vote, but deliberately do not enter
+        // the inactive-voter deny map. An explicit deactivation now supplies that binding.
+        if let Some(peer) = registry.peer(attestor) {
+            note_attestor_peer(peers_by_attestor, attestor.clone(), peer);
+        }
     }
     let peers: Vec<libp2p::PeerId> = peers_by_attestor
         .iter()
@@ -1111,6 +1115,13 @@ fn handle_peer_deactivated(
         ) {
             tracing::debug!(%attestor, %peer_id, "↩️  peer still maps to an active attestor — keeping");
             continue;
+        }
+        if covered {
+            if registry.registered_peers().any(|peer| peer == peer_id) {
+                continue;
+            }
+        } else {
+            swarm.behaviour_mut().admission.revoke(&peer_id);
         }
         tracing::info!(%attestor, %peer_id, "🚫 evicting peer for deactivated attestor");
         evict_peer(swarm, peer_id);
@@ -1970,6 +1981,103 @@ mod tests {
                 |_| false,
             );
             assert!(swarm.behaviour().admission.is_reserved(&member));
+        }
+    }
+
+    fn in_routing_table(
+        swarm: &mut libp2p::Swarm<super::behavior::P2PBehavior>,
+        peer: &libp2p::PeerId,
+    ) -> bool {
+        swarm
+            .behaviour_mut()
+            .kad
+            .kbuckets()
+            .any(|bucket| bucket.iter().any(|entry| entry.node.key.preimage() == peer))
+    }
+
+    #[tokio::test]
+    async fn deny_gate_eviction_keeps_a_finalized_committee_reservation() {
+        for required in [false, true] {
+            let mut swarm = swarm();
+            let member = libp2p::PeerId::random();
+            let mut current = registry(required, vec![(att(1), Some(member))]);
+            current.finalized_number = 10;
+            let mut bindings = Vec::new();
+            let mut minimum = 0;
+            apply_peer_registry(&mut swarm, &mut bindings, &current, &[], &mut minimum);
+            // The registry can finalize an election before production refreshes the BLS store,
+            // so the deny gate briefly reports the newly elected member as inactive.
+            assert!(deny_decision(
+                bindings
+                    .iter()
+                    .filter(|(_, peer)| *peer == member)
+                    .map(|(id, _)| id),
+                |_| false
+            ));
+            super::evict_peer(&mut swarm, member);
+            // Identical membership skips the rebuild, so the eviction must not have dropped it.
+            let mut next = current.clone();
+            next.finalized_number = 11;
+            update_peer_registry(
+                &mut swarm,
+                &mut bindings,
+                &current,
+                &next,
+                &[],
+                &mut minimum,
+            );
+            assert!(swarm.behaviour().admission.is_reserved(&member));
+        }
+    }
+
+    #[tokio::test]
+    async fn delayed_deactivation_evicts_a_peer_readmitted_before_the_bls_refresh() {
+        for required in [false, true] {
+            let mut swarm = swarm();
+            let chilled = libp2p::PeerId::random();
+            let mut current = registry(required, vec![(att(1), Some(chilled))]);
+            current.finalized_number = 10;
+            let mut bindings = Vec::new();
+            let mut minimum = 0;
+            apply_peer_registry(&mut swarm, &mut bindings, &current, &[], &mut minimum);
+            // The registry finalizes the chill first and releases the slot.
+            let mut next = registry(required, vec![]);
+            next.finalized_number = 20;
+            update_peer_registry(
+                &mut swarm,
+                &mut bindings,
+                &current,
+                &next,
+                &[],
+                &mut minimum,
+            );
+            assert!(!swarm.behaviour().admission.is_reserved(&chilled));
+            // The peer is rediscovered while the stale BLS store still reports it active.
+            assert!(!deny_decision(
+                bindings
+                    .iter()
+                    .filter(|(_, peer)| *peer == chilled)
+                    .map(|(id, _)| id),
+                |_| true
+            ));
+            swarm
+                .behaviour_mut()
+                .kad
+                .add_address(&chilled, "/ip4/127.0.0.1/tcp/9000".parse().unwrap());
+            assert!(in_routing_table(&mut swarm, &chilled));
+            super::handle_peer_deactivated(
+                &mut swarm,
+                &mut bindings,
+                &next,
+                &mut minimum,
+                &crate::shared::PeerDeactivated {
+                    attestor: att(1),
+                    finalized_number: 20,
+                },
+                |_| false,
+            );
+            assert!(!in_routing_table(&mut swarm, &chilled));
+            assert_eq!(minimum, 20);
         }
     }
 

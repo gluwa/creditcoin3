@@ -97,6 +97,9 @@ pub async fn run(
     let mut events = stream::cc3::StreamCC3::new(cc3_cfg)
         .await
         .map_err(Error::Init)?;
+    // The startup committee snapshot can predate this subscription by an unbounded public-seed
+    // wait. Reconcile once now that later membership events are captured by `events`.
+    reconcile_committee_from_chain(&shared).await?;
 
     // ----------------------------------* genesis (if needed) *------------------------------- //
     //
