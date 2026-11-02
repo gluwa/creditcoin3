@@ -11,10 +11,8 @@ BENCH=1
 BUILD=1
 REPEAT=20
 STEPS=50
-EXTRINSIC='*'
-OUTPUT_OVERRIDE=
 
-while getopts "fcbp:r:s:e:o:" opt;do
+while getopts "fcbp:r:s:" opt;do
     case $opt in
         (f) COMMAND=check BUILD=0;;
         (c) BUILD=0;;
@@ -22,8 +20,6 @@ while getopts "fcbp:r:s:e:o:" opt;do
         (b) BENCH=0;;
         (r) REPEAT=$OPTARG;;
         (s) STEPS=$OPTARG;;
-        (e) EXTRINSIC=$OPTARG;;
-        (o) OUTPUT_OVERRIDE=$OPTARG;;
         (*)
             echo "ERROR: Invalid flag detected"
             exit 3
@@ -31,7 +27,7 @@ while getopts "fcbp:r:s:e:o:" opt;do
 done
 
 
-OUTPUT="${OUTPUT_OVERRIDE:-./pallets/${PALLET//_/-}/src/weights.rs}"
+OUTPUT="./pallets/${PALLET//_/-}/src/weights.rs"
 
 if [[ $BUILD -eq 0 ]]
 then
@@ -40,6 +36,6 @@ fi
 
 if [[ $BENCH -eq 0 ]]
 then
-    ./target/release/creditcoin3-node benchmark pallet --chain dev --steps="$STEPS" --repeat="$REPEAT" --pallet "pallet_$PALLET" --extrinsic="$EXTRINSIC" --wasm-execution=compiled --heap-pages=10000 --output "$OUTPUT"
+    ./target/release/creditcoin3-node benchmark pallet --chain dev --steps="$STEPS" --repeat="$REPEAT" --pallet "pallet_$PALLET" --extrinsic='*' --wasm-execution=compiled --heap-pages=10000 --output "$OUTPUT"
     sed -i "s/pallet_$PALLET/crate/" "$OUTPUT"
 fi
