@@ -25,6 +25,7 @@ use supported_chains_primitives::provider::SupportedChainsProvider;
 
 use crate::{
     asset::existential_deposit,
+    clear_or_revert::{CheckpointPruningState, MAX_ATTESTATIONS_CLEARED_PER_BLOCK},
     ledger::{AttestorLedger, UnlockChunk},
 };
 
@@ -32,15 +33,6 @@ use super::pallet::*;
 
 // One tenth of a CTC in micro units
 pub const ONE_TENTH_CTC: u64 = 100_000_000_000_000_000;
-
-/// Upper bound on how many checkpoints may sit strictly above a [`forward_patch_checkpoints`] batch tip
-/// when [`crate::pallet::Pallet::do_forward_patch_checkpoints`] `wipe_suffix` is enabled (single dispatch).
-pub const MAX_CHECKPOINT_SUFFIX_WIPE_TOTAL: usize = 4096;
-
-/// Batch size for scanning removals from [`Attestations`] during [`forward_patch_checkpoints`].
-const FORWARD_PATCH_ATTESTATIONS_CLEAR_BATCH: u32 = 128;
-/// Upper bound on iterations; total attestations cleared per dispatch ≤ batch × loops (currently 65_536).
-const MAX_FORWARD_PATCH_ATTESTATIONS_CLEAR_LOOPS: u32 = 512;
 
 /// PALLET CALL IMPLS ///
 impl<T: Config> Pallet<T> {
@@ -200,28 +192,25 @@ impl<T: Config> Pallet<T> {
             *count = count.saturating_add(1);
         });
 
-        // Make sure the stash can pay for the registration
-        let stash_balance = Self::get_free_balance(&stash);
+        // The stash must cover both the bond and the controller funding below.
+        let min_bond = Self::min_bond_requirement(chain_key);
+        let funding: BalanceOf<T> = ONE_TENTH_CTC.into();
         ensure!(
-            stash_balance >= Self::min_bond_requirement(chain_key),
+            Self::get_free_balance(&stash) >= min_bond.saturating_add(funding),
             Error::<T>::InsufficientBalance
         );
-
-        // Get some amount to fund the attestor
-        let amount: BalanceOf<T> = ONE_TENTH_CTC.into();
 
         // Fund the attestor key
         T::Currency::transfer(
             &stash,
             &attestor_id,
-            amount,
+            funding,
             frame_support::traits::ExistenceRequirement::KeepAlive,
         )?;
 
         // Create a new ledger for the attestor
         // With minimum bond requirement
-        let ledger: AttestorLedger<T> =
-            AttestorLedger::new(stash.clone(), Self::min_bond_requirement(chain_key));
+        let ledger: AttestorLedger<T> = AttestorLedger::new(stash.clone(), min_bond);
 
         // If bond fails, it means it's already bonded and there is already an attestor(s) registerd by this stash
         // In this case, we just bond extra to the stash
@@ -234,9 +223,12 @@ impl<T: Config> Pallet<T> {
             // Emit event
             Self::deposit_event(Event::<T>::Bonded {
                 stash,
-                amount: Self::min_bond_requirement(chain_key),
+                amount: min_bond,
             });
         }
+
+        // Settle this attestor's own bond on unregistration, whatever the minimum becomes.
+        AttestorCollateral::<T>::insert(chain_key, &attestor_id, min_bond);
 
         // Emit event
         Self::deposit_event(Event::<T>::AttestorRegistered(chain_key, attestor_id));
@@ -269,8 +261,10 @@ impl<T: Config> Pallet<T> {
             Error::<T>::AttestorNotIdle
         );
 
-        // Get the min bond requirement for the attestor
-        let bond = Self::min_bond_requirement(chain_key);
+        // Settle the bond recorded at registration; attestors registered before it was
+        // recorded fall back to the current minimum.
+        let bond = AttestorCollateral::<T>::take(chain_key, &attestor_id)
+            .unwrap_or_else(|| Self::min_bond_requirement(chain_key));
 
         let mut ledger = Self::ledger(&stash).ok_or(Error::<T>::NotStash)?;
         // Value is the minimum of the bond and the active amount
@@ -629,11 +623,12 @@ impl<T: Config> Pallet<T> {
 
         let mut ledger = Self::ledger(stash.clone()).ok_or(Error::<T>::NotStash)?;
 
-        let extra = bond.min(
-            T::Currency::free_balance(stash)
-                .checked_sub(&ledger.total_staked)
-                .ok_or(ArithmeticError::Overflow)?,
-        );
+        // Bond the full requirement or fail, so the recorded stake is always backed.
+        let available = T::Currency::free_balance(stash)
+            .checked_sub(&ledger.total_staked)
+            .ok_or(ArithmeticError::Overflow)?;
+        ensure!(available >= bond, Error::<T>::InsufficientBalance);
+        let extra = bond;
 
         // Update total staked and active amount
         ledger.total_staked = ledger
@@ -816,7 +811,13 @@ impl<T: Config> Pallet<T> {
             .unwrap_or_else(|| ChainAttestationInterval::<T>::get(chain_key))
     }
 
-    pub fn apply_interval_updates() {
+    /// Applies every pending per-chain update, returning how many entries were applied.
+    ///
+    /// Each map holds at most one entry per supported chain (chain removal clears them), so the
+    /// work is bounded by `3 * MaxSupportedChains`.
+    pub fn apply_interval_updates() -> u32 {
+        let mut applied = 0u32;
+
         // Use `drain()` rather than `iter() + bounded clear(num_supported_chains)`. The bounded
         // clear leaked entries whenever the pending map held more rows than the supported-chain
         // count — possible when an operator wrote a pending entry for a chain that was later
@@ -826,6 +827,7 @@ impl<T: Config> Pallet<T> {
         // applies it, so every iterated entry is guaranteed gone — no count guess.
         PendingAttestationInterval::<T>::drain().for_each(
             |(chain_key, new_attestation_interval)| {
+                applied = applied.saturating_add(1);
                 ChainAttestationInterval::<T>::set(chain_key, new_attestation_interval);
 
                 Self::deposit_event(Event::<T>::AttestationIntervalChanged(
@@ -836,6 +838,7 @@ impl<T: Config> Pallet<T> {
         );
 
         PendingTargetSampleSize::<T>::drain().for_each(|(chain_key, new_target_sample_size)| {
+            applied = applied.saturating_add(1);
             TargetSampleSize::<T>::set(chain_key, new_target_sample_size);
 
             Self::deposit_event(Event::<T>::TargetSampleSizeChanged(
@@ -845,10 +848,13 @@ impl<T: Config> Pallet<T> {
         });
 
         PendingMaxCatchup::<T>::drain().for_each(|(chain_key, new_max_catchup)| {
+            applied = applied.saturating_add(1);
             MaxCatchup::<T>::set(chain_key, new_max_catchup);
 
             Self::deposit_event(Event::<T>::MaxCatchupChanged(chain_key, new_max_catchup));
         });
+
+        applied
     }
 
     // Remove address as invulnerable and attestor
@@ -1580,27 +1586,21 @@ impl<T: Config> Pallet<T> {
     /// Clear attestations and checkpointing/removal queues plus [`LastDigest`] for `chain_key`.
     ///
     /// Used by [`forward_patch_checkpoints`] so repaired checkpoints are not contradicted by stale
-    /// attestation rows (bounded by `FORWARD_PATCH_ATTESTATIONS_CLEAR_BATCH` ×
-    /// `MAX_FORWARD_PATCH_ATTESTATIONS_CLEAR_LOOPS` entries per dispatch).
-    pub(crate) fn purge_attestations_for_forward_patch(chain_key: ChainKey) -> DispatchResult {
+    /// attestation rows. Clears one fixed batch and defers any remainder to
+    /// [`AttestationClearingCursors`], like `do_revert_to`: `clear_prefix` ignores its cursor
+    /// within a single dispatch, so the rest can only drain across blocks.
+    pub(crate) fn purge_attestations_for_forward_patch(chain_key: ChainKey) {
         CheckpointingQueues::<T>::remove(chain_key);
         AttestationRemovalQueues::<T>::remove(chain_key);
         LastDigest::<T>::remove(chain_key);
 
-        let mut maybe_cursor: Option<Vec<u8>> = None;
-        for _ in 0..MAX_FORWARD_PATCH_ATTESTATIONS_CLEAR_LOOPS {
-            let kill = Attestations::<T>::clear_prefix(
-                chain_key,
-                FORWARD_PATCH_ATTESTATIONS_CLEAR_BATCH,
-                maybe_cursor.as_deref(),
-            );
-            maybe_cursor = kill.maybe_cursor;
-            if maybe_cursor.is_none() {
-                return Ok(());
-            }
+        let maybe_cursor =
+            Attestations::<T>::clear_prefix(chain_key, MAX_ATTESTATIONS_CLEARED_PER_BLOCK, None)
+                .maybe_cursor;
+        match maybe_cursor {
+            Some(cursor) => AttestationClearingCursors::<T>::insert(chain_key, cursor),
+            None => AttestationClearingCursors::<T>::remove(chain_key),
         }
-
-        Err(Error::<T>::TooManyAttestationsForForwardPatchClear.into())
     }
 
     #[transactional]
@@ -1623,7 +1623,7 @@ impl<T: Config> Pallet<T> {
         );
         ensure!(!checkpoints.is_empty(), Error::<T>::EmptyCheckpointPatch);
 
-        Self::purge_attestations_for_forward_patch(chain_key)?;
+        Self::purge_attestations_for_forward_patch(chain_key);
 
         let mut merged = BTreeMap::new();
         for checkpoint in checkpoints.into_inner() {
@@ -1634,16 +1634,21 @@ impl<T: Config> Pallet<T> {
             .ok_or(Error::<T>::EmptyCheckpointPatch)?;
 
         if wipe_suffix {
-            let heights_above: Vec<u64> = Checkpoints::<T>::iter_prefix(chain_key)
-                .filter_map(|(h, _)| (h > batch_max).then_some(h))
-                .collect();
-            ensure!(
-                heights_above.len() <= MAX_CHECKPOINT_SUFFIX_WIPE_TOTAL,
-                Error::<T>::CheckpointSuffixWipeTooLarge
-            );
-            for h in heights_above {
-                Checkpoints::<T>::remove(chain_key, h);
-                CheckpointBuckets::<T>::remove((chain_key, Self::compute_block_index_for(h), h));
+            // Drop the tip's bucket now and drain the buckets above it per block, like `do_revert_to`,
+            // instead of scanning the whole `Checkpoints` prefix. `LastCheckpoint` is the highest
+            // checkpoint, so it bounds the drain.
+            let tip_pivot = Self::purge_bucket_above(chain_key, batch_max);
+            let next_pivot = tip_pivot.saturating_add(CHECKPOINT_BUCKET_SIZE);
+            if let Some(last) = LastCheckpoint::<T>::get(chain_key) {
+                if last.block_number >= next_pivot {
+                    CheckpointPruningStates::<T>::insert(
+                        chain_key,
+                        CheckpointPruningState {
+                            stop_height: last.block_number,
+                            next_pivot,
+                        },
+                    );
+                }
             }
         }
 
@@ -1853,13 +1858,16 @@ impl<T: Config> OnRandomnessUpdateWeight for Pallet<T> {
         // epoch-change `on_initialize` accounts for the listener cost instead of
         // under-weighting it (the randomness benchmark deliberately excludes the
         // listener, so this is the only place that cost is charged).
-        T::SupportedChains::supported_chains()
+        let chains = T::SupportedChains::supported_chains();
+        let chains_count = chains.len() as u32;
+
+        chains
             .into_iter()
             .fold(Weight::zero(), |acc, chain_key| {
                 acc.saturating_add(<T as Config>::WeightInfo::force_election(
                     AttestorsCount::<T>::get(chain_key),
                 ))
             })
-            .saturating_add(<T as Config>::WeightInfo::force_apply_updates())
+            .saturating_add(<T as Config>::WeightInfo::force_apply_updates(chains_count))
     }
 }

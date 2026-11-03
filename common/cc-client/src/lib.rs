@@ -92,6 +92,10 @@ pub enum Error {
     CallerDoesntHaveSufficientFunds(#[from] subxt::error::TokenError),
     #[error("Transaction timed out waiting for finalization")]
     TransactionTimeout,
+    #[error(
+        "Attestations of chain {0} are still being cleared on-chain, retry once that finishes"
+    )]
+    AttestationCleanupInProgress(ChainKey),
 }
 
 /// Type-safe reconnection wrapper which prevents us from shooting ourselves in the foot by
@@ -443,6 +447,22 @@ impl Client {
             Some(hash) => storage.at(hash),
             None => storage.at_latest().await?,
         })
+    }
+
+    /// Refuses to serve `chain_key`'s raw `Attestations` while an on-chain clear is draining,
+    /// as `Pallet::get` does. Read from the same snapshot as the rows themselves.
+    async fn ensure_attestations_stable(
+        storage: &subxt::storage::Storage<SubstrateConfig, OnlineClient<SubstrateConfig>>,
+        chain_key: ChainKey,
+    ) -> Result<(), Error> {
+        let cursor = storage
+            .fetch(
+                &cc3::storage()
+                    .attestation()
+                    .attestation_clearing_cursors(chain_key),
+            )
+            .await?;
+        attestations_stable(chain_key, cursor.is_some())
     }
 
     /// Atomically replace the live subxt connection with a freshly-opened one.
@@ -1031,15 +1051,10 @@ impl Client {
             .attestation()
             .attestations(chain_key, subxt::utils::H256::from(digest.0));
 
-        let result = self
-            .api()
-            .storage()
-            .at_latest()
-            .await?
-            .fetch(&storage_query)
-            .await?;
+        let storage = self.storage_at(None).await?;
+        Self::ensure_attestations_stable(&storage, chain_key).await?;
 
-        Ok(result.map(Into::into))
+        Ok(storage.fetch(&storage_query).await?.map(Into::into))
     }
 
     pub async fn get_last_checkpoint(
@@ -1103,7 +1118,9 @@ impl Client {
         // a ChainKey
         let address = cc3::storage().attestation().attestations_iter1(chain_key);
 
-        let mut iter = self.storage_at(at).await?.iter(address).await?;
+        let storage = self.storage_at(at).await?;
+        Self::ensure_attestations_stable(&storage, chain_key).await?;
+        let mut iter = storage.iter(address).await?;
 
         // Propagate iterator errors — a partial result silently truncated at the first error
         // would be indistinguishable from a complete one.
@@ -1548,6 +1565,34 @@ impl From<CcChainEncodingVersion> for usc_abi_encoding::common::EncodingVersion 
         match version {
             CcChainEncodingVersion::V1 => usc_abi_encoding::common::EncodingVersion::V1,
         }
+    }
+}
+
+/// Mirrors the pallet's `attestations_stable`: a pending clearing cursor makes the chain's
+/// `Attestations` unreadable.
+#[allow(clippy::result_large_err)]
+fn attestations_stable(chain_key: ChainKey, cleanup_pending: bool) -> Result<(), Error> {
+    if cleanup_pending {
+        return Err(Error::AttestationCleanupInProgress(chain_key));
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod attestation_cleanup_tests {
+    use super::{attestations_stable, Error};
+
+    #[test]
+    fn pending_cleanup_refuses_reads_for_that_chain() {
+        assert!(matches!(
+            attestations_stable(7, true),
+            Err(Error::AttestationCleanupInProgress(7))
+        ));
+    }
+
+    #[test]
+    fn settled_chain_is_readable() {
+        assert!(attestations_stable(7, false).is_ok());
     }
 }
 

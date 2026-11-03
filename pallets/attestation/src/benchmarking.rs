@@ -224,6 +224,9 @@ mod benchmarks {
     // `MAX_ATTESTORS - 1` keeps the worst case at exactly `MAX_ATTESTORS`, which is the
     // `set_max_attestors` / `MaxAttestationNodes` ceiling.
     const MAX_ATTESTORS_PARAM: u32 = MAX_ATTESTORS - 1;
+    // Upper bound for the chain count `force_apply_updates` is measured over; the runtime's
+    // `MaxSupportedChains` must not exceed it.
+    const MAX_CHAINS: u32 = crate::MAX_BENCHMARKED_SUPPORTED_CHAINS;
 
     #[benchmark]
     fn set_chain_attestation_interval() {
@@ -649,6 +652,8 @@ mod benchmarks {
 
     #[benchmark]
     fn forward_patch_checkpoints() {
+        let stash_id = create_funded_user_with_balance::<T>("stash", 1);
+        let attestor_id: T::AccountId = create_funded_user_with_balance::<T>("attestor", 4);
         let root_origin = <T as frame_system::Config>::RuntimeOrigin::root();
         let mock_checkpoints: Vec<AttestationCheckpoint> = (0..100u8)
             .map(|i| AttestationCheckpoint {
@@ -657,11 +662,44 @@ mod benchmarks {
             })
             .collect();
 
+        // The call clears at most one `MAX_ATTESTATIONS_CLEARED_PER_BLOCK` batch and persists a
+        // cursor for the rest, so seed one row more than that to measure the full batch.
+        let attestor = Attestor::new(stash_id, attestor_id, 0);
+        for i in 0..=clear_or_revert::MAX_ATTESTATIONS_CLEARED_PER_BLOCK as u64 {
+            let a = create_signed_attestation::<T>(
+                Vec::from([attestor.clone()]),
+                DEV_CHAIN_KEY,
+                1,
+                i * 10,
+                None,
+            );
+            Attestations::<T>::insert(DEV_CHAIN_KEY, a.digest(), a);
+        }
+
+        // `wipe_suffix` also drops the tip's bucket synchronously and queues the buckets above it
+        // for `on_initialize`, so seed old checkpoints above the tip in the same bucket plus a
+        // later one that forces the pruning state to be written.
+        for i in 100..200u64 {
+            Checkpoints::<T>::insert(DEV_CHAIN_KEY, i, H256::from([1; 32]));
+            CheckpointBuckets::<T>::insert(
+                (DEV_CHAIN_KEY, Pallet::<T>::compute_block_index_for(i), i),
+                (),
+            );
+        }
+        let far_height = 2 * CHECKPOINT_BUCKET_SIZE;
+        LastCheckpoint::<T>::insert(
+            DEV_CHAIN_KEY,
+            AttestationCheckpoint {
+                block_number: far_height,
+                digest: H256::from([1; 32]),
+            },
+        );
+
         #[extrinsic_call]
         _(
             root_origin as <T as frame_system::Config>::RuntimeOrigin,
             DEV_CHAIN_KEY,
-            false,
+            true,
             mock_checkpoints.try_into().unwrap(),
         )
     }
@@ -802,17 +840,25 @@ mod benchmarks {
     }
 
     #[benchmark]
-    fn force_apply_updates() {
-        // Setup: populate pending storage items for all supported chains
+    fn force_apply_updates(c: Linear<1, MAX_CHAINS>) {
+        // Setup: every one of `c` chains carries a pending value in all three maps, the
+        // per-chain worst case. The maps are keyed by chain key and applying does not look the
+        // chain up, so the keys need no registered chain.
         let root_origin = <T as frame_system::Config>::RuntimeOrigin::root();
 
-        // Set pending values that will be applied
-        PendingAttestationInterval::<T>::insert(DEV_CHAIN_KEY, 200u64);
-        PendingTargetSampleSize::<T>::insert(DEV_CHAIN_KEY, 10u32);
-        PendingMaxCatchup::<T>::insert(DEV_CHAIN_KEY, 50u32);
+        for i in 0..c {
+            let chain_key: ChainKey = DEV_CHAIN_KEY + u64::from(i);
+            PendingAttestationInterval::<T>::insert(chain_key, 200u64);
+            PendingTargetSampleSize::<T>::insert(chain_key, 10u32);
+            PendingMaxCatchup::<T>::insert(chain_key, 50u32);
+        }
 
         #[extrinsic_call]
-        _(root_origin as <T as frame_system::Config>::RuntimeOrigin)
+        _(root_origin as <T as frame_system::Config>::RuntimeOrigin);
+
+        assert!(PendingAttestationInterval::<T>::iter().next().is_none());
+        assert!(PendingTargetSampleSize::<T>::iter().next().is_none());
+        assert!(PendingMaxCatchup::<T>::iter().next().is_none());
     }
 
     #[benchmark]
