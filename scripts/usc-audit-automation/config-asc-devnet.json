@@ -10,7 +10,7 @@
     },
     {
       "chainId": 84532,
-      "chainKey": 2,
+      "chainKey": 3,
       "url": "https://base-sepolia-rpc.publicnode.com"
     }
   ]

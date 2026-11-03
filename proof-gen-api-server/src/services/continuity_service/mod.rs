@@ -256,7 +256,23 @@ pub struct Readiness {
 /// Bounded retry for the startup snapshot reads. A transient cc3 blip must not turn into an
 /// empty cache; a persistent failure is fatal so the orchestrator restarts a replica that
 /// cannot seed instead of it serving wrong `BlockNotReady`s until someone notices.
-async fn retry_startup<T, F, Fut>(what: &str, mut op: F) -> anyhow::Result<T>
+///
+/// An on-chain attestation clear still draining is not a failure: it ends on its own after
+/// many blocks, so those reads wait up to [`CLEANUP_WAIT_LIMIT`] without using up the attempts.
+async fn retry_startup<T, F, Fut>(what: &str, op: F) -> anyhow::Result<T>
+where
+    F: FnMut() -> Fut,
+    Fut: std::future::Future<Output = anyhow::Result<T>>,
+{
+    retry_startup_with(what, op, CLEANUP_WAIT_INTERVAL, CLEANUP_WAIT_LIMIT).await
+}
+
+async fn retry_startup_with<T, F, Fut>(
+    what: &str,
+    mut op: F,
+    cleanup_interval: Duration,
+    cleanup_limit: Duration,
+) -> anyhow::Result<T>
 where
     F: FnMut() -> Fut,
     Fut: std::future::Future<Output = anyhow::Result<T>>,
@@ -264,9 +280,21 @@ where
     const ATTEMPTS: usize = 5;
     let mut delay = Duration::from_millis(250);
     let mut last_err = None;
-    for attempt in 1..=ATTEMPTS {
+    let mut cleanup_wait_started: Option<Instant> = None;
+    let mut attempt = 1;
+    while attempt <= ATTEMPTS {
         match op().await {
             Ok(value) => return Ok(value),
+            Err(err) if is_cleanup_in_progress(&err) => {
+                let started = *cleanup_wait_started.get_or_insert_with(Instant::now);
+                if started.elapsed() >= cleanup_limit {
+                    return Err(err.context(format!(
+                        "{what}: attestation cleanup still running after {cleanup_limit:?}"
+                    )));
+                }
+                tracing::warn!(what, error = %err, "⚠️ 🔗 attestation cleanup draining, waiting");
+                tokio::time::sleep(cleanup_interval).await;
+            }
             Err(err) => {
                 tracing::warn!(
                     what,
@@ -280,12 +308,89 @@ where
                     tokio::time::sleep(delay).await;
                     delay = (delay * 2).min(Duration::from_secs(2));
                 }
+                attempt += 1;
             }
         }
     }
     Err(last_err
         .unwrap_or_else(|| anyhow::anyhow!("no error captured"))
         .context(format!("{what}: failed after {ATTEMPTS} attempts")))
+}
+
+/// Longest a startup read waits for an on-chain attestation clear to finish draining.
+const CLEANUP_WAIT_LIMIT: Duration = Duration::from_secs(10 * 60);
+const CLEANUP_WAIT_INTERVAL: Duration = Duration::from_secs(5);
+
+fn is_cleanup_in_progress(err: &anyhow::Error) -> bool {
+    err.chain().any(|cause| {
+        matches!(
+            cause.downcast_ref::<cc_client::Error>(),
+            Some(cc_client::Error::AttestationCleanupInProgress(_))
+        )
+    })
+}
+
+#[cfg(test)]
+mod retry_startup_tests {
+    use super::*;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    fn cleanup_err() -> anyhow::Error {
+        anyhow::Error::new(cc_client::Error::AttestationCleanupInProgress(7))
+            .context("Failed to fetch attestations")
+    }
+
+    #[tokio::test]
+    async fn waits_through_cleanup_without_using_attempts() {
+        let calls = AtomicUsize::new(0);
+        let out = retry_startup_with(
+            "attestations",
+            || async {
+                // More cleanup errors than `ATTEMPTS`: they must not count against it.
+                if calls.fetch_add(1, Ordering::SeqCst) < 8 {
+                    Err(cleanup_err())
+                } else {
+                    Ok(42)
+                }
+            },
+            Duration::from_millis(1),
+            Duration::from_secs(30),
+        )
+        .await;
+        assert_eq!(out.unwrap(), 42);
+        assert_eq!(calls.load(Ordering::SeqCst), 9);
+    }
+
+    #[tokio::test]
+    async fn gives_up_when_cleanup_outlasts_the_limit() {
+        let err = retry_startup_with::<(), _, _>(
+            "attestations",
+            || async { Err(cleanup_err()) },
+            Duration::from_millis(1),
+            Duration::from_millis(20),
+        )
+        .await
+        .unwrap_err();
+        assert!(is_cleanup_in_progress(&err));
+    }
+
+    #[tokio::test]
+    async fn other_errors_still_exhaust_attempts() {
+        let calls = AtomicUsize::new(0);
+        let err = retry_startup_with::<(), _, _>(
+            "attestations",
+            || async {
+                calls.fetch_add(1, Ordering::SeqCst);
+                Err(anyhow::anyhow!("boom"))
+            },
+            Duration::from_millis(1),
+            Duration::from_secs(30),
+        )
+        .await
+        .unwrap_err();
+        assert_eq!(calls.load(Ordering::SeqCst), 5);
+        assert!(!is_cleanup_in_progress(&err));
+    }
 }
 
 /// Result of [`ContinuityService::cc3_cache_freshness`].
@@ -1077,7 +1182,7 @@ impl ContinuityService {
         };
 
         if let Some(&header_number) = header_numbers.iter().find(|h| **h > latest_attested) {
-            tracing::warn!(
+            tracing::debug!(
                 requested_block = header_number,
                 latest_attested,
                 chain_key,

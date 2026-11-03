@@ -287,7 +287,7 @@ impl ServiceError {
                 "🌐 ❌ proof API returning server error"
             );
         } else {
-            tracing::warn!(
+            tracing::debug!(
                 http_status = %status,
                 error_code = %response.code,
                 error_message = %response.message,

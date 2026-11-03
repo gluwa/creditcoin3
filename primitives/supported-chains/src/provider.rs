@@ -13,6 +13,8 @@ pub trait SupportedChainsProvider {
     fn get_outbox_factory_address(chain_key: ChainKey) -> Option<H160>;
     fn get_outbox_discovery_address(chain_key: ChainKey) -> Option<H160>;
     fn get_core_fee(chain_key: ChainKey) -> Option<CoreFeeConfig>;
+    /// Number of supported chains, without listing them.
+    fn supported_chains_count() -> u32;
 }
 
 pub trait OnRegisterChainProvider {
