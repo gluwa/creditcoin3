@@ -6,6 +6,12 @@
 //! on-chain and have every running attestor track it **without a restart** — closing the "set
 //! resolved once at startup" gap. Only spawned for
 //! [`AttestorSet::OnChainValidator`](super::config::AttestorSet); a static set never changes.
+//!
+//! The same poll resolves the message-vote EIP-712 domain ([`MessageVoteState::vote_domain`]):
+//! the validator's ERC-5267 `eip712Domain()` must match the name/version this build signs with
+//! and name the validator itself as `verifyingContract`, and the configured Inbox must hand its
+//! votes to this validator (`defaultVoteValidator()`). Any mismatch clears the domain, which stops
+//! signing instead of producing votes the destination would reject.
 
 use std::collections::HashSet;
 use std::sync::Arc;
@@ -14,6 +20,9 @@ use std::time::Duration;
 use alloy::primitives::{Address, U256};
 use alloy::providers::{Provider, ProviderBuilder};
 use tokio_util::sync::CancellationToken;
+use write_ability::hash::{
+    MessageVoteDomain, MESSAGE_VOTE_DOMAIN_NAME, MESSAGE_VOTE_DOMAIN_VERSION,
+};
 
 use super::MessageVoteState;
 
@@ -58,10 +67,11 @@ fn effective_threshold(onchain: u64, set_len: usize, validator: Address) -> usiz
 pub async fn watch(
     state: Arc<MessageVoteState>,
     validator: Address,
+    inbox: Address,
     dest_rpc_url: String,
     token: CancellationToken,
 ) {
-    tracing::info!(%validator, "🛂 attestor-set watcher online");
+    tracing::info!(%validator, %inbox, "🛂 attestor-set watcher online");
 
     // `interval` fires immediately on the first tick, which is what performs the *initial* population:
     // `build_state` starts the OnChainValidator set empty (to avoid blocking core startup on the
@@ -98,9 +108,9 @@ pub async fn watch(
                 }
                 // Fresh connection each poll — see the fn doc. A dead/transiently-unreachable RPC
                 // fails only this tick and is retried on the next, instead of wedging the watcher.
-                let (set, onchain_threshold) = match tokio::time::timeout(
+                let (set, onchain_threshold, domain) = match tokio::time::timeout(
                     super::RPC_ATTEMPT_TIMEOUT,
-                    fetch_attestor_set_and_threshold(&dest_rpc_url, validator),
+                    fetch_destination_view(&dest_rpc_url, validator, inbox),
                 )
                 .await
                 {
@@ -131,6 +141,7 @@ pub async fn watch(
                         continue;
                     }
                 };
+                apply_vote_domain(&state, domain);
                 if set.is_empty() {
                     tracing::warn!(%validator, "EOAValidator.attestors() returned empty — keeping current set");
                     continue;
@@ -208,20 +219,110 @@ async fn read_threshold<P: Provider>(provider: &P, validator: Address) -> anyhow
     Ok(ret)
 }
 
-/// Connect to the destination chain and read the validator's attestor set **and** quorum threshold
-/// once (one connection, two calls). Both are trust-critical and read together so the local view
-/// cannot apply a new set against a stale threshold or vice versa.
-pub(super) async fn fetch_attestor_set_and_threshold(
+/// Read the validator's EIP-712 domain and the Inbox's validator, and build the message-vote domain
+/// if they match what this build signs. The outer `Err` is an RPC failure (keep the last-known
+/// domain and retry); the inner `Err` is a definite mismatch (stop signing).
+async fn read_vote_domain<P: Provider>(
+    provider: &P,
+    validator: Address,
+    inbox: Address,
+) -> anyhow::Result<Result<MessageVoteDomain, String>> {
+    let d = write_ability::abi::IVoteValidator::new(validator, provider)
+        .eip712Domain()
+        .call()
+        .await
+        .map_err(|err| anyhow::anyhow!("EOAValidator.eip712Domain(): {err}"))?;
+    let inbox_validator = write_ability::abi::IInbox::new(inbox, provider)
+        .defaultVoteValidator()
+        .call()
+        .await
+        .map_err(|err| anyhow::anyhow!("Inbox.defaultVoteValidator(): {err}"))?;
+    Ok(check_vote_domain(
+        validator,
+        inbox,
+        &d.name,
+        &d.version,
+        d.chainId,
+        d.verifyingContract,
+        inbox_validator,
+    ))
+}
+
+/// Pure half of [`read_vote_domain`], split out for tests.
+fn check_vote_domain(
+    validator: Address,
+    inbox: Address,
+    name: &str,
+    version: &str,
+    chain_id: U256,
+    verifying_contract: Address,
+    inbox_validator: Address,
+) -> Result<MessageVoteDomain, String> {
+    if name != MESSAGE_VOTE_DOMAIN_NAME || version != MESSAGE_VOTE_DOMAIN_VERSION {
+        return Err(format!(
+            "validator EIP-712 domain is ({name:?}, {version:?}), this attestor signs \
+             ({MESSAGE_VOTE_DOMAIN_NAME:?}, {MESSAGE_VOTE_DOMAIN_VERSION:?})"
+        ));
+    }
+    if verifying_contract != validator {
+        return Err(format!(
+            "validator EIP-712 verifyingContract is {verifying_contract}, expected {validator}"
+        ));
+    }
+    if inbox_validator != validator {
+        return Err(format!(
+            "Inbox {inbox} hands votes to {inbox_validator}, not the configured validator {validator}"
+        ));
+    }
+    let chain_id = u64::try_from(chain_id)
+        .map_err(|_| format!("validator EIP-712 chainId {chain_id} does not fit in u64"))?;
+    Ok(MessageVoteDomain {
+        chain_id,
+        validator,
+        inbox,
+    })
+}
+
+/// Install a freshly read domain. A transient read failure was already filtered out by the caller,
+/// so `Err` here is a definite mismatch and clears the domain (fail closed).
+fn apply_vote_domain(state: &MessageVoteState, domain: Result<MessageVoteDomain, String>) {
+    let next = match domain {
+        Ok(d) => Some(d),
+        Err(reason) => {
+            tracing::error!(%reason, "⛔ message-vote EIP-712 domain mismatch — message signing paused");
+            None
+        }
+    };
+    let mut current = state.vote_domain.write();
+    if *current != next {
+        if let Some(d) = &next {
+            tracing::info!(
+                chain_id = d.chain_id,
+                validator = %d.validator,
+                inbox = %d.inbox,
+                "🔏 message-vote EIP-712 domain resolved"
+            );
+        }
+        *current = next;
+    }
+}
+
+/// Connect to the destination chain and read, over one connection, the validator's attestor set,
+/// its quorum threshold and the message-vote domain. The set and threshold are trust-critical and
+/// read together so the local view cannot apply a new set against a stale threshold or vice versa.
+pub(super) async fn fetch_destination_view(
     dest_rpc_url: &str,
     validator: Address,
-) -> anyhow::Result<(HashSet<Address>, u64)> {
+    inbox: Address,
+) -> anyhow::Result<(HashSet<Address>, u64, Result<MessageVoteDomain, String>)> {
     let provider = ProviderBuilder::new()
         .connect(dest_rpc_url)
         .await
         .map_err(|err| anyhow::anyhow!("connect destination chain RPC: {err}"))?;
     let set = read_attestors(&provider, validator).await?;
     let threshold = read_threshold(&provider, validator).await?;
-    Ok((set, u64::try_from(threshold).unwrap_or(u64::MAX)))
+    let domain = read_vote_domain(&provider, validator, inbox).await?;
+    Ok((set, u64::try_from(threshold).unwrap_or(u64::MAX), domain))
 }
 
 #[cfg(test)]
@@ -229,6 +330,57 @@ mod tests {
     use super::*;
 
     const V: Address = Address::ZERO;
+
+    #[test]
+    fn vote_domain_requires_matching_validator_and_inbox_wiring() {
+        use alloy::primitives::address;
+        let validator = address!("00000000000000000000000000000000000000e1");
+        let inbox = address!("00000000000000000000000000000000000001b0");
+        let other = address!("00000000000000000000000000000000000000e2");
+        let check = |name: &str, version: &str, verifying: Address, inbox_validator: Address| {
+            check_vote_domain(
+                validator,
+                inbox,
+                name,
+                version,
+                U256::from(42u64),
+                verifying,
+                inbox_validator,
+            )
+        };
+        assert_eq!(
+            check(
+                MESSAGE_VOTE_DOMAIN_NAME,
+                MESSAGE_VOTE_DOMAIN_VERSION,
+                validator,
+                validator
+            ),
+            Ok(MessageVoteDomain {
+                chain_id: 42,
+                validator,
+                inbox
+            })
+        );
+        assert!(check("Other", MESSAGE_VOTE_DOMAIN_VERSION, validator, validator).is_err());
+        assert!(check(MESSAGE_VOTE_DOMAIN_NAME, "2", validator, validator).is_err());
+        assert!(check(
+            MESSAGE_VOTE_DOMAIN_NAME,
+            MESSAGE_VOTE_DOMAIN_VERSION,
+            other,
+            validator
+        )
+        .is_err());
+        assert!(
+            check(
+                MESSAGE_VOTE_DOMAIN_NAME,
+                MESSAGE_VOTE_DOMAIN_VERSION,
+                validator,
+                other
+            )
+            .is_err(),
+            "an Inbox wired to a different validator must stop signing"
+        );
+    }
 
     #[test]
     fn effective_threshold_prefers_sane_onchain_value() {

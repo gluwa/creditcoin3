@@ -79,6 +79,12 @@ pub struct Config {
 
     /// Source of the authorized signer set / quorum size.
     pub attestor_set: AttestorSet,
+
+    /// Destination Inbox that delivers this chain's messages. Message votes are EIP-712 bound to
+    /// it (the `inbox` field of `MessageVote`), so a vote bundle cannot be replayed into another
+    /// Inbox that accepts the same Outbox. Required with [`AttestorSet::OnChainValidator`]; the
+    /// attestor checks on-chain that this Inbox hands its votes to the configured validator.
+    pub destination_inbox: Option<Address>,
 }
 
 impl Config {
@@ -97,6 +103,7 @@ impl Config {
             max_tracked_messages: DEFAULT_MAX_TRACKED_MESSAGES,
             vote_ttl: DEFAULT_VOTE_TTL,
             attestor_set: AttestorSet::default(),
+            destination_inbox: None,
         }
     }
 }
@@ -168,6 +175,19 @@ impl Config {
                             .to_string(),
                     );
                 }
+                match self.destination_inbox {
+                    None => {
+                        return Err(
+                            "OnChainValidator attestor set configured but no inbox_address \
+                                    (message votes are EIP-712 bound to the destination Inbox)"
+                                .to_string(),
+                        );
+                    }
+                    Some(inbox) if inbox == Address::ZERO => {
+                        return Err("inbox_address is the zero address".to_string());
+                    }
+                    Some(_) => {}
+                }
             }
         }
         Ok(())
@@ -227,6 +247,7 @@ mod tests {
             attestor_set: AttestorSet::Static(vec![address!(
                 "000000000000000000000000000000000000000a"
             )]),
+            destination_inbox: None,
         }
     }
 
@@ -302,5 +323,17 @@ mod tests {
             AttestorSet::OnChainValidator(address!("000000000000000000000000000000000000000b"));
         c.destination_eth_rpc_url = None;
         assert!(c.validate().is_err(), "missing dest rpc");
+    }
+
+    #[test]
+    fn on_chain_validator_requires_a_nonzero_inbox() {
+        let mut c = enabled_base();
+        c.attestor_set =
+            AttestorSet::OnChainValidator(address!("000000000000000000000000000000000000000b"));
+        assert!(c.validate().is_err(), "missing inbox");
+        c.destination_inbox = Some(Address::ZERO);
+        assert!(c.validate().is_err(), "zero inbox");
+        c.destination_inbox = Some(address!("000000000000000000000000000000000000000c"));
+        assert!(c.validate().is_ok());
     }
 }

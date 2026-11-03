@@ -123,6 +123,9 @@ struct ConfigFileWriteAbility {
     /// precedence over `attestors`. The set is read once at startup via `destination_eth_rpc_url`
     /// and hot-reloaded by the attestor-set watcher while running.
     validator_address: Option<alloy::primitives::Address>,
+    /// Destination Inbox address. Required with `validator_address`: message votes are EIP-712
+    /// signed for this Inbox and the validator, and the attestor checks the two are wired together.
+    inbox_address: Option<alloy::primitives::Address>,
 }
 
 impl Config {
@@ -594,6 +597,7 @@ impl Config {
                 .vote_ttl_secs
                 .map_or(config::DEFAULT_VOTE_TTL, std::time::Duration::from_secs),
             attestor_set,
+            destination_inbox: file.inbox_address,
         };
 
         // Fail the boot on a config that would silently weaken safety or prevent quorum, rather

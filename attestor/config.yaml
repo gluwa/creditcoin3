@@ -117,6 +117,14 @@ write_ability:
   # uses. Keeps the set in lockstep with the validator without hand-maintaining it.
   #
   # validator_address: "0x..."
+  #
+  # Destination Inbox address. Required with `validator_address`: message votes
+  # are EIP-712 signed over (destination chainId, EOAValidator) for this Inbox,
+  # and the attestor checks on-chain that the Inbox hands its votes to that
+  # validator before signing anything. A static `attestors` list cannot sign
+  # message votes.
+  #
+  # inbox_address: "0x..."
 
   # Legacy setting (accepted for compatibility, ignored for message signing).
   # Signing always requires the source finalized head, including during RPC/finality outages.

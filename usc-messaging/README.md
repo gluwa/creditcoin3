@@ -144,7 +144,8 @@ cargo run --manifest-path ../../usc-message-relayer/Cargo.toml -p message-relaye
   --destination-rpc-url http://localhost:8545 \
   --inbox-address "$INBOX_ADDR" \
   --signer-key 0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80 \
-  --attestor-set "$ATTESTOR_SET"
+  --attestor-set "$ATTESTOR_SET" \
+  --validator-address "$VOTE_VALIDATOR_ADDR"
 ```
 
 Notes on the relayer flags:
@@ -152,6 +153,8 @@ Notes on the relayer flags:
   chain id; both are bound into `messageHash`, so they must agree with the attestors.
 - `--attestor-set` is the value produced by `launch-attestors.sh`; the relayer drops votes from
   signers outside it.
+- `--validator-address` is the destination `EOAValidator`. Votes are EIP-712 signed over its
+  domain and the Inbox, so the relayer needs it to recover signers.
 - `--signer-key` is anvil's default account 0 — it pays for `deliverMessage` on the destination.
 
 Then start the dApp's acknowledgement worker (still TS):
@@ -294,7 +297,8 @@ destination RPC (the Creditcoin/`--cc3-*` flags are unchanged):
      --destination-rpc-url "$DESTINATION_CHAIN_RPC_URL" \
      --inbox-address "$INBOX_ADDR" \
      --signer-key "$DESTINATION_CHAIN_PRIVATE_KEY" \
-     --attestor-set "$ATTESTOR_SET"
+     --attestor-set "$ATTESTOR_SET" \
+     --validator-address "$VOTE_VALIDATOR_ADDR"
    ```
 
 The dApp-ack worker and message submission are unchanged.

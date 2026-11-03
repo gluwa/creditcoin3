@@ -14,14 +14,15 @@ use parity_scale_codec::{Decode, DecodeAll, Encode};
 pub struct MessageVote {
     /// USC chain_key this vote is scoped to. Must match the gossipsub topic prefix.
     pub chain_key: u64,
-    /// Outbox `messageId` the attestor is voting on — also the signed digest (asc-contracts #54:
-    /// `Inbox.validateVotes` takes `messageId` directly, so there is no separate derived hash).
+    /// Outbox `messageId` the attestor is voting on. The signature covers its EIP-712 digest
+    /// ([`MessageVoteDomain::digest`](crate::hash::MessageVoteDomain::digest), CSUB-2126), not the
+    /// raw id.
     pub message_id: [u8; 32],
     /// EVM address recovered from `signature` (also published explicitly so the relayer can
     /// short-circuit the allowlist check before paying for `ecrecover`).
     pub signer: [u8; 20],
-    /// 65-byte ECDSA signature (`r || s || v`) over `message_id` matching the reference
-    /// `EOAValidator` (PoC §6.2).
+    /// 65-byte ECDSA signature (`r || s || v`) over the EIP-712 digest of `message_id`, matching
+    /// the reference `EOAValidator` (PoC §6.2).
     pub signature: [u8; 65],
 }
 
@@ -47,7 +48,7 @@ impl MessageVote {
 /// public on-chain data. An attestor that receives it does not trust the request: it independently
 /// re-fetches the named transaction from its own Creditcoin RPC, re-verifies the `MessagePublished`
 /// event for `message_id` was emitted by the resolved Outbox, and only then re-signs (over
-/// `message_id` itself) and re-gossips its [`MessageVote`]. This makes the request safe to accept from any
+/// its EIP-712 digest) and re-gossips its [`MessageVote`]. This makes the request safe to accept from any
 /// peer — the worst a forged request can do is make attestors do a bounded amount of RPC work, which
 /// the responder rate-limits per `message_id`.
 #[derive(Clone, Debug, Eq, PartialEq, Encode, Decode)]

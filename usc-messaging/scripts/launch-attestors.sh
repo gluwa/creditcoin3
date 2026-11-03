@@ -40,6 +40,7 @@ for tool in node cast; do
   command -v "$tool" >/dev/null || { echo "❌ $tool is required" >&2; exit 1; }
 done
 : "${VOTE_VALIDATOR_ADDR:?set VOTE_VALIDATOR_ADDR to the deployed EOAValidator}"
+: "${INBOX_ADDR:?set INBOX_ADDR to the deployed destination Inbox}"
 : "${DESTINATION_CHAIN_PRIVATE_KEY:?set the destination registry owner key}"
 DEST_RPC="${DESTINATION_CHAIN_RPC_URL:-http://127.0.0.1:8545}"
 mkdir -p "$LOGS_DIR" "$STATE_DIR" "$(dirname "$CONFIG")" "$(dirname "$ATTESTOR_SET_FILE")" "$(dirname "$READY_PATH")"
@@ -48,10 +49,11 @@ rm -f "$READY_PATH" "$ATTESTOR_SET_FILE" "$LOGS_DIR"/attestor-zombie-*.json.*
 
 # Configure the on-chain committee before any attestor starts. The source template remains
 # untouched; each run has its own state/config, and attestors hot-reload the registry update below.
-node --input-type=module - "$REPO_ROOT/attestor/config.yaml" "$CONFIG" "$VOTE_VALIDATOR_ADDR" "$STATE_DIR" <<'JS'
+node --input-type=module - "$REPO_ROOT/attestor/config.yaml" "$CONFIG" "$VOTE_VALIDATOR_ADDR" "$STATE_DIR" "$INBOX_ADDR" <<'JS'
 import fs from "node:fs";
-const [source, output, validator, state] = process.argv.slice(2);
+const [source, output, validator, state, inbox] = process.argv.slice(2);
 if (!/^0x[0-9a-fA-F]{40}$/.test(validator)) throw new Error("invalid validator address");
+if (!/^0x[0-9a-fA-F]{40}$/.test(inbox)) throw new Error("invalid inbox address");
 const text = fs.readFileSync(source, "utf8");
 const start = text.search(/^write_ability:\s*$/m);
 if (start < 0) throw new Error("write_ability config section is missing");
@@ -65,6 +67,7 @@ const set = (key, value) => {
 };
 set("enabled", "true");
 set("validator_address", JSON.stringify(validator));
+set("inbox_address", JSON.stringify(inbox));
 set("state_dir", JSON.stringify(state));
 set("start_block", "1");
 fs.writeFileSync(output, text.slice(0, start) + block.concat(end < 0 ? [] : tail.slice(end)).join("\n"));

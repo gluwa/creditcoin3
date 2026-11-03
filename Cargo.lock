@@ -18496,6 +18496,7 @@ version = "3.143.0"
 dependencies = [
  "alloy",
  "parity-scale-codec",
+ "serde",
  "serde_json",
 ]
 

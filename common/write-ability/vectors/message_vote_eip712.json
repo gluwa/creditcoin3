@@ -1,0 +1,23 @@
+[
+  {
+    "chainId": 1,
+    "validator": "0x0000000000000000000000000000000000000001",
+    "inbox": "0x0000000000000000000000000000000000000002",
+    "messageId": "0x0000000000000000000000000000000000000000000000000000000000000000",
+    "digest": "0x7b401dbf9b40dd9f29ea5b6224252f09bc6a083236cc24f6ad65322153a2cb40"
+  },
+  {
+    "chainId": 11155111,
+    "validator": "0x71a21ea8d28d3a0618d61d478ee20dcb64be8082",
+    "inbox": "0x5fbdb2315678afecb367f032d93f642f64180aa3",
+    "messageId": "0x9c22ff5f21f0b81b113e63f7db6da94fedef11b2119b4088b89664fb9a3cb658",
+    "digest": "0xbecc56f1cba55de45990ebff4b9bb5021f0a882ec7aa0fc37dd60bb75caefc53"
+  },
+  {
+    "chainId": 102030,
+    "validator": "0xe7f1725e7734ce288f8367e1bb143e90bb3f0512",
+    "inbox": "0x9fe46736679d2d9a65f0992f2272de9f3c7fa6e0",
+    "messageId": "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "digest": "0x23c1894dd8669a3049e3a833373ec3826745b883735cbde369de1da5778cf3c4"
+  }
+]
