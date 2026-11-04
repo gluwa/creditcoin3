@@ -16,23 +16,6 @@ use alloy::primitives::Address;
 
 use attestor_primitives::ChainKey;
 
-/// How the set of authorized message-vote signers (EVM addresses) is determined. Gossip votes from
-/// signers outside this set are rejected, and the quorum `N` is derived from its size
-/// (confluence §6.6, §5.3).
-#[derive(Clone, Debug)]
-pub enum AttestorSet {
-    /// Static list of EVM attestor addresses (PoC / config fallback).
-    Static(Vec<Address>),
-    /// Read `IVoteValidator.attestors()` from the on-chain validator at this address.
-    OnChainValidator(Address),
-}
-
-impl Default for AttestorSet {
-    fn default() -> Self {
-        AttestorSet::Static(Vec::new())
-    }
-}
-
 /// Write-ability task configuration.
 #[derive(Clone, Debug)]
 pub struct Config {
@@ -44,8 +27,8 @@ pub struct Config {
     pub cc3_eth_rpc_url: Option<url::Url>,
 
     /// Destination-chain EVM JSON-RPC endpoint — the chain this attestor set attests block heights
-    /// for (its `eth` URL), where the Inbox and `EOAValidator` live. Only read when
-    /// [`AttestorSet::OnChainValidator`] is configured, to fetch the authorized attestor set.
+    /// for (its `eth` URL), where the Inbox and `EOAValidator` live. The authorized attestor set,
+    /// quorum threshold and message-vote EIP-712 domain are all read from here.
     pub destination_eth_rpc_url: Option<url::Url>,
 
     /// Write-ability chain key (`u64`) for this attestor, set from the top-level `chain_key` at
@@ -77,13 +60,16 @@ pub struct Config {
     /// Drop partial vote aggregates older than this unless already complete (anti-abuse).
     pub vote_ttl: Duration,
 
-    /// Source of the authorized signer set / quorum size.
-    pub attestor_set: AttestorSet,
+    /// Destination `EOAValidator` (`IVoteValidator`). The single source of the authorized signer
+    /// set and quorum threshold (`attestors()` / `threshold()`), and the `verifyingContract` of
+    /// the message-vote EIP-712 domain. Gossip votes from signers outside its set are rejected.
+    /// Required when `enabled`.
+    pub vote_validator: Option<Address>,
 
     /// Destination Inbox that delivers this chain's messages. Message votes are EIP-712 bound to
     /// it (the `inbox` field of `MessageVote`), so a vote bundle cannot be replayed into another
-    /// Inbox that accepts the same Outbox. Required with [`AttestorSet::OnChainValidator`]; the
-    /// attestor checks on-chain that this Inbox hands its votes to the configured validator.
+    /// Inbox that accepts the same Outbox. Required when `enabled`; the attestor checks on-chain
+    /// that this Inbox hands its votes to [`vote_validator`](Self::vote_validator).
     pub destination_inbox: Option<Address>,
 }
 
@@ -102,7 +88,7 @@ impl Config {
             state_dir: PathBuf::from(DEFAULT_STATE_DIR),
             max_tracked_messages: DEFAULT_MAX_TRACKED_MESSAGES,
             vote_ttl: DEFAULT_VOTE_TTL,
-            attestor_set: AttestorSet::default(),
+            vote_validator: None,
             destination_inbox: None,
         }
     }
@@ -116,7 +102,7 @@ impl Default for Config {
 
 impl Config {
     /// Reject an invalid startup configuration: out-of-range legacy confirmation depth, zero vote
-    /// TTL / tracked-message cap, or a zero / empty / duplicated attestor set. Only enforced when
+    /// TTL / tracked-message cap, or a missing / zero validator, Inbox or destination RPC. Only enforced when
     /// `enabled` — a disabled config is always valid.
     pub fn validate(&self) -> Result<(), String> {
         if !self.enabled {
@@ -147,48 +133,34 @@ impl Config {
         if self.max_tracked_messages == 0 {
             return Err("max_tracked_messages must be > 0".to_string());
         }
-        match &self.attestor_set {
-            AttestorSet::Static(addrs) => {
-                if addrs.is_empty() {
-                    return Err(
-                        "message attestation enabled but the static attestor_set is empty"
-                            .to_string(),
-                    );
-                }
-                if addrs.contains(&Address::ZERO) {
-                    return Err("static attestor_set contains the zero address".to_string());
-                }
-                let mut seen = std::collections::HashSet::with_capacity(addrs.len());
-                if let Some(dup) = addrs.iter().find(|a| !seen.insert(**a)) {
-                    return Err(format!(
-                        "static attestor_set contains a duplicate address: {dup}"
-                    ));
-                }
+        match self.vote_validator {
+            None => {
+                return Err(
+                    "message attestation enabled but no validator_address (the destination \
+                     EOAValidator that holds the attestor set)"
+                        .to_string(),
+                );
             }
-            AttestorSet::OnChainValidator(validator) => {
-                if *validator == Address::ZERO {
-                    return Err("OnChainValidator address is the zero address".to_string());
-                }
-                if self.destination_eth_rpc_url.is_none() {
-                    return Err(
-                        "OnChainValidator attestor set configured but no destination EVM RPC URL"
-                            .to_string(),
-                    );
-                }
-                match self.destination_inbox {
-                    None => {
-                        return Err(
-                            "OnChainValidator attestor set configured but no inbox_address \
-                                    (message votes are EIP-712 bound to the destination Inbox)"
-                                .to_string(),
-                        );
-                    }
-                    Some(inbox) if inbox == Address::ZERO => {
-                        return Err("inbox_address is the zero address".to_string());
-                    }
-                    Some(_) => {}
-                }
+            Some(validator) if validator == Address::ZERO => {
+                return Err("validator_address is the zero address".to_string());
             }
+            Some(_) => {}
+        }
+        match self.destination_inbox {
+            None => {
+                return Err(
+                    "message attestation enabled but no inbox_address (message votes are \
+                     EIP-712 bound to the destination Inbox)"
+                        .to_string(),
+                );
+            }
+            Some(inbox) if inbox == Address::ZERO => {
+                return Err("inbox_address is the zero address".to_string());
+            }
+            Some(_) => {}
+        }
+        if self.destination_eth_rpc_url.is_none() {
+            return Err("message attestation enabled but no destination EVM RPC URL".to_string());
         }
         Ok(())
     }
@@ -206,8 +178,7 @@ pub const DEFAULT_BLOCK_CONFIRMATION_DEPTH: u64 = 3;
 pub const MAX_BLOCK_CONFIRMATION_DEPTH: u64 = 100_000;
 
 /// Reject an RPC URL whose scheme the EVM/substrate clients can't dial (audit P2-7). Accepts only
-/// `http(s)` / `ws(s)`; `None` is accepted here (presence is enforced separately per attestor-set
-/// mode). Catches a fat-fingered `htto://…` / `file://…` at boot instead of at first RPC call.
+/// `http(s)` / `ws(s)`; `None` is accepted here (presence is enforced separately). Catches a fat-fingered `htto://…` / `file://…` at boot instead of at first RPC call.
 fn validate_rpc_url(field: &str, url: Option<&url::Url>) -> Result<(), String> {
     if let Some(u) = url {
         match u.scheme() {
@@ -244,10 +215,8 @@ mod tests {
             state_dir: PathBuf::from(DEFAULT_STATE_DIR),
             max_tracked_messages: DEFAULT_MAX_TRACKED_MESSAGES,
             vote_ttl: DEFAULT_VOTE_TTL,
-            attestor_set: AttestorSet::Static(vec![address!(
-                "000000000000000000000000000000000000000a"
-            )]),
-            destination_inbox: None,
+            vote_validator: Some(address!("000000000000000000000000000000000000000b")),
+            destination_inbox: Some(address!("000000000000000000000000000000000000000c")),
         }
     }
 
@@ -300,40 +269,27 @@ mod tests {
     }
 
     #[test]
-    fn rejects_empty_zero_and_duplicate_static_set() {
+    fn requires_a_nonzero_validator() {
         let mut c = enabled_base();
-        c.attestor_set = AttestorSet::Static(vec![]);
-        assert!(c.validate().is_err(), "empty");
-
-        c.attestor_set = AttestorSet::Static(vec![Address::ZERO]);
-        assert!(c.validate().is_err(), "zero address");
-
-        let a = address!("000000000000000000000000000000000000000a");
-        c.attestor_set = AttestorSet::Static(vec![a, a]);
-        assert!(c.validate().is_err(), "duplicate");
-    }
-
-    #[test]
-    fn rejects_zero_validator_and_missing_dest_rpc() {
-        let mut c = enabled_base();
-        c.attestor_set = AttestorSet::OnChainValidator(Address::ZERO);
+        c.vote_validator = None;
+        assert!(c.validate().is_err(), "missing validator");
+        c.vote_validator = Some(Address::ZERO);
         assert!(c.validate().is_err(), "zero validator");
-
-        c.attestor_set =
-            AttestorSet::OnChainValidator(address!("000000000000000000000000000000000000000b"));
-        c.destination_eth_rpc_url = None;
-        assert!(c.validate().is_err(), "missing dest rpc");
     }
 
     #[test]
-    fn on_chain_validator_requires_a_nonzero_inbox() {
+    fn requires_a_nonzero_inbox() {
         let mut c = enabled_base();
-        c.attestor_set =
-            AttestorSet::OnChainValidator(address!("000000000000000000000000000000000000000b"));
+        c.destination_inbox = None;
         assert!(c.validate().is_err(), "missing inbox");
         c.destination_inbox = Some(Address::ZERO);
         assert!(c.validate().is_err(), "zero inbox");
-        c.destination_inbox = Some(address!("000000000000000000000000000000000000000c"));
-        assert!(c.validate().is_ok());
+    }
+
+    #[test]
+    fn requires_a_destination_rpc() {
+        let mut c = enabled_base();
+        c.destination_eth_rpc_url = None;
+        assert!(c.validate().is_err());
     }
 }

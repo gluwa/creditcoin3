@@ -116,15 +116,12 @@ struct ConfigFileWriteAbility {
     max_tracked_messages: Option<usize>,
     /// TTL (seconds) for incomplete vote aggregates.
     vote_ttl_secs: Option<u64>,
-    /// Authorized message-vote signer EVM addresses (the static attestor set).
-    #[serde(default)]
-    attestors: Vec<alloy::primitives::Address>,
-    /// On-chain `IVoteValidator` (EOAValidator) address on the destination chain; if set, takes
-    /// precedence over `attestors`. The set is read once at startup via `destination_eth_rpc_url`
-    /// and hot-reloaded by the attestor-set watcher while running.
+    /// On-chain `IVoteValidator` (EOAValidator) address on the destination chain. Required when
+    /// enabled: the authorized attestor set and threshold are read from it via the `eth` URL and
+    /// hot-reloaded by the attestor-set watcher while running.
     validator_address: Option<alloy::primitives::Address>,
-    /// Destination Inbox address. Required with `validator_address`: message votes are EIP-712
-    /// signed for this Inbox and the validator, and the attestor checks the two are wired together.
+    /// Destination Inbox address. Required when enabled: message votes are EIP-712 signed for this
+    /// Inbox and the validator, and the attestor checks the two are wired together.
     inbox_address: Option<alloy::primitives::Address>,
 }
 
@@ -566,21 +563,16 @@ impl Config {
         cc3_url: &url::Url,
         eth_url: &url::Url,
     ) -> anyhow::Result<attestor::tasks::write_ability::Config> {
-        use attestor::tasks::write_ability::{config, AttestorSet, Config as WaConfig};
+        use attestor::tasks::write_ability::{config, Config as WaConfig};
 
         let enabled = matches.get_flag("writeability") || file.enabled;
-
-        let attestor_set = match file.validator_address {
-            Some(addr) => AttestorSet::OnChainValidator(addr),
-            None => AttestorSet::Static(file.attestors),
-        };
 
         let cfg = WaConfig {
             enabled,
             cc3_eth_rpc_url: Some(cc3_url.clone()),
             // The destination chain (where the Inbox + EOAValidator live) is the same chain this
             // attestor set attests block heights for — its `eth` URL. Used to read the on-chain
-            // attestor set when `attestor_set` is an OnChainValidator.
+            // attestor set, threshold and message-vote domain from the validator.
             destination_eth_rpc_url: Some(eth_url.clone()),
             write_ability_chain_key: chain_key,
             block_confirmation_depth: file
@@ -596,7 +588,7 @@ impl Config {
             vote_ttl: file
                 .vote_ttl_secs
                 .map_or(config::DEFAULT_VOTE_TTL, std::time::Duration::from_secs),
-            attestor_set,
+            vote_validator: file.validator_address,
             destination_inbox: file.inbox_address,
         };
 

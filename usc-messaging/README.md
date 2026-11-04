@@ -108,10 +108,10 @@ attestors).
 
 Now that the factory and Outbox are registered on-chain (step 2), start the attestors. Use the
 helper script below — it launches the attestor zombienet (CONTRIBUTING step 3), discovers each
-attestor's derived message-vote EVM address from its logs, writes that set into
-`attestor/config.yaml` (`write_ability.attestors`), prints/saves the matching `--attestor-set`
-value for the relayer, and **syncs the destination-chain `EOAValidator` to that live set** (via
-`updateAttestorSet`, so `deliverMessage` accepts exactly these attestors). It then stays in the
+attestor's derived message-vote EVM address from its logs, saves that set to
+`usc-messaging/scripts/.attestor-set`, and **syncs the destination-chain `EOAValidator` to that live
+set** (via `updateAttestorSet`, so `deliverMessage` accepts exactly these attestors). Attestors and
+the relayer both read the set from the validator, so nothing else needs it. It then stays in the
 foreground streaming the zombienet logs, like running the zombienet directly (Ctrl-C to stop):
 
 ```bash
@@ -123,16 +123,14 @@ bash usc-messaging/scripts/launch-attestors.sh        # add a number to run N !=
 > stays disabled and the script times out. (The script uses random — but deterministic — attestor
 > keys, not `--well-known-keys`, so the addresses it writes stay valid across restarts.)
 
-When the script prints the attestor set, copy it (also saved to `usc-messaging/scripts/.attestor-set`)
-and, in a **separate terminal**, start the relayer. The relayer is the Rust `message-relayer` crate from
+Once the script reports the attestor set is ready, start the relayer in a **separate terminal**. The relayer is the Rust `message-relayer` crate from
 [`gluwa/usc-message-relayer`](https://github.com/gluwa/usc-message-relayer) (clone it as a sibling of this repo);
 it snoops the attestors' `{chain_key}/message-votes/v1` votes, aggregates a 2N/3+1 quorum, and calls
 `Inbox.deliverMessage` on the destination anvil chain:
 
 ```bash
 cd usc-messaging
-source .env                                  # exports $OUTBOX_ADDR and $INBOX_ADDR
-ATTESTOR_SET=$(cat scripts/.attestor-set)    # the set written by launch-attestors.sh
+source .env    # exports $OUTBOX_ADDR, $INBOX_ADDR and $VOTE_VALIDATOR_ADDR
 
 # relayer lives in gluwa/usc-message-relayer — clone it next to this repo first
 cargo run --manifest-path ../../usc-message-relayer/Cargo.toml -p message-relayer -- --single-route \
@@ -144,17 +142,15 @@ cargo run --manifest-path ../../usc-message-relayer/Cargo.toml -p message-relaye
   --destination-rpc-url http://localhost:8545 \
   --inbox-address "$INBOX_ADDR" \
   --signer-key 0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80 \
-  --attestor-set "$ATTESTOR_SET" \
   --validator-address "$VOTE_VALIDATOR_ADDR"
 ```
 
 Notes on the relayer flags:
 - `--chain-key 2` / `--cc3-chain-id 42` match the dev anvil chain key and the Creditcoin `--dev` EVM
   chain id; both are bound into `messageHash`, so they must agree with the attestors.
-- `--attestor-set` is the value produced by `launch-attestors.sh`; the relayer drops votes from
-  signers outside it.
-- `--validator-address` is the destination `EOAValidator`. Votes are EIP-712 signed over its
-  domain and the Inbox, so the relayer needs it to recover signers.
+- `--validator-address` is the destination `EOAValidator`. The relayer reads the attestor set and
+  threshold from it (dropping votes from signers outside the set), and votes are EIP-712 signed
+  over its domain and the Inbox, so the relayer also needs it to recover signers.
 - `--signer-key` is anvil's default account 0 — it pays for `deliverMessage` on the destination.
 
 Then start the dApp's acknowledgement worker (still TS):
@@ -285,7 +281,6 @@ destination RPC (the Creditcoin/`--cc3-*` flags are unchanged):
    ```bash
    cd usc-messaging
    source .env
-   ATTESTOR_SET=$(cat scripts/.attestor-set)
 
    # relayer lives in gluwa/usc-message-relayer — clone it next to this repo first
    cargo run --manifest-path ../../usc-message-relayer/Cargo.toml -p message-relayer -- --single-route \
@@ -297,7 +292,6 @@ destination RPC (the Creditcoin/`--cc3-*` flags are unchanged):
      --destination-rpc-url "$DESTINATION_CHAIN_RPC_URL" \
      --inbox-address "$INBOX_ADDR" \
      --signer-key "$DESTINATION_CHAIN_PRIVATE_KEY" \
-     --attestor-set "$ATTESTOR_SET" \
      --validator-address "$VOTE_VALIDATOR_ADDR"
    ```
 

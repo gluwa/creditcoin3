@@ -98,31 +98,23 @@ write_ability:
   # and its bytes32 write-ability chain key overrides the locally derived one. No
   # entry (or a failed read) falls back to this local config. Read at startup;
   # on-chain changes are picked up on restart.
-  enabled: true
+  #
+  # Off by default: enabling it requires the destination contracts below.
+  # usc-messaging/scripts/launch-attestors.sh turns it on for local runs.
+  enabled: false
 
-  # Authorized message-vote signer EVM addresses (the static attestor set). The
-  # 2N/3+1 quorum is derived from its size. Each attestor logs its own derived
-  # signer address at startup. These defaults are the deterministic addresses of
-  # the first three zombienet attestors launched with `--well-known-keys`
-  # (//Alice, //Bob, //Charlie).
-  attestors:
-    - "0x3C3224ECf3e12ec671D200a2802a2525Fa1B04aC"  # zombie 0 (//Alice)
-    - "0x0aC32750Ed79f301248afD9B398cc5723911c392"  # zombie 1 (//Bob)
-    - "0x4910156288781F080d81c607E3a830a7019d9Bc6"  # zombie 2 (//Charlie)
-
-  # Optional: on-chain EOAValidator address. If set, takes precedence over the
-  # static `attestors` list above: the attestor reads the authorized set from
-  # `EOAValidator.attestors()` on the destination chain (the chain this attestor
-  # set attests, i.e. the `eth` url) — the same on-chain source of truth the Inbox
-  # uses. Keeps the set in lockstep with the validator without hand-maintaining it.
+  # Destination-chain EOAValidator address. Required when enabled. The attestor
+  # reads the authorized message-vote signer set and quorum threshold from
+  # `EOAValidator.attestors()` / `threshold()` on the destination chain (the
+  # chain this attestor set attests, i.e. the `eth` url), the same on-chain
+  # source of truth the Inbox uses, and hot-reloads them while running.
   #
   # validator_address: "0x..."
   #
-  # Destination Inbox address. Required with `validator_address`: message votes
-  # are EIP-712 signed over (destination chainId, EOAValidator) for this Inbox,
-  # and the attestor checks on-chain that the Inbox hands its votes to that
-  # validator before signing anything. A static `attestors` list cannot sign
-  # message votes.
+  # Destination Inbox address. Required when enabled: message votes are EIP-712
+  # signed over (destination chainId, EOAValidator) for this Inbox, and the
+  # attestor checks on-chain that the Inbox hands its votes to that validator
+  # before signing anything.
   #
   # inbox_address: "0x..."
 

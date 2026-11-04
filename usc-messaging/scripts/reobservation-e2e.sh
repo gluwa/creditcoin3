@@ -75,7 +75,6 @@ for i in $(seq 1 100); do
   grep -qE 'Timed out|zombienet exited|❌' "$LOGS/zombienet.log" && { echo "❌ attestors failed"; tail -30 "$LOGS/zombienet.log"; exit 1; }
   sleep 3; [ "$i" = 100 ] && { echo "❌ attestors timed out"; exit 1; }
 done
-ATTESTOR_SET="$(cat "$USC/scripts/.attestor-set")"
 
 echo "=== 4. record source block, then publish WITHOUT a relayer ==="
 # Cursor to rewind to: everything strictly after this block is rescanned when the relayer starts.
@@ -101,7 +100,7 @@ RUST_LOG=info,message_relayer=debug "$RELAYER_BIN" --single-route \
   --chain-key 2 --cc3-chain-id 42 --outbox-address "$OUTBOX_ADDR" \
   --destination-rpc-url http://localhost:8545 --inbox-address "$INBOX_ADDR" \
   --signer-key 0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80 \
-  --attestor-set "$ATTESTOR_SET" --validator-address "$VOTE_VALIDATOR_ADDR" \
+  --validator-address "$VOTE_VALIDATOR_ADDR" \
   --checkpoint-path "$CKPT" >"$LOGS/relayer.log" 2>&1 &
 for i in $(seq 1 20); do grep -q 'libp2p subscriber online' "$LOGS/relayer.log" && break; sleep 2; done
 echo "✅ relayer online (indexing the past message with zero votes)"

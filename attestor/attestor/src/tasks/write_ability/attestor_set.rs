@@ -4,8 +4,7 @@
 //! `EOAValidator` and hot-swaps [`MessageVoteState::active_set`] plus the aggregator threshold
 //! whenever either changes. That lets an operator add/remove an attestor **or** retune the quorum
 //! on-chain and have every running attestor track it **without a restart** — closing the "set
-//! resolved once at startup" gap. Only spawned for
-//! [`AttestorSet::OnChainValidator`](super::config::AttestorSet); a static set never changes.
+//! resolved once at startup" gap. The validator is the attestor's only source of the set.
 //!
 //! The same poll resolves the message-vote EIP-712 domain ([`MessageVoteState::vote_domain`]):
 //! the validator's ERC-5267 `eip712Domain()` must match the name/version this build signs with
