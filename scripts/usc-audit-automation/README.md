@@ -70,7 +70,7 @@ variables.
 **Env overrides (CI)**: `SEPOLIA_RPC_URL` overrides url for chainId 11155111;
 `BSC_MAINNET_RPC_URL` for chainId 56 and `MAINNET_RPC_URL` for chainId 1.
 
-Devnet's chainId 56 entry ships a public BSC endpoint, so `BSC_MAINNET_RPC_URL`
+Testnet's chainId 56 entry ships a public BSC endpoint, so `BSC_MAINNET_RPC_URL`
 is optional; set it to move that check onto a private provider.
 
 Relative config paths (e.g. `config-devnet.json`) are resolved from the script
