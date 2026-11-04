@@ -16,7 +16,7 @@ use std::collections::HashSet;
 use std::sync::Arc;
 use std::time::Duration;
 
-use alloy::primitives::{Address, U256};
+use alloy::primitives::{Address, FixedBytes, B256, U256};
 use alloy::providers::{Provider, ProviderBuilder};
 use tokio_util::sync::CancellationToken;
 use write_ability::hash::{
@@ -140,7 +140,13 @@ pub async fn watch(
                         continue;
                     }
                 };
-                apply_vote_domain(&state, domain);
+                match domain {
+                    Ok(domain) => apply_vote_domain(&state, domain),
+                    // Transient: keep the last-known domain and still apply the set below, so an
+                    // RPC blip on these two calls cannot freeze attestor-set rotation.
+                    Err(err) => tracing::warn!(%validator, %inbox, err = %format!("{err:#}"),
+                        "failed to read the message-vote EIP-712 domain; keeping the current one"),
+                }
                 if set.is_empty() {
                     tracing::warn!(%validator, "EOAValidator.attestors() returned empty — keeping current set");
                     continue;
@@ -218,54 +224,97 @@ async fn read_threshold<P: Provider>(provider: &P, validator: Address) -> anyhow
     Ok(ret)
 }
 
+/// ERC-5267 `fields` bitmap for a domain of exactly name, version, chainId and verifyingContract
+/// (bits 0..=3). A salt (bit 4) or extensions would change the digest this build signs.
+const EXPECTED_DOMAIN_FIELDS: u8 = 0x0f;
+
 /// Read the validator's EIP-712 domain and the Inbox's validator, and build the message-vote domain
-/// if they match what this build signs. The outer `Err` is an RPC failure (keep the last-known
-/// domain and retry); the inner `Err` is a definite mismatch (stop signing).
+/// if they match what this build signs. The outer `Err` is a transient RPC failure (keep the
+/// last-known domain and retry); the inner `Err` is a definite mismatch (stop signing), including a
+/// call that reverts or returns nothing, such as a pre-EIP-712 validator without `eip712Domain()`.
 async fn read_vote_domain<P: Provider>(
     provider: &P,
     validator: Address,
     inbox: Address,
 ) -> anyhow::Result<Result<MessageVoteDomain, String>> {
-    let d = write_ability::abi::IVoteValidator::new(validator, provider)
+    let reported = match write_ability::abi::IVoteValidator::new(validator, provider)
         .eip712Domain()
         .call()
         .await
-        .map_err(|err| anyhow::anyhow!("EOAValidator.eip712Domain(): {err}"))?;
-    let inbox_validator = write_ability::abi::IInbox::new(inbox, provider)
+    {
+        Ok(reported) => reported,
+        Err(err) if is_permanent_call_error(&err) => {
+            return Ok(Err(format!(
+                "EOAValidator {validator} does not answer eip712Domain() ({err}): a pre-EIP-712 \
+                 validator, or not a validator at all"
+            )));
+        }
+        Err(err) => return Err(anyhow::anyhow!("EOAValidator.eip712Domain(): {err}")),
+    };
+    let inbox_validator = match write_ability::abi::IInbox::new(inbox, provider)
         .defaultVoteValidator()
         .call()
         .await
-        .map_err(|err| anyhow::anyhow!("Inbox.defaultVoteValidator(): {err}"))?;
+    {
+        Ok(v) => v,
+        Err(err) if is_permanent_call_error(&err) => {
+            return Ok(Err(format!(
+                "Inbox {inbox} does not answer defaultVoteValidator() ({err}): not an Inbox"
+            )));
+        }
+        Err(err) => return Err(anyhow::anyhow!("Inbox.defaultVoteValidator(): {err}")),
+    };
     Ok(check_vote_domain(
         validator,
         inbox,
-        &d.name,
-        &d.version,
-        d.chainId,
-        d.verifyingContract,
+        &reported,
         inbox_validator,
     ))
+}
+
+/// A call error that retrying will not fix: the node executed the call and it reverted, or it
+/// returned nothing or undecodable data (no such function, or no contract at the address).
+fn is_permanent_call_error(err: &alloy::contract::Error) -> bool {
+    match err {
+        alloy::contract::Error::ZeroData(..) | alloy::contract::Error::AbiError(_) => true,
+        alloy::contract::Error::TransportError(e) => e.as_error_resp().is_some_and(|payload| {
+            // Geth-style code 3 carries revert data; nodes without data use a message.
+            payload.code == 3 || payload.message.to_ascii_lowercase().contains("revert")
+        }),
+        _ => false,
+    }
 }
 
 /// Pure half of [`read_vote_domain`], split out for tests.
 fn check_vote_domain(
     validator: Address,
     inbox: Address,
-    name: &str,
-    version: &str,
-    chain_id: U256,
-    verifying_contract: Address,
+    reported: &write_ability::abi::IVoteValidator::eip712DomainReturn,
     inbox_validator: Address,
 ) -> Result<MessageVoteDomain, String> {
+    let (name, version) = (&reported.name, &reported.version);
     if name != MESSAGE_VOTE_DOMAIN_NAME || version != MESSAGE_VOTE_DOMAIN_VERSION {
         return Err(format!(
             "validator EIP-712 domain is ({name:?}, {version:?}), this attestor signs \
              ({MESSAGE_VOTE_DOMAIN_NAME:?}, {MESSAGE_VOTE_DOMAIN_VERSION:?})"
         ));
     }
-    if verifying_contract != validator {
+    if reported.fields != FixedBytes([EXPECTED_DOMAIN_FIELDS])
+        || reported.salt != B256::ZERO
+        || !reported.extensions.is_empty()
+    {
         return Err(format!(
-            "validator EIP-712 verifyingContract is {verifying_contract}, expected {validator}"
+            "validator EIP-712 domain fields are {} (salt {}, {} extensions); this attestor signs \
+             exactly name, version, chainId and verifyingContract (0x{EXPECTED_DOMAIN_FIELDS:02x})",
+            reported.fields,
+            reported.salt,
+            reported.extensions.len()
+        ));
+    }
+    if reported.verifyingContract != validator {
+        return Err(format!(
+            "validator EIP-712 verifyingContract is {}, expected {validator}",
+            reported.verifyingContract
         ));
     }
     if inbox_validator != validator {
@@ -273,8 +322,12 @@ fn check_vote_domain(
             "Inbox {inbox} hands votes to {inbox_validator}, not the configured validator {validator}"
         ));
     }
-    let chain_id = u64::try_from(chain_id)
-        .map_err(|_| format!("validator EIP-712 chainId {chain_id} does not fit in u64"))?;
+    let chain_id = u64::try_from(reported.chainId).map_err(|_| {
+        format!(
+            "validator EIP-712 chainId {} does not fit in u64",
+            reported.chainId
+        )
+    })?;
     Ok(MessageVoteDomain {
         chain_id,
         validator,
@@ -309,18 +362,24 @@ fn apply_vote_domain(state: &MessageVoteState, domain: Result<MessageVoteDomain,
 /// Connect to the destination chain and read, over one connection, the validator's attestor set,
 /// its quorum threshold and the message-vote domain. The set and threshold are trust-critical and
 /// read together so the local view cannot apply a new set against a stale threshold or vice versa.
+/// The domain is returned separately (outer `Err` = transient) so a domain read failure does not
+/// block a set update.
 pub(super) async fn fetch_destination_view(
     dest_rpc_url: &str,
     validator: Address,
     inbox: Address,
-) -> anyhow::Result<(HashSet<Address>, u64, Result<MessageVoteDomain, String>)> {
+) -> anyhow::Result<(
+    HashSet<Address>,
+    u64,
+    anyhow::Result<Result<MessageVoteDomain, String>>,
+)> {
     let provider = ProviderBuilder::new()
         .connect(dest_rpc_url)
         .await
         .map_err(|err| anyhow::anyhow!("connect destination chain RPC: {err}"))?;
     let set = read_attestors(&provider, validator).await?;
     let threshold = read_threshold(&provider, validator).await?;
-    let domain = read_vote_domain(&provider, validator, inbox).await?;
+    let domain = read_vote_domain(&provider, validator, inbox).await;
     Ok((set, u64::try_from(threshold).unwrap_or(u64::MAX), domain))
 }
 
@@ -333,50 +392,90 @@ mod tests {
     #[test]
     fn vote_domain_requires_matching_validator_and_inbox_wiring() {
         use alloy::primitives::address;
+        use write_ability::abi::IVoteValidator::eip712DomainReturn;
         let validator = address!("00000000000000000000000000000000000000e1");
         let inbox = address!("00000000000000000000000000000000000001b0");
         let other = address!("00000000000000000000000000000000000000e2");
-        let check = |name: &str, version: &str, verifying: Address, inbox_validator: Address| {
-            check_vote_domain(
-                validator,
-                inbox,
-                name,
-                version,
-                U256::from(42u64),
-                verifying,
-                inbox_validator,
-            )
+        let good = || eip712DomainReturn {
+            fields: FixedBytes([EXPECTED_DOMAIN_FIELDS]),
+            name: MESSAGE_VOTE_DOMAIN_NAME.to_string(),
+            version: MESSAGE_VOTE_DOMAIN_VERSION.to_string(),
+            chainId: U256::from(42u64),
+            verifyingContract: validator,
+            salt: B256::ZERO,
+            extensions: vec![],
         };
+        let check = |reported: eip712DomainReturn, inbox_validator: Address| {
+            check_vote_domain(validator, inbox, &reported, inbox_validator)
+        };
+
         assert_eq!(
-            check(
-                MESSAGE_VOTE_DOMAIN_NAME,
-                MESSAGE_VOTE_DOMAIN_VERSION,
-                validator,
-                validator
-            ),
+            check(good(), validator),
             Ok(MessageVoteDomain {
                 chain_id: 42,
                 validator,
                 inbox
             })
         );
-        assert!(check("Other", MESSAGE_VOTE_DOMAIN_VERSION, validator, validator).is_err());
-        assert!(check(MESSAGE_VOTE_DOMAIN_NAME, "2", validator, validator).is_err());
-        assert!(check(
-            MESSAGE_VOTE_DOMAIN_NAME,
-            MESSAGE_VOTE_DOMAIN_VERSION,
-            other,
-            validator
-        )
-        .is_err());
+        let cases: [(&str, eip712DomainReturn); 7] = [
+            (
+                "name",
+                eip712DomainReturn {
+                    name: "Other".into(),
+                    ..good()
+                },
+            ),
+            (
+                "version",
+                eip712DomainReturn {
+                    version: "2".into(),
+                    ..good()
+                },
+            ),
+            (
+                "verifyingContract",
+                eip712DomainReturn {
+                    verifyingContract: other,
+                    ..good()
+                },
+            ),
+            (
+                "fields",
+                eip712DomainReturn {
+                    fields: FixedBytes([0x1f]),
+                    ..good()
+                },
+            ),
+            (
+                "salt",
+                eip712DomainReturn {
+                    salt: B256::repeat_byte(1),
+                    ..good()
+                },
+            ),
+            (
+                "extensions",
+                eip712DomainReturn {
+                    extensions: vec![U256::from(1u64)],
+                    ..good()
+                },
+            ),
+            (
+                "chainId",
+                eip712DomainReturn {
+                    chainId: U256::MAX,
+                    ..good()
+                },
+            ),
+        ];
+        for (what, reported) in cases {
+            assert!(
+                check(reported, validator).is_err(),
+                "a mismatched {what} must stop signing"
+            );
+        }
         assert!(
-            check(
-                MESSAGE_VOTE_DOMAIN_NAME,
-                MESSAGE_VOTE_DOMAIN_VERSION,
-                validator,
-                other
-            )
-            .is_err(),
+            check(good(), other).is_err(),
             "an Inbox wired to a different validator must stop signing"
         );
     }
