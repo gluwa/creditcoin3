@@ -384,19 +384,19 @@ impl<T: frame_system::Config> crate::WeightInfo for WeightInfo<T> {
 	/// The range of component `m` is `[1, 99]`.
 	fn commit_attestation(s: u32, m: u32, ) -> Weight {
 		// Proof Size summary in bytes:
-		//  Measured:  `2110 + m * (202 ±0)`
-		//  Estimated: `8050 + m * (2678 ±0)`
-		// Minimum execution time: 45_046_771_000 picoseconds.
-		Weight::from_parts(34_684_370_165, 0)
-			.saturating_add(Weight::from_parts(0, 8050))
-			// Standard Error: 10_999_368
-			.saturating_add(Weight::from_parts(19_330_364, 0).saturating_mul(s.into()))
-			// Standard Error: 33_671_535
-			.saturating_add(Weight::from_parts(2_138_818_334, 0).saturating_mul(m.into()))
+		//  Measured:  `2233 + m * (207 ±0)`
+		//  Estimated: `8174 + m * (2682 ±0)`
+		// Minimum execution time: 43_264_795_000 picoseconds.
+		Weight::from_parts(40_889_844_367, 0)
+			.saturating_add(Weight::from_parts(0, 8174))
+			// Standard Error: 196_820
+			.saturating_add(Weight::from_parts(2_990_304, 0).saturating_mul(s.into()))
+			// Standard Error: 10_946_386
+			.saturating_add(Weight::from_parts(2_002_736_340, 0).saturating_mul(m.into()))
 			.saturating_add(T::DbWeight::get().reads(25))
 			.saturating_add(T::DbWeight::get().reads((2_u64).saturating_mul(m.into())))
 			.saturating_add(T::DbWeight::get().writes(8))
-			.saturating_add(Weight::from_parts(0, 2678).saturating_mul(m.into()))
+			.saturating_add(Weight::from_parts(0, 2682).saturating_mul(m.into()))
 	}
 	/// Storage: `Attestation::ActiveAttestors` (r:1 w:0)
 	/// Proof: `Attestation::ActiveAttestors` (`max_values`: None, `max_size`: None, mode: `Measured`)
