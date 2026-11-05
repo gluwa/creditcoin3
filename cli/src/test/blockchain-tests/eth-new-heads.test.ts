@@ -44,10 +44,21 @@ describe('eth_subscribe newHeads', (): void => {
     });
 
     test('timestamps match eth_getBlockByHash and are in seconds', async () => {
-        const heads = await nextHeads(2);
-
+        // On a network with several authors (validator-compatibility) a head can be
+        // reorged out before we look it up, and Frontier returns null for blocks that
+        // are no longer on the main chain. Retrying doesn't help, so take a few heads
+        // and check the ones that are still canonical.
+        const heads = await nextHeads(5);
+        const checked: { head: Head; block: { timestamp: string } }[] = [];
         for (const head of heads) {
             const block = await provider.send('eth_getBlockByHash', [head.hash, false]);
+            if (block !== null) {
+                checked.push({ head, block });
+            }
+        }
+        expect(checked.length).toBeGreaterThanOrEqual(2);
+
+        for (const { head, block } of checked) {
             expect(BigInt(head.timestamp)).toEqual(BigInt(block.timestamp));
 
             // Seconds, not milliseconds: within a few minutes of now. A millisecond timestamp
