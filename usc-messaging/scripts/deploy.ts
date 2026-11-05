@@ -323,8 +323,8 @@ function getDestinationDeployerAddress(): string {
 // Initial attestor EVM set the EOAValidator is seeded with at deploy time. The authoritative set is
 // only known once the attestors launch (step 3), so we seed best-effort here and `launch-attestors.sh`
 // syncs the live discovered set via `updateAttestorSet` afterwards. Prefer a `.attestor-set` written
-// by a previous launch; otherwise fall back to the config.yaml defaults so the constructor has a
-// valid (non-empty) set.
+// by a previous launch; otherwise fall back to the deterministic `--well-known-keys` zombienet
+// signers (//Alice, //Bob, //Charlie) so the constructor has a valid (non-empty) set.
 const ATTESTOR_SET_FILE = path.join(__dirname, ".attestor-set");
 const DEFAULT_ATTESTORS = [
   "0x3C3224ECf3e12ec671D200a2802a2525Fa1B04aC",

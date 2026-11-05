@@ -1,9 +1,12 @@
 //! Message-vote signing (confluence §7.3 A5 / §6.3).
 //!
 //! Message votes use **ECDSA / secp256k1** to match the reference `EOAValidator`, distinct from the
-//! BLS scheme used for block attestations (§6.7). Each attestor signs the raw 32-byte `messageId`
-//! directly (asc-contracts #54) — **no** EIP-191 / `personal_sign` prefix — producing a 65-byte `(r, s, v)` signature
-//! that `ecrecover` on-chain maps back to the signer's EVM address.
+//! BLS scheme used for block attestations (§6.7). Each attestor signs the EIP-712 digest of
+//! `MessageVote(messageId, inbox)` under the validator's domain (see
+//! [`write_ability::hash::MessageVoteDomain`]) — **no** EIP-191 / `personal_sign` prefix —
+//! producing a 65-byte `(r, s, v)` signature that `ecrecover` on-chain maps back to the signer's
+//! EVM address. [`MessageSigner::sign`] itself signs whatever 32-byte digest it is handed; the
+//! same key also signs set-update and EVM-registration digests.
 //!
 //! The EVM signing key is derived deterministically from the attestor's existing secret with domain
 //! separation, so an operator manages one secret and gets a stable EVM address to register in the
@@ -45,23 +48,24 @@ impl MessageSigner {
         self.address
     }
 
-    /// Sign the raw `messageId` (no EIP-191 prefix) → 65-byte `(r, s, v)`.
-    pub fn sign(&self, message_id: &B256) -> Result<[u8; 65]> {
+    /// Sign a 32-byte digest as-is (no EIP-191 prefix) → 65-byte `(r, s, v)`. Callers pass the
+    /// typed digest for what they sign; a message vote is `MessageVoteDomain::digest(messageId)`.
+    pub fn sign(&self, digest: &B256) -> Result<[u8; 65]> {
         let sig = self
             .signer
-            .sign_hash_sync(message_id)
-            .context("ECDSA sign over messageId failed")?;
+            .sign_hash_sync(digest)
+            .context("ECDSA sign over digest failed")?;
         Ok(sig.as_bytes())
     }
 }
 
-/// Recover the EVM signer address from a 65-byte signature over `message_id`. Mirrors the
+/// Recover the EVM signer address from a 65-byte signature over `digest`. Mirrors the
 /// relayer's `recover_signer` so both sides agree on who signed.
-pub fn recover_signer(message_id: &B256, raw: &[u8; 65]) -> Result<Address> {
+pub fn recover_signer(digest: &B256, raw: &[u8; 65]) -> Result<Address> {
     let sig: Signature = raw[..]
         .try_into()
         .map_err(|e| anyhow::anyhow!("malformed signature bytes: {e}"))?;
-    sig.recover_address_from_prehash(message_id)
+    sig.recover_address_from_prehash(digest)
         .map_err(|e| anyhow::anyhow!("ecrecover failed: {e}"))
 }
 

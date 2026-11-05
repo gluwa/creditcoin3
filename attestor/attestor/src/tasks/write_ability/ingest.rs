@@ -61,9 +61,16 @@ pub fn validate_and_count(
 
     let message_id = B256::from(vote.message_id);
 
+    // Without a resolved EIP-712 domain there is no digest to recover against. Ignore rather than
+    // Reject: the vote may be perfectly valid and our own view is what is missing.
+    let Some(domain) = *state.vote_domain.read() else {
+        tracing::debug!(%message_id, "message-vote domain unresolved — ignoring vote");
+        return Acceptance::Ignore;
+    };
+
     // Recover the signer from the signature and require it to match the advertised `signer` field
     // and to be in the active attestor set. Recovering first stops a forged `signer` being trusted.
-    let recovered = match recover_signer(&message_id, &vote.signature) {
+    let recovered = match recover_signer(&domain.digest(message_id), &vote.signature) {
         Ok(addr) => addr,
         Err(err) => {
             tracing::warn!(%err, "🔏 unrecoverable message-vote signature — rejecting");
@@ -126,6 +133,7 @@ mod tests {
     use crate::tasks::write_ability::aggregator::VoteAggregator;
     use crate::tasks::write_ability::signing::MessageSigner;
     use crate::tasks::write_ability::MessageVoteState;
+    use write_ability::hash::MessageVoteDomain;
 
     const CHAIN_KEY: u64 = 7;
 
@@ -146,11 +154,18 @@ mod tests {
             destination_chain_key: RwLock::new(Some(
                 write_ability::protocol::chain_key_to_bytes32(CHAIN_KEY),
             )),
+            vote_domain: RwLock::new(Some(DOMAIN)),
         }
     }
 
+    const DOMAIN: MessageVoteDomain = MessageVoteDomain {
+        chain_id: 11_155_111,
+        validator: alloy::primitives::address!("00000000000000000000000000000000000000e1"),
+        inbox: alloy::primitives::address!("00000000000000000000000000000000000001b0"),
+    };
+
     fn signed_vote(signer: &MessageSigner, message_id: B256) -> MessageVote {
-        let signature = signer.sign(&message_id).unwrap();
+        let signature = signer.sign(&DOMAIN.digest(message_id)).unwrap();
         MessageVote {
             chain_key: CHAIN_KEY,
             message_id: message_id.0,

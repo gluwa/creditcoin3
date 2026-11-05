@@ -1,6 +1,6 @@
 //! In-memory message-vote aggregator (confluence §7.3 A7 + A11 / §3.2, §5).
 //!
-//! Counts **unique** signers per `messageId` (the digest attestors sign — asc-contracts #54) until
+//! Counts **unique** signers per `messageId` (each vote signs its EIP-712 digest) until
 //! the 2N/3+1 threshold is reached, with the anti-abuse properties from §5 baked in:
 //!
 //! * **Chain-first allowlist** — vote state is only allocated for a `messageId` after the

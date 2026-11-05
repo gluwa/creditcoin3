@@ -20,7 +20,7 @@
 
 use alloy::primitives::keccak256;
 use alloy::sol_types::{SolCall, SolEvent};
-use write_ability::abi::{IOutbox, IOutboxDiscovery, IOutboxFactory, IVoteValidator};
+use write_ability::abi::{IInbox, IOutbox, IOutboxDiscovery, IOutboxFactory, IVoteValidator};
 
 /// Canonical signature string ("name(type1,type2,…)") for an ABI item in a hardhat artifact.
 /// Elementary and array types are already canonical in the artifact's `type` field; tuples would
@@ -208,5 +208,17 @@ fn mirrored_abi_surface_matches_compiled_contracts() {
         &validator,
         "submitAttestorSetUpdate(address[],bytes)",
         IVoteValidator::submitAttestorSetUpdateCall::SELECTOR,
+    );
+    assert_function_mirrored(
+        &validator,
+        "eip712Domain()",
+        IVoteValidator::eip712DomainCall::SELECTOR,
+    );
+
+    let inbox = contracts.join("Inbox.sol/Inbox.json");
+    assert_function_mirrored(
+        &inbox,
+        "defaultVoteValidator()",
+        IInbox::defaultVoteValidatorCall::SELECTOR,
     );
 }

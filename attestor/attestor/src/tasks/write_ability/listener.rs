@@ -2,7 +2,7 @@
 //!
 //! Polls `eth_getLogs` for candidate `MessagePublished` events, authenticates each emitter against
 //! Discovery at its finalized source block, and emits an [`IndexedMessage`] carrying the
-//! `messageId` the attestor will sign directly (asc-contracts #54 — see `write_ability::hash`).
+//! `messageId` the attestor signs (as an EIP-712 digest — see `write_ability::hash`).
 //! Every registered Outbox is covered by the same durable block cursor, independent of defaults.
 //! Historical `eth_call` support is required; unavailable history stops progress rather than
 //! dropping messages or trusting the permissionless factory. Authority is evaluated at block end,
@@ -141,10 +141,10 @@ fn pick_to_block(
 /// A finalized `MessagePublished` the attestor should vote on.
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct IndexedMessage {
-    /// Outbox `messageId` — also the digest the attestor signs directly (asc-contracts #54:
-    /// `Inbox.validateVotes` takes `messageId` itself, which is already cryptographically bound
-    /// to the emitter/outbox/sequence/payload/sourceChainId by `OutboxTypes.computeMessageId` at
-    /// emission time, so nothing needs re-deriving here).
+    /// Outbox `messageId`. Already cryptographically bound to the
+    /// emitter/outbox/sequence/payload/sourceChainId by `OutboxTypes.computeMessageId` at emission
+    /// time, so nothing needs re-deriving here; the vote signs its EIP-712 digest
+    /// (`MessageVoteDomain::digest`), which adds the destination chain, validator and Inbox.
     pub message_id: B256,
     /// Actual Outbox that emitted the message, authenticated at its finalized source block.
     pub outbox: Address,
@@ -651,7 +651,7 @@ async fn scan_range<P: Provider>(
             Ok(decoded) => {
                 // `sequence`/`emitterAddress`/`payload` are already cryptographically bound into
                 // `messageId` by `OutboxTypes.computeMessageId` at emission time (asc-contracts
-                // #54); we only need `messageId` itself to sign and `outbox` for the trust
+                // #54); we only need `messageId` itself to vote on and `outbox` for the trust
                 // boundary already enforced above. `sequence` is decoded (it shifted the ABI
                 // layout of `canAck`/`payload`) but otherwise unused here.
                 let indexed = IndexedMessage {

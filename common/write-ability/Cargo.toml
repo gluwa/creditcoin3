@@ -15,4 +15,5 @@ alloy = { workspace = true, features = ["full"] }
 parity-scale-codec = { workspace = true, features = ["derive"] }
 
 [dev-dependencies]
+serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
