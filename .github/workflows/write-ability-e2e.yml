@@ -31,7 +31,7 @@ name: write-ability-e2e
       relayer-ref:
         description: Full relayer candidate commit SHA
         type: string
-        default: 0d4126b246b913313531fcf8a3f00cf122f6b57b
+        default: 48178854dde5ba3cf789d25596296b6404c9c585
       contracts-ref:
         description: Full compatible contracts commit SHA
         type: string
@@ -63,7 +63,7 @@ name: write-ability-e2e
         default: gluwa/asc-message-relayer
       relayer-ref:
         type: string
-        default: 0d4126b246b913313531fcf8a3f00cf122f6b57b
+        default: 48178854dde5ba3cf789d25596296b6404c9c585
       contracts-ref:
         type: string
         default: 1e485584b7f9e23dca6d2e578636f40666721f36
@@ -105,7 +105,7 @@ jobs:
           CREDITCOIN_RUN_ID: ${{ inputs.creditcoin-run-id }}
           CREDITCOIN_ARTIFACT_ID: ${{ inputs.creditcoin-artifact-id }}
           RELAYER_REPOSITORY: ${{ inputs.relayer-repository || 'gluwa/asc-message-relayer' }}
-          RELAYER_REF: ${{ inputs.relayer-ref || '0d4126b246b913313531fcf8a3f00cf122f6b57b' }}
+          RELAYER_REF: ${{ inputs.relayer-ref || '48178854dde5ba3cf789d25596296b6404c9c585' }}
           CONTRACTS_REF: ${{ inputs.contracts-ref || '1e485584b7f9e23dca6d2e578636f40666721f36' }}
           SCENARIOS: ${{ inputs.scenarios || 'happy-path,durable-restart,attestor-rotation' }}
           CONTRACTS_TOKEN: ${{ secrets.GLUWA_BOT_TOKEN }}
