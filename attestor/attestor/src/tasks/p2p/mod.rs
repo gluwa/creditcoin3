@@ -494,17 +494,30 @@ fn apply_peer_registry(
             note_attestor_peer(bindings, attestor.clone(), *peer);
         }
     }
+    // A deactivation revokes the manual fallback for its peer. This snapshot is at or after
+    // every accepted deactivation, so a fallback peer tied only to attestors outside it must
+    // stay revoked rather than regain a reservation on every refresh.
+    let fallback: Vec<libp2p::PeerId> = fallback
+        .iter()
+        .copied()
+        .filter(|peer| {
+            !registry.registration_required
+                && *peer != local
+                && !deny_decision(
+                    bindings
+                        .iter()
+                        .filter(|(_, bound)| bound == peer)
+                        .map(|(id, _)| id),
+                    |id| registry.is_member(id),
+                )
+        })
+        .collect();
     let admission = &mut swarm.behaviour_mut().admission;
     admission.set_committee_peers(
         registry.registered_peers().filter(|peer| *peer != local),
         registry.registration_required,
     );
-    admission.set_configured_peers(
-        fallback
-            .iter()
-            .copied()
-            .filter(|peer| !registry.registration_required && *peer != local),
-    );
+    admission.set_configured_peers(fallback);
     admission.set_learned_peers(
         bindings
             .iter()
@@ -1756,6 +1769,55 @@ mod tests {
                 &addr
             )
             .is_err());
+    }
+
+    #[tokio::test]
+    async fn registry_refresh_keeps_a_deactivated_fallback_peer_revoked() {
+        let mut swarm = swarm();
+        let member = libp2p::PeerId::random();
+        let mut bindings = vec![(att(1), member)];
+        let mut minimum = 0;
+        let current = registry(false, vec![(att(1), None)]);
+        apply_peer_registry(&mut swarm, &mut bindings, &current, &[member], &mut minimum);
+        assert!(swarm.behaviour().admission.is_reserved(&member));
+
+        super::handle_peer_deactivated(
+            &mut swarm,
+            &mut bindings,
+            &current,
+            &mut minimum,
+            &crate::shared::PeerDeactivated {
+                attestor: att(1),
+                finalized_number: 1,
+            },
+            |_| false,
+        );
+        assert!(!swarm.behaviour().admission.is_reserved(&member));
+
+        // The next finalized snapshot no longer lists the attestor: the manual fallback must
+        // not hand the evicted peer its reservation back.
+        let mut after = registry(false, vec![]);
+        after.finalized_number = 1;
+        assert!(apply_peer_registry(
+            &mut swarm,
+            &mut bindings,
+            &after,
+            &[member],
+            &mut minimum
+        ));
+        assert!(!swarm.behaviour().admission.is_reserved(&member));
+
+        // Rejoining restores the fallback reservation.
+        let mut rejoined = registry(false, vec![(att(1), None)]);
+        rejoined.finalized_number = 2;
+        assert!(apply_peer_registry(
+            &mut swarm,
+            &mut bindings,
+            &rejoined,
+            &[member],
+            &mut minimum
+        ));
+        assert!(swarm.behaviour().admission.is_reserved(&member));
     }
 
     #[tokio::test]

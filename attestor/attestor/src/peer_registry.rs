@@ -132,6 +132,11 @@ impl Registry {
             .and_then(|(_, peer)| *peer)
     }
 
+    /// Whether `attestor` is in the finalized active or waiting set.
+    pub fn is_member(&self, attestor: &AttestorId) -> bool {
+        self.members().any(|(id, _)| id == attestor)
+    }
+
     pub fn is_legacy_member(&self, attestor: &AttestorId) -> bool {
         !self.registration_required
             && self
