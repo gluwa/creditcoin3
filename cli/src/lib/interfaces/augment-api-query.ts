@@ -166,6 +166,20 @@ declare module '@polkadot/api-base/types/storage' {
             > &
                 QueryableStorageEntry<ApiType, [u64]>;
             /**
+             * Stake bonded for each attestor at registration, settled on unregistration. Attestors
+             * registered before this map existed have no entry and fall back to the current
+             * [`MinBondRequirement`].
+             **/
+            attestorCollateral: AugmentedQuery<
+                ApiType,
+                (
+                    arg1: u64 | AnyNumber | Uint8Array,
+                    arg2: AccountId32 | string | Uint8Array,
+                ) => Observable<Option<u128>>,
+                [u64, AccountId32]
+            > &
+                QueryableStorageEntry<ApiType, [u64, AccountId32]>;
+            /**
              * Write-ability message-vote signing address (EVM / secp256k1) an attestor registered for a
              * chain, proven via [`set_attestor_evm_address`](Pallet::set_attestor_evm_address). This is the
              * address the destination `EOAValidator` set is built from: peers cannot derive it (it is
@@ -1859,6 +1873,12 @@ declare module '@polkadot/api-base/types/storage' {
                 [u64]
             > &
                 QueryableStorageEntry<ApiType, [u64]>;
+            /**
+             * Number of entries in [`SupportedChains`], kept in lock-step with it so the
+             * [`Config::MaxSupportedChains`] check in `register_chain` is O(1).
+             **/
+            supportedChainsCount: AugmentedQuery<ApiType, () => Observable<u32>, []> &
+                QueryableStorageEntry<ApiType, []>;
             /**
              * Per-chain USC write-ability metadata
              **/

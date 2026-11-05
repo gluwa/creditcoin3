@@ -4400,6 +4400,7 @@ declare module '@polkadot/types/lookup' {
         readonly isZeroWriteAbilityChainKey: boolean;
         readonly isZeroOutboxDiscoveryAddress: boolean;
         readonly isChainNameUnchanged: boolean;
+        readonly isTooManyChains: boolean;
         readonly type:
             | 'ChainAlreadyRegistered'
             | 'ChainNotSupported'
@@ -4409,7 +4410,8 @@ declare module '@polkadot/types/lookup' {
             | 'ZeroOutboxFactoryAddress'
             | 'ZeroWriteAbilityChainKey'
             | 'ZeroOutboxDiscoveryAddress'
-            | 'ChainNameUnchanged';
+            | 'ChainNameUnchanged'
+            | 'TooManyChains';
     }
 
     /** @name PalletRandomnessError (460) */

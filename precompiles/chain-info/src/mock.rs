@@ -267,6 +267,7 @@ impl pallet_supported_chains::Config for Runtime {
 
     type DefaultMaturityStrategy = DefaultMaturityStrategy;
     type OperatorsOrigin = frame_system::EnsureRoot<AccountId>;
+    type MaxSupportedChains = frame_support::traits::ConstU32<32>;
 }
 
 pub struct DummyRegistrationHandler;

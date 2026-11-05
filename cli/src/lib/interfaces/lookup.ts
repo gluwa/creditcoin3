@@ -3683,6 +3683,7 @@ export default {
             'ZeroWriteAbilityChainKey',
             'ZeroOutboxDiscoveryAddress',
             'ChainNameUnchanged',
+            'TooManyChains',
         ],
     },
     /**
