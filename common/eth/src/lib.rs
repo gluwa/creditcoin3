@@ -52,6 +52,30 @@ pub mod pacer;
 
 pub use maturity::{BlockTag, Maturity};
 
+/// Log a provider failure that a later provider covered for. Only the primary is expected to be
+/// healthy, so its failure is a `warn`; a fallback failing is routine and stays at `info`.
+macro_rules! log_covered_failure {
+    ($failed:expr, $served_by:expr, $number:expr, $err:expr, $msg:literal) => {
+        if $failed == "primary" {
+            tracing::warn!(
+                provider = %$failed,
+                served_by = %$served_by,
+                block_number = $number,
+                error = %$err,
+                $msg
+            );
+        } else {
+            tracing::info!(
+                provider = %$failed,
+                served_by = %$served_by,
+                block_number = $number,
+                error = %$err,
+                $msg
+            );
+        }
+    };
+}
+
 #[derive(Debug, Error)]
 pub enum Error {
     #[error("Failed to get block {0}")]
@@ -79,9 +103,9 @@ pub enum Error {
     },
     #[error("Failed to get chain id, Error: {0}")]
     FailedToGetChainId(String),
-    #[error("Ethereum RPC error {0}")]
+    #[error("Ethereum RPC error {}", redact_urls_in_text(&.0.to_string()))]
     EthError(#[from] alloy::transports::RpcError<TransportErrorKind>),
-    #[error("Client error {0}")]
+    #[error("Client error {}", redact_urls_in_text(&.0.to_string()))]
     ClientError(#[from] anyhow::Error),
     #[error("Transaction conversion {0}")]
     TransactionConversion(ConversionError),
@@ -1322,33 +1346,34 @@ impl Client {
                             Ok(ob) => {
                                 // Don't silently drop earlier-provider failures: if the primary
                                 // (or an earlier fallback) errored and a later peer served the
-                                // request, surface *every* prior failure at warn so operators
-                                // can root-cause flaky peers even when 3+ providers are configured.
+                                // request, surface *every* prior failure so operators can root-cause
+                                // flaky peers even when 3+ providers are configured: at warn when the
+                                // primary failed, at info when only fallbacks did.
                                 if label != "primary" {
                                     for (err_label, err) in transport_errs.drain(..) {
-                                        tracing::warn!(
-                                            provider = %err_label,
-                                            served_by = %label,
-                                            block_number = number,
-                                            error = %err,
+                                        log_covered_failure!(
+                                            err_label,
+                                            label,
+                                            number,
+                                            err,
                                             "block+receipts fetch: provider errored but another succeeded"
                                         );
                                     }
                                     for (err_label, err) in payload_inconsistent_errs.drain(..) {
-                                        tracing::warn!(
-                                            provider = %err_label,
-                                            served_by = %label,
-                                            block_number = number,
-                                            error = %err,
+                                        log_covered_failure!(
+                                            err_label,
+                                            label,
+                                            number,
+                                            err,
                                             "block+receipts fetch: provider returned inconsistent payload but another succeeded"
                                         );
                                     }
                                     for (err_label, err) in unrecoverable_errs.drain(..) {
-                                        tracing::warn!(
-                                            provider = %err_label,
-                                            served_by = %label,
-                                            block_number = number,
-                                            error = %err,
+                                        log_covered_failure!(
+                                            err_label,
+                                            label,
+                                            number,
+                                            err,
                                             "block+receipts fetch: provider cannot serve this block but another succeeded"
                                         );
                                     }
@@ -2193,6 +2218,30 @@ pub fn redact_url_query(url: &str) -> String {
     format!("{redacted_path}{query_marker}")
 }
 
+/// Apply [`redact_url_query`] to every `http(s)://` or `ws(s)://` URL embedded in `text`.
+///
+/// Transport errors (reqwest's `error sending request for url (...)`) carry the full request URL,
+/// API key included, so any error rendered into a log line goes through this.
+pub fn redact_urls_in_text(text: &str) -> String {
+    const SCHEMES: [&str; 4] = ["https://", "http://", "wss://", "ws://"];
+
+    let mut out = String::with_capacity(text.len());
+    let mut rest = text;
+    while let Some(start) = SCHEMES.iter().filter_map(|s| rest.find(s)).min() {
+        let (head, tail) = rest.split_at(start);
+        out.push_str(head);
+        let end = tail
+            .find(|c: char| {
+                c.is_whitespace() || matches!(c, ')' | '"' | '\'' | '\\' | '<' | '>' | ',' | '`')
+            })
+            .unwrap_or(tail.len());
+        out.push_str(&redact_url_query(&tail[..end]));
+        rest = &tail[end..];
+    }
+    out.push_str(rest);
+    out
+}
+
 /// Heuristic: does this path segment look like an opaque secret token
 /// (API key, project hash, …) that we should not log?
 ///
@@ -2235,10 +2284,50 @@ pub fn simple_merkle_tree(block: &OrderedBlock) -> merkle::KeccakMerkleTree {
 
 #[cfg(test)]
 mod provider_lookup_tests {
-    use super::{merge_provider_lookup, redact_url_query, Error, LookupOutcome};
+    use super::{
+        merge_provider_lookup, redact_url_query, redact_urls_in_text, Error, LookupOutcome,
+    };
 
     fn err(msg: &str) -> Error {
         Error::ClientError(anyhow::anyhow!(msg.to_string()))
+    }
+
+    #[test]
+    fn redact_urls_in_text_redacts_the_url_inside_a_transport_error() {
+        let redacted = redact_urls_in_text(
+            "error sending request for url (https://bsc-testnet.core.chainstack.com/72181929f1a58544b71ec0de4a308124)",
+        );
+        assert_eq!(
+            redacted,
+            "error sending request for url (https://bsc-testnet.core.chainstack.com/…)"
+        );
+    }
+
+    #[test]
+    fn redact_urls_in_text_handles_several_urls_queries_and_escaped_quotes() {
+        let redacted = redact_urls_in_text(
+            r#"a wss://node.example.io/v2/AbCdEf012345MoreSecret67890, b http://x.io/p?key=s3cret and \"https://y.io/0123456789abcdefABCDEF\" end"#,
+        );
+        assert_eq!(
+            redacted,
+            r#"a wss://node.example.io/v2/…, b http://x.io/p?… and \"https://y.io/…\" end"#
+        );
+    }
+
+    #[test]
+    fn redact_urls_in_text_leaves_text_without_urls_untouched() {
+        let text = "connection reset by peer, at 10.0.0.1:443";
+        assert_eq!(redact_urls_in_text(text), text);
+    }
+
+    #[test]
+    fn error_display_redacts_urls() {
+        let e =
+            err("error sending request for url (https://rpc.example.io/0123456789abcdefABCDEF)");
+        assert_eq!(
+            e.to_string(),
+            "Client error error sending request for url (https://rpc.example.io/…)"
+        );
     }
 
     #[test]

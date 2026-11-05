@@ -14,6 +14,7 @@ too_many_arguments = "allow"
 ignored = ["parity-scale-codec"]
 
 [dependencies]
+log = { workspace = true }
 parity-scale-codec = { workspace = true, default-features = false }
 scale-info = { workspace = true }
 
@@ -42,6 +43,7 @@ runtime-benchmarks = [
     "pallet-membership/runtime-benchmarks",
 ]
 std = [
+    "log/std",
     "parity-scale-codec/std",
     "frame-benchmarking?/std",
     "frame-support/std",
@@ -54,4 +56,10 @@ std = [
     "supported-chains-primitives/std",
     "sp-std/std",
     "pallet-membership/std",
+]
+try-runtime = [
+    "frame-support/try-runtime",
+    "frame-system/try-runtime",
+    "sp-runtime/try-runtime",
+    "pallet-membership/try-runtime",
 ]

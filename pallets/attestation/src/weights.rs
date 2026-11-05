@@ -52,11 +52,11 @@ impl<T: frame_system::Config> crate::WeightInfo for WeightInfo<T> {
 	/// Proof: `Attestation::PendingAttestationInterval` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	fn set_chain_attestation_interval() -> Weight {
 		// Proof Size summary in bytes:
-		//  Measured:  `511`
-		//  Estimated: `3976`
-		// Minimum execution time: 38_310_000 picoseconds.
-		Weight::from_parts(43_460_000, 0)
-			.saturating_add(Weight::from_parts(0, 3976))
+		//  Measured:  `534`
+		//  Estimated: `3999`
+		// Minimum execution time: 38_191_000 picoseconds.
+		Weight::from_parts(41_840_000, 0)
+			.saturating_add(Weight::from_parts(0, 3999))
 			.saturating_add(T::DbWeight::get().reads(7))
 			.saturating_add(T::DbWeight::get().writes(3))
 	}
@@ -74,11 +74,11 @@ impl<T: frame_system::Config> crate::WeightInfo for WeightInfo<T> {
 	/// Proof: `Attestation::AttestationCheckpointInterval` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	fn set_attestations_per_checkpoint() -> Weight {
 		// Proof Size summary in bytes:
-		//  Measured:  `369`
-		//  Estimated: `3834`
-		// Minimum execution time: 29_640_000 picoseconds.
-		Weight::from_parts(41_730_000, 0)
-			.saturating_add(Weight::from_parts(0, 3834))
+		//  Measured:  `392`
+		//  Estimated: `3857`
+		// Minimum execution time: 28_920_000 picoseconds.
+		Weight::from_parts(30_511_000, 0)
+			.saturating_add(Weight::from_parts(0, 3857))
 			.saturating_add(T::DbWeight::get().reads(5))
 			.saturating_add(T::DbWeight::get().writes(3))
 	}
@@ -100,11 +100,11 @@ impl<T: frame_system::Config> crate::WeightInfo for WeightInfo<T> {
 	/// Proof: `Attestation::PendingMaxCatchup` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	fn set_max_catchup() -> Weight {
 		// Proof Size summary in bytes:
-		//  Measured:  `705`
-		//  Estimated: `4170`
-		// Minimum execution time: 46_061_000 picoseconds.
-		Weight::from_parts(82_960_000, 0)
-			.saturating_add(Weight::from_parts(0, 4170))
+		//  Measured:  `728`
+		//  Estimated: `4193`
+		// Minimum execution time: 41_921_000 picoseconds.
+		Weight::from_parts(44_490_000, 0)
+			.saturating_add(Weight::from_parts(0, 4193))
 			.saturating_add(T::DbWeight::get().reads(7))
 			.saturating_add(T::DbWeight::get().writes(3))
 	}
@@ -122,11 +122,11 @@ impl<T: frame_system::Config> crate::WeightInfo for WeightInfo<T> {
 	/// Proof: `Attestation::PendingTargetSampleSize` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	fn set_target_sample_size() -> Weight {
 		// Proof Size summary in bytes:
-		//  Measured:  `369`
-		//  Estimated: `3834`
-		// Minimum execution time: 29_490_000 picoseconds.
-		Weight::from_parts(37_680_000, 0)
-			.saturating_add(Weight::from_parts(0, 3834))
+		//  Measured:  `392`
+		//  Estimated: `3857`
+		// Minimum execution time: 28_871_000 picoseconds.
+		Weight::from_parts(31_560_000, 0)
+			.saturating_add(Weight::from_parts(0, 3857))
 			.saturating_add(T::DbWeight::get().reads(5))
 			.saturating_add(T::DbWeight::get().writes(3))
 	}
@@ -146,12 +146,12 @@ impl<T: frame_system::Config> crate::WeightInfo for WeightInfo<T> {
 	/// Proof: `Attestation::AttestorsCount` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Attestation::MaxAttestors` (r:1 w:0)
 	/// Proof: `Attestation::MaxAttestors` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `Attestation::MinBondRequirement` (r:1 w:0)
+	/// Proof: `Attestation::MinBondRequirement` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `System::Account` (r:2 w:2)
 	/// Proof: `System::Account` (`max_values`: None, `max_size`: Some(128), added: 2603, mode: `MaxEncodedLen`)
 	/// Storage: `Balances::Locks` (r:1 w:1)
 	/// Proof: `Balances::Locks` (`max_values`: None, `max_size`: Some(1299), added: 3774, mode: `MaxEncodedLen`)
-	/// Storage: `Attestation::MinBondRequirement` (r:1 w:0)
-	/// Proof: `Attestation::MinBondRequirement` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Balances::TotalIssuance` (r:1 w:0)
 	/// Proof: `Balances::TotalIssuance` (`max_values`: Some(1), `max_size`: Some(16), added: 511, mode: `MaxEncodedLen`)
 	/// Storage: `System::Number` (r:1 w:0)
@@ -166,20 +166,22 @@ impl<T: frame_system::Config> crate::WeightInfo for WeightInfo<T> {
 	/// Proof: `Attestation::Ledger` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Balances::Freezes` (r:1 w:0)
 	/// Proof: `Balances::Freezes` (`max_values`: None, `max_size`: Some(67), added: 2542, mode: `MaxEncodedLen`)
+	/// Storage: `Attestation::AttestorCollateral` (r:0 w:1)
+	/// Proof: `Attestation::AttestorCollateral` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	fn register_attestor() -> Weight {
 		// Proof Size summary in bytes:
-		//  Measured:  `2107`
+		//  Measured:  `2130`
 		//  Estimated: `6196`
-		// Minimum execution time: 275_472_000 picoseconds.
-		Weight::from_parts(422_852_000, 0)
+		// Minimum execution time: 254_771_000 picoseconds.
+		Weight::from_parts(290_682_000, 0)
 			.saturating_add(Weight::from_parts(0, 6196))
 			.saturating_add(T::DbWeight::get().reads(19))
-			.saturating_add(T::DbWeight::get().writes(11))
+			.saturating_add(T::DbWeight::get().writes(12))
 	}
 	/// Storage: `Attestation::Attestors` (r:1 w:1)
 	/// Proof: `Attestation::Attestors` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `Attestation::MinBondRequirement` (r:1 w:0)
-	/// Proof: `Attestation::MinBondRequirement` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `Attestation::AttestorCollateral` (r:1 w:1)
+	/// Proof: `Attestation::AttestorCollateral` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Attestation::Ledger` (r:1 w:1)
 	/// Proof: `Attestation::Ledger` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Staking::CurrentEra` (r:1 w:0)
@@ -202,23 +204,19 @@ impl<T: frame_system::Config> crate::WeightInfo for WeightInfo<T> {
 	/// Proof: `Attestation::RetiredAttestorKeysByStash` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Attestation::ActiveAttestors` (r:1 w:1)
 	/// Proof: `Attestation::ActiveAttestors` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `Attestation::AttestorPeerKeys` (r:1 w:1)
-	/// Proof: `Attestation::AttestorPeerKeys` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `Attestation::PeerKeyOwner` (r:1 w:1)
-	/// Proof: `Attestation::PeerKeyOwner` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Attestation::AttestorsCount` (r:1 w:1)
 	/// Proof: `Attestation::AttestorsCount` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Attestation::RetiredAttestorBlsKeys` (r:0 w:1)
 	/// Proof: `Attestation::RetiredAttestorBlsKeys` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	fn unregister_attestor() -> Weight {
 		// Proof Size summary in bytes:
-		//  Measured:  `1812`
-		//  Estimated: `5277`
-		// Minimum execution time: 177_771_000 picoseconds.
-		Weight::from_parts(220_361_000, 0)
-			.saturating_add(Weight::from_parts(0, 5277))
-			.saturating_add(T::DbWeight::get().reads(16))
-			.saturating_add(T::DbWeight::get().writes(12))
+		//  Measured:  `1678`
+		//  Estimated: `5143`
+		// Minimum execution time: 136_592_000 picoseconds.
+		Weight::from_parts(147_561_000, 0)
+			.saturating_add(Weight::from_parts(0, 5143))
+			.saturating_add(T::DbWeight::get().reads(14))
+			.saturating_add(T::DbWeight::get().writes(11))
 	}
 	/// Storage: `SupportedChains::SupportedChains` (r:1 w:0)
 	/// Proof: `SupportedChains::SupportedChains` (`max_values`: None, `max_size`: None, mode: `Measured`)
@@ -238,11 +236,11 @@ impl<T: frame_system::Config> crate::WeightInfo for WeightInfo<T> {
 	/// Proof: `Attestation::MaxAttestors` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	fn set_max_attestors() -> Weight {
 		// Proof Size summary in bytes:
-		//  Measured:  `1253`
-		//  Estimated: `4718`
-		// Minimum execution time: 50_060_000 picoseconds.
-		Weight::from_parts(62_240_000, 0)
-			.saturating_add(Weight::from_parts(0, 4718))
+		//  Measured:  `1276`
+		//  Estimated: `4741`
+		// Minimum execution time: 45_250_000 picoseconds.
+		Weight::from_parts(47_110_000, 0)
+			.saturating_add(Weight::from_parts(0, 4741))
 			.saturating_add(T::DbWeight::get().reads(7))
 			.saturating_add(T::DbWeight::get().writes(3))
 	}
@@ -262,11 +260,11 @@ impl<T: frame_system::Config> crate::WeightInfo for WeightInfo<T> {
 	/// Proof: `System::Events` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
 	fn register_invulnerable() -> Weight {
 		// Proof Size summary in bytes:
-		//  Measured:  `657`
-		//  Estimated: `4122`
-		// Minimum execution time: 58_680_000 picoseconds.
-		Weight::from_parts(72_320_000, 0)
-			.saturating_add(Weight::from_parts(0, 4122))
+		//  Measured:  `680`
+		//  Estimated: `4145`
+		// Minimum execution time: 47_501_000 picoseconds.
+		Weight::from_parts(49_521_000, 0)
+			.saturating_add(Weight::from_parts(0, 4145))
 			.saturating_add(T::DbWeight::get().reads(7))
 			.saturating_add(T::DbWeight::get().writes(3))
 	}
@@ -284,8 +282,8 @@ impl<T: frame_system::Config> crate::WeightInfo for WeightInfo<T> {
 		// Proof Size summary in bytes:
 		//  Measured:  `249`
 		//  Estimated: `3714`
-		// Minimum execution time: 30_810_000 picoseconds.
-		Weight::from_parts(48_870_000, 0)
+		// Minimum execution time: 26_630_000 picoseconds.
+		Weight::from_parts(27_650_000, 0)
 			.saturating_add(Weight::from_parts(0, 3714))
 			.saturating_add(T::DbWeight::get().reads(5))
 			.saturating_add(T::DbWeight::get().writes(3))
@@ -298,8 +296,8 @@ impl<T: frame_system::Config> crate::WeightInfo for WeightInfo<T> {
 		// Proof Size summary in bytes:
 		//  Measured:  `288`
 		//  Estimated: `3753`
-		// Minimum execution time: 21_440_000 picoseconds.
-		Weight::from_parts(27_260_000, 0)
+		// Minimum execution time: 14_060_000 picoseconds.
+		Weight::from_parts(15_180_000, 0)
 			.saturating_add(Weight::from_parts(0, 3753))
 			.saturating_add(T::DbWeight::get().reads(1))
 			.saturating_add(T::DbWeight::get().writes(1))
@@ -356,19 +354,21 @@ impl<T: frame_system::Config> crate::WeightInfo for WeightInfo<T> {
 	/// The range of component `m` is `[1, 99]`.
 	/// The range of component `s` is `[200, 500]`.
 	/// The range of component `m` is `[1, 99]`.
-	fn commit_attestation(_s: u32, m: u32, ) -> Weight {
+	fn commit_attestation(s: u32, m: u32, ) -> Weight {
 		// Proof Size summary in bytes:
-		//  Measured:  `2110 + m * (202 ±0)`
-		//  Estimated: `8050 + m * (2678 ±0)`
-		// Minimum execution time: 43_520_201_000 picoseconds.
-		Weight::from_parts(62_997_498_727, 0)
-			.saturating_add(Weight::from_parts(0, 8050))
-			// Standard Error: 36_544_311
-			.saturating_add(Weight::from_parts(2_042_423_438, 0).saturating_mul(m.into()))
+		//  Measured:  `2233 + m * (207 ±0)`
+		//  Estimated: `8174 + m * (2682 ±0)`
+		// Minimum execution time: 43_264_795_000 picoseconds.
+		Weight::from_parts(40_889_844_367, 0)
+			.saturating_add(Weight::from_parts(0, 8174))
+			// Standard Error: 196_820
+			.saturating_add(Weight::from_parts(2_990_304, 0).saturating_mul(s.into()))
+			// Standard Error: 10_946_386
+			.saturating_add(Weight::from_parts(2_002_736_340, 0).saturating_mul(m.into()))
 			.saturating_add(T::DbWeight::get().reads(25))
 			.saturating_add(T::DbWeight::get().reads((2_u64).saturating_mul(m.into())))
 			.saturating_add(T::DbWeight::get().writes(8))
-			.saturating_add(Weight::from_parts(0, 2678).saturating_mul(m.into()))
+			.saturating_add(Weight::from_parts(0, 2682).saturating_mul(m.into()))
 	}
 	/// Storage: `Attestation::ActiveAttestors` (r:1 w:0)
 	/// Proof: `Attestation::ActiveAttestors` (`max_values`: None, `max_size`: None, mode: `Measured`)
@@ -422,13 +422,13 @@ impl<T: frame_system::Config> crate::WeightInfo for WeightInfo<T> {
 	/// The range of component `q` is `[0, 2047]`.
 	fn commit_attestation_queued(q: u32, ) -> Weight {
 		// Proof Size summary in bytes:
-		//  Measured:  `2359 + q * (3788 ±0)`
-		//  Estimated: `8299 + q * (6263 ±0)`
-		// Minimum execution time: 42_512_680_000 picoseconds.
-		Weight::from_parts(46_499_655_750, 0)
-			.saturating_add(Weight::from_parts(0, 8299))
-			// Standard Error: 4_948_659
-			.saturating_add(Weight::from_parts(48_578_392, 0).saturating_mul(q.into()))
+		//  Measured:  `2487 + q * (3788 ±0)`
+		//  Estimated: `8427 + q * (6263 ±0)`
+		// Minimum execution time: 42_521_580_000 picoseconds.
+		Weight::from_parts(42_844_854_500, 0)
+			.saturating_add(Weight::from_parts(0, 8427))
+			// Standard Error: 1_221_780
+			.saturating_add(Weight::from_parts(42_485_547, 0).saturating_mul(q.into()))
 			.saturating_add(T::DbWeight::get().reads(27))
 			.saturating_add(T::DbWeight::get().reads((1_u64).saturating_mul(q.into())))
 			.saturating_add(T::DbWeight::get().writes(12))
@@ -441,11 +441,11 @@ impl<T: frame_system::Config> crate::WeightInfo for WeightInfo<T> {
 		// Proof Size summary in bytes:
 		//  Measured:  `0`
 		//  Estimated: `0`
-		// Minimum execution time: 420_000 picoseconds.
-		Weight::from_parts(539_999, 0)
+		// Minimum execution time: 400_000 picoseconds.
+		Weight::from_parts(472_499, 0)
 			.saturating_add(Weight::from_parts(0, 0))
-			// Standard Error: 153_745
-			.saturating_add(Weight::from_parts(1_729_440, 0).saturating_mul(r.into()))
+			// Standard Error: 3_180
+			.saturating_add(Weight::from_parts(1_388_058, 0).saturating_mul(r.into()))
 	}
 	/// Storage: `System::Number` (r:1 w:0)
 	/// Proof: `System::Number` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
@@ -461,8 +461,8 @@ impl<T: frame_system::Config> crate::WeightInfo for WeightInfo<T> {
 		// Proof Size summary in bytes:
 		//  Measured:  `20`
 		//  Estimated: `1505`
-		// Minimum execution time: 18_340_000 picoseconds.
-		Weight::from_parts(22_490_000, 0)
+		// Minimum execution time: 17_530_000 picoseconds.
+		Weight::from_parts(19_520_000, 0)
 			.saturating_add(Weight::from_parts(0, 1505))
 			.saturating_add(T::DbWeight::get().reads(4))
 			.saturating_add(T::DbWeight::get().writes(3))
@@ -471,10 +471,6 @@ impl<T: frame_system::Config> crate::WeightInfo for WeightInfo<T> {
 	/// Proof: `SupportedChains::SupportedChains` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Attestation::Attestors` (r:1 w:1)
 	/// Proof: `Attestation::Attestors` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `Attestation::PeerRegistrationRequired` (r:1 w:0)
-	/// Proof: `Attestation::PeerRegistrationRequired` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `Attestation::AttestorPeerKeys` (r:1 w:0)
-	/// Proof: `Attestation::AttestorPeerKeys` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Attestation::BlsKeyOwner` (r:1 w:1)
 	/// Proof: `Attestation::BlsKeyOwner` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `System::Number` (r:1 w:0)
@@ -487,12 +483,12 @@ impl<T: frame_system::Config> crate::WeightInfo for WeightInfo<T> {
 	/// Proof: `System::Events` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
 	fn attest() -> Weight {
 		// Proof Size summary in bytes:
-		//  Measured:  `895`
-		//  Estimated: `4360`
-		// Minimum execution time: 39_293_073_000 picoseconds.
-		Weight::from_parts(48_332_605_000, 0)
-			.saturating_add(Weight::from_parts(0, 4360))
-			.saturating_add(T::DbWeight::get().reads(9))
+		//  Measured:  `739`
+		//  Estimated: `4204`
+		// Minimum execution time: 39_468_461_000 picoseconds.
+		Weight::from_parts(40_136_075_000, 0)
+			.saturating_add(Weight::from_parts(0, 4204))
+			.saturating_add(T::DbWeight::get().reads(7))
 			.saturating_add(T::DbWeight::get().writes(4))
 	}
 	/// Storage: `SupportedChains::SupportedChains` (r:1 w:0)
@@ -571,11 +567,11 @@ impl<T: frame_system::Config> crate::WeightInfo for WeightInfo<T> {
 	/// Proof: `System::Events` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
 	fn chill() -> Weight {
 		// Proof Size summary in bytes:
-		//  Measured:  `416`
-		//  Estimated: `3881`
-		// Minimum execution time: 51_810_000 picoseconds.
-		Weight::from_parts(74_221_000, 0)
-			.saturating_add(Weight::from_parts(0, 3881))
+		//  Measured:  `449`
+		//  Estimated: `3914`
+		// Minimum execution time: 43_901_000 picoseconds.
+		Weight::from_parts(49_600_000, 0)
+			.saturating_add(Weight::from_parts(0, 3914))
 			.saturating_add(T::DbWeight::get().reads(6))
 			.saturating_add(T::DbWeight::get().writes(4))
 	}
@@ -597,8 +593,8 @@ impl<T: frame_system::Config> crate::WeightInfo for WeightInfo<T> {
 		// Proof Size summary in bytes:
 		//  Measured:  `1607`
 		//  Estimated: `5072`
-		// Minimum execution time: 105_690_000 picoseconds.
-		Weight::from_parts(125_790_000, 0)
+		// Minimum execution time: 94_101_000 picoseconds.
+		Weight::from_parts(98_301_000, 0)
 			.saturating_add(Weight::from_parts(0, 5072))
 			.saturating_add(T::DbWeight::get().reads(7))
 			.saturating_add(T::DbWeight::get().writes(4))
@@ -623,24 +619,30 @@ impl<T: frame_system::Config> crate::WeightInfo for WeightInfo<T> {
 	/// Proof: `Attestation::CheckpointBuckets` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	fn import_checkpoints() -> Weight {
 		// Proof Size summary in bytes:
-		//  Measured:  `657`
-		//  Estimated: `249147`
-		// Minimum execution time: 1_779_039_000 picoseconds.
-		Weight::from_parts(1_878_340_000, 0)
-			.saturating_add(Weight::from_parts(0, 249147))
+		//  Measured:  `680`
+		//  Estimated: `249170`
+		// Minimum execution time: 1_735_492_000 picoseconds.
+		Weight::from_parts(1_750_389_000, 0)
+			.saturating_add(Weight::from_parts(0, 249170))
 			.saturating_add(T::DbWeight::get().reads(107))
 			.saturating_add(T::DbWeight::get().writes(203))
 	}
 	/// Storage: `SupportedChains::SupportedChains` (r:1 w:0)
 	/// Proof: `SupportedChains::SupportedChains` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `Attestation::CheckpointPruningStates` (r:1 w:0)
+	/// Storage: `Attestation::CheckpointPruningStates` (r:1 w:1)
 	/// Proof: `Attestation::CheckpointPruningStates` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Attestation::CheckpointClearingCursors` (r:1 w:0)
 	/// Proof: `Attestation::CheckpointClearingCursors` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Attestation::BucketClearingCursors` (r:1 w:0)
 	/// Proof: `Attestation::BucketClearingCursors` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `Attestation::AttestationClearingCursors` (r:1 w:0)
+	/// Storage: `Attestation::AttestationClearingCursors` (r:1 w:1)
 	/// Proof: `Attestation::AttestationClearingCursors` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `Attestation::Attestations` (r:41 w:40)
+	/// Proof: `Attestation::Attestations` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `Attestation::CheckpointBuckets` (r:101 w:200)
+	/// Proof: `Attestation::CheckpointBuckets` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `Attestation::LastCheckpoint` (r:1 w:1)
+	/// Proof: `Attestation::LastCheckpoint` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `System::Number` (r:1 w:0)
 	/// Proof: `System::Number` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
 	/// Storage: `System::ExecutionPhase` (r:1 w:0)
@@ -649,27 +651,23 @@ impl<T: frame_system::Config> crate::WeightInfo for WeightInfo<T> {
 	/// Proof: `System::EventCount` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
 	/// Storage: `System::Events` (r:1 w:1)
 	/// Proof: `System::Events` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
-	/// Storage: `Attestation::LastCheckpoint` (r:1 w:1)
-	/// Proof: `Attestation::LastCheckpoint` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `Attestation::Checkpoints` (r:0 w:100)
+	/// Storage: `Attestation::Checkpoints` (r:0 w:200)
 	/// Proof: `Attestation::Checkpoints` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Attestation::AttestationRemovalQueues` (r:0 w:1)
 	/// Proof: `Attestation::AttestationRemovalQueues` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `Attestation::CheckpointBuckets` (r:0 w:100)
-	/// Proof: `Attestation::CheckpointBuckets` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Attestation::LastDigest` (r:0 w:1)
 	/// Proof: `Attestation::LastDigest` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Attestation::CheckpointingQueues` (r:0 w:1)
 	/// Proof: `Attestation::CheckpointingQueues` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	fn forward_patch_checkpoints() -> Weight {
 		// Proof Size summary in bytes:
-		//  Measured:  `657`
-		//  Estimated: `4122`
-		// Minimum execution time: 1_500_458_000 picoseconds.
-		Weight::from_parts(1_629_478_000, 0)
-			.saturating_add(Weight::from_parts(0, 4122))
-			.saturating_add(T::DbWeight::get().reads(10))
-			.saturating_add(T::DbWeight::get().writes(206))
+		//  Measured:  `7191`
+		//  Estimated: `258156`
+		// Minimum execution time: 2_905_125_000 picoseconds.
+		Weight::from_parts(2_950_480_000, 0)
+			.saturating_add(Weight::from_parts(0, 258156))
+			.saturating_add(T::DbWeight::get().reads(152))
+			.saturating_add(T::DbWeight::get().writes(448))
 	}
 	/// Storage: `SupportedChains::SupportedChains` (r:1 w:0)
 	/// Proof: `SupportedChains::SupportedChains` (`max_values`: None, `max_size`: None, mode: `Measured`)
@@ -689,11 +687,11 @@ impl<T: frame_system::Config> crate::WeightInfo for WeightInfo<T> {
 	/// Proof: `Attestation::AttestationChainGenesisBlockNumber` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	fn set_attestation_chain_genesis_block_number() -> Weight {
 		// Proof Size summary in bytes:
-		//  Measured:  `830`
-		//  Estimated: `4295`
-		// Minimum execution time: 44_320_000 picoseconds.
-		Weight::from_parts(52_190_000, 0)
-			.saturating_add(Weight::from_parts(0, 4295))
+		//  Measured:  `853`
+		//  Estimated: `4318`
+		// Minimum execution time: 43_351_000 picoseconds.
+		Weight::from_parts(47_680_000, 0)
+			.saturating_add(Weight::from_parts(0, 4318))
 			.saturating_add(T::DbWeight::get().reads(7))
 			.saturating_add(T::DbWeight::get().writes(3))
 	}
@@ -711,11 +709,11 @@ impl<T: frame_system::Config> crate::WeightInfo for WeightInfo<T> {
 	/// Proof: `Attestation::ChainElectionPolicy` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	fn set_election_policy() -> Weight {
 		// Proof Size summary in bytes:
-		//  Measured:  `369`
-		//  Estimated: `3834`
-		// Minimum execution time: 29_050_000 picoseconds.
-		Weight::from_parts(34_660_000, 0)
-			.saturating_add(Weight::from_parts(0, 3834))
+		//  Measured:  `392`
+		//  Estimated: `3857`
+		// Minimum execution time: 28_350_000 picoseconds.
+		Weight::from_parts(30_861_000, 0)
+			.saturating_add(Weight::from_parts(0, 3857))
 			.saturating_add(T::DbWeight::get().reads(5))
 			.saturating_add(T::DbWeight::get().writes(3))
 	}
@@ -733,11 +731,11 @@ impl<T: frame_system::Config> crate::WeightInfo for WeightInfo<T> {
 	/// Proof: `System::Events` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
 	fn authorize_attestor() -> Weight {
 		// Proof Size summary in bytes:
-		//  Measured:  `657`
-		//  Estimated: `4122`
-		// Minimum execution time: 43_070_000 picoseconds.
-		Weight::from_parts(50_330_000, 0)
-			.saturating_add(Weight::from_parts(0, 4122))
+		//  Measured:  `680`
+		//  Estimated: `4145`
+		// Minimum execution time: 42_330_000 picoseconds.
+		Weight::from_parts(45_110_000, 0)
+			.saturating_add(Weight::from_parts(0, 4145))
 			.saturating_add(T::DbWeight::get().reads(6))
 			.saturating_add(T::DbWeight::get().writes(3))
 	}
@@ -753,11 +751,11 @@ impl<T: frame_system::Config> crate::WeightInfo for WeightInfo<T> {
 	/// Proof: `System::Events` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
 	fn remove_authorized_attestor() -> Weight {
 		// Proof Size summary in bytes:
-		//  Measured:  `305`
-		//  Estimated: `3770`
-		// Minimum execution time: 33_801_000 picoseconds.
-		Weight::from_parts(40_100_000, 0)
-			.saturating_add(Weight::from_parts(0, 3770))
+		//  Measured:  `338`
+		//  Estimated: `3803`
+		// Minimum execution time: 31_640_000 picoseconds.
+		Weight::from_parts(32_530_000, 0)
+			.saturating_add(Weight::from_parts(0, 3803))
 			.saturating_add(T::DbWeight::get().reads(5))
 			.saturating_add(T::DbWeight::get().writes(3))
 	}
@@ -773,8 +771,8 @@ impl<T: frame_system::Config> crate::WeightInfo for WeightInfo<T> {
 	/// Proof: `System::EventCount` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
 	/// Storage: `System::Events` (r:1 w:1)
 	/// Proof: `System::Events` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
-	/// Storage: `Attestation::MinBondRequirement` (r:1 w:0)
-	/// Proof: `Attestation::MinBondRequirement` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `Attestation::AttestorCollateral` (r:1 w:1)
+	/// Proof: `Attestation::AttestorCollateral` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Attestation::Ledger` (r:1 w:1)
 	/// Proof: `Attestation::Ledger` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Staking::CurrentEra` (r:1 w:0)
@@ -785,19 +783,17 @@ impl<T: frame_system::Config> crate::WeightInfo for WeightInfo<T> {
 	/// Proof: `Balances::Freezes` (`max_values`: None, `max_size`: Some(67), added: 2542, mode: `MaxEncodedLen`)
 	/// Storage: `System::Account` (r:1 w:1)
 	/// Proof: `System::Account` (`max_values`: None, `max_size`: Some(128), added: 2603, mode: `MaxEncodedLen`)
-	/// Storage: `Attestation::AttestorPeerKeys` (r:1 w:0)
-	/// Proof: `Attestation::AttestorPeerKeys` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Attestation::AttestorsCount` (r:1 w:1)
 	/// Proof: `Attestation::AttestorsCount` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	fn kick_active_attestor() -> Weight {
 		// Proof Size summary in bytes:
-		//  Measured:  `1445`
-		//  Estimated: `4910`
-		// Minimum execution time: 141_631_000 picoseconds.
-		Weight::from_parts(186_331_000, 0)
-			.saturating_add(Weight::from_parts(0, 4910))
-			.saturating_add(T::DbWeight::get().reads(14))
-			.saturating_add(T::DbWeight::get().writes(8))
+		//  Measured:  `1547`
+		//  Estimated: `5012`
+		// Minimum execution time: 134_631_000 picoseconds.
+		Weight::from_parts(167_921_000, 0)
+			.saturating_add(Weight::from_parts(0, 5012))
+			.saturating_add(T::DbWeight::get().reads(13))
+			.saturating_add(T::DbWeight::get().writes(9))
 	}
 	/// Storage: `SupportedChains::SupportedChains` (r:1 w:0)
 	/// Proof: `SupportedChains::SupportedChains` (`max_values`: None, `max_size`: None, mode: `Measured`)
@@ -821,20 +817,20 @@ impl<T: frame_system::Config> crate::WeightInfo for WeightInfo<T> {
 	/// The range of component `a` is `[1, 99]`.
 	fn force_election(a: u32, ) -> Weight {
 		// Proof Size summary in bytes:
-		//  Measured:  `851 + a * (138 ±0)`
-		//  Estimated: `4316 + a * (2614 ±0)`
-		// Minimum execution time: 94_280_000 picoseconds.
-		Weight::from_parts(110_635_762, 0)
-			.saturating_add(Weight::from_parts(0, 4316))
-			// Standard Error: 545_352
-			.saturating_add(Weight::from_parts(12_227_487, 0).saturating_mul(a.into()))
+		//  Measured:  `907 + a * (138 ±0)`
+		//  Estimated: `4372 + a * (2614 ±0)`
+		// Minimum execution time: 78_691_000 picoseconds.
+		Weight::from_parts(81_725_742, 0)
+			.saturating_add(Weight::from_parts(0, 4372))
+			// Standard Error: 151_023
+			.saturating_add(Weight::from_parts(11_044_757, 0).saturating_mul(a.into()))
 			.saturating_add(T::DbWeight::get().reads(9))
 			.saturating_add(T::DbWeight::get().reads((1_u64).saturating_mul(a.into())))
 			.saturating_add(T::DbWeight::get().writes(3))
 			.saturating_add(T::DbWeight::get().writes((1_u64).saturating_mul(a.into())))
 			.saturating_add(Weight::from_parts(0, 2614).saturating_mul(a.into()))
 	}
-	/// Storage: `Attestation::PendingAttestationInterval` (r:2 w:1)
+	/// Storage: `Attestation::PendingAttestationInterval` (r:33 w:32)
 	/// Proof: `Attestation::PendingAttestationInterval` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `System::Number` (r:1 w:0)
 	/// Proof: `System::Number` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
@@ -844,25 +840,32 @@ impl<T: frame_system::Config> crate::WeightInfo for WeightInfo<T> {
 	/// Proof: `System::EventCount` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
 	/// Storage: `System::Events` (r:1 w:1)
 	/// Proof: `System::Events` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
-	/// Storage: `Attestation::PendingTargetSampleSize` (r:2 w:1)
+	/// Storage: `Attestation::PendingTargetSampleSize` (r:33 w:32)
 	/// Proof: `Attestation::PendingTargetSampleSize` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `Attestation::PendingMaxCatchup` (r:2 w:1)
+	/// Storage: `Attestation::PendingMaxCatchup` (r:33 w:32)
 	/// Proof: `Attestation::PendingMaxCatchup` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `Attestation::ChainAttestationInterval` (r:0 w:1)
+	/// Storage: `Attestation::ChainAttestationInterval` (r:0 w:32)
 	/// Proof: `Attestation::ChainAttestationInterval` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `Attestation::MaxCatchup` (r:0 w:1)
+	/// Storage: `Attestation::MaxCatchup` (r:0 w:32)
 	/// Proof: `Attestation::MaxCatchup` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `Attestation::TargetSampleSize` (r:0 w:1)
+	/// Storage: `Attestation::TargetSampleSize` (r:0 w:32)
 	/// Proof: `Attestation::TargetSampleSize` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	fn force_apply_updates() -> Weight {
+	/// The range of component `c` is `[1, 32]`.
+	/// The range of component `c` is `[1, 32]`.
+	fn force_apply_updates(c: u32, ) -> Weight {
 		// Proof Size summary in bytes:
-		//  Measured:  `449`
-		//  Estimated: `6389`
-		// Minimum execution time: 67_500_000 picoseconds.
-		Weight::from_parts(74_711_000, 0)
-			.saturating_add(Weight::from_parts(0, 6389))
-			.saturating_add(T::DbWeight::get().reads(10))
-			.saturating_add(T::DbWeight::get().writes(8))
+		//  Measured:  `348 + c * (100 ±0)`
+		//  Estimated: `3814 + c * (2575 ±0)`
+		// Minimum execution time: 66_422_000 picoseconds.
+		Weight::from_parts(34_808_677, 0)
+			.saturating_add(Weight::from_parts(0, 3814))
+			// Standard Error: 230_788
+			.saturating_add(Weight::from_parts(34_591_572, 0).saturating_mul(c.into()))
+			.saturating_add(T::DbWeight::get().reads(7))
+			.saturating_add(T::DbWeight::get().reads((3_u64).saturating_mul(c.into())))
+			.saturating_add(T::DbWeight::get().writes(2))
+			.saturating_add(T::DbWeight::get().writes((6_u64).saturating_mul(c.into())))
+			.saturating_add(Weight::from_parts(0, 2575).saturating_mul(c.into()))
 	}
 	/// Storage: `SupportedChains::SupportedChains` (r:1 w:0)
 	/// Proof: `SupportedChains::SupportedChains` (`max_values`: None, `max_size`: None, mode: `Measured`)
@@ -894,11 +897,11 @@ impl<T: frame_system::Config> crate::WeightInfo for WeightInfo<T> {
 	/// Proof: `Attestation::CheckpointingQueues` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	fn revert_to() -> Weight {
 		// Proof Size summary in bytes:
-		//  Measured:  `19254`
-		//  Estimated: `1257744`
-		// Minimum execution time: 5_950_891_000 picoseconds.
-		Weight::from_parts(6_166_292_000, 0)
-			.saturating_add(Weight::from_parts(0, 1257744))
+		//  Measured:  `19277`
+		//  Estimated: `1257767`
+		// Minimum execution time: 5_930_242_000 picoseconds.
+		Weight::from_parts(6_226_182_000, 0)
+			.saturating_add(Weight::from_parts(0, 1257767))
 			.saturating_add(T::DbWeight::get().reads(549))
 			.saturating_add(T::DbWeight::get().writes(1046))
 	}

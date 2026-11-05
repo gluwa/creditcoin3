@@ -3638,6 +3638,7 @@ export default {
             'InvalidMaturityStrategy',
             'MaturityStrategyUnchanged',
             'ChainNameUnchanged',
+            'TooManyChains',
         ],
     },
     /**
