@@ -23,7 +23,7 @@ cc-client = { workspace = true }
 eth = { workspace = true }
 indexer-client = { workspace = true }
 sp-core = { workspace = true }
-usc-abi-encoding = { workspace = true }
+attestcoin-abi-encoding = { workspace = true }
 user = { workspace = true }
 utils = { workspace = true }
 

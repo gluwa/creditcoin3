@@ -1,6 +1,7 @@
 use alloy::{
     consensus::{
         proofs::{calculate_receipt_root, calculate_transaction_root},
+        transaction::{Recovered, SignerRecoverable},
         Block as ConsensusBlock, ReceiptEnvelope, Transaction as ConsensusTransaction, TxEnvelope,
     },
     eips::eip2718::Decodable2718,
@@ -32,13 +33,13 @@ use alloy::rpc::client::RpcClient as AlloyRpcClient;
 use alloy::transports::http::{reqwest, Http};
 use alloy::transports::utils::guess_local_url;
 use anyhow::{Context, Result};
+use attestcoin_abi_encoding::common::EncodingVersion;
 use hex::FromHexError;
 use sp_core::H256;
 use std::num::NonZeroUsize;
 use std::str::FromStr;
 use thiserror::Error;
 use tracing::{error, info, trace};
-use usc_abi_encoding::common::EncodingVersion;
 use user::prelude::*;
 use utils::block_item_traits::BlockItem;
 
@@ -364,14 +365,18 @@ impl TxRx {
 
 impl BlockItem for TxRx {
     fn payload_bytes(&self) -> Vec<u8> {
-        usc_abi_encoding::abi::abi_encode(self.tx().clone(), self.rx().clone(), self.encoding)
-            .expect("Transaction and receipt should be encodable.")
-            .abi()
-            .to_vec()
+        attestcoin_abi_encoding::abi::abi_encode(
+            self.tx().clone(),
+            self.rx().clone(),
+            self.encoding,
+        )
+        .expect("Transaction and receipt should be encodable.")
+        .abi()
+        .to_vec()
     }
 
     fn tx_type(&self) -> Option<u8> {
-        match self.tx.inner.clone() {
+        match self.tx.inner.inner() {
             TxEnvelope::Legacy(_) => None,
             TxEnvelope::Eip2930(_) => Some(1),
             TxEnvelope::Eip1559(_) => Some(2),
@@ -671,12 +676,11 @@ pub fn rpc_block_from_raw(
             contract_address,
         });
         txs.push(Transaction {
-            inner: envelope,
+            inner: Recovered::new_unchecked(envelope, from),
             block_hash: Some(hash),
             block_number: Some(number),
             transaction_index: Some(tx_index),
             effective_gas_price: Some(effective_gas_price),
-            from,
         });
     }
 
@@ -870,14 +874,14 @@ impl Client {
                 let is_local = guess_local_url(url.as_str());
                 ProviderBuilder::new()
                     .network::<Ethereum>()
-                    .on_client(AlloyRpcClient::new(transport, is_local))
+                    .connect_client(AlloyRpcClient::new(transport, is_local))
             }
 
             "ws" | "wss" => {
                 let ws = ws_connect(url.clone());
                 ProviderBuilder::new()
                     .network::<Ethereum>()
-                    .on_ws(ws)
+                    .connect_ws(ws)
                     .await?
             }
 
@@ -1266,8 +1270,8 @@ impl Client {
         let builder = ProviderBuilder::new().wallet(EthereumWallet::from(self.get_signer()?));
 
         let provider = match self.get_url()? {
-            ConnectionTransport::Http(url) => builder.on_http(url),
-            ConnectionTransport::Ws(ws_client) => builder.on_ws(ws_client).await?,
+            ConnectionTransport::Http(url) => builder.connect_http(url),
+            ConnectionTransport::Ws(ws_client) => builder.connect_ws(ws_client).await?,
         };
 
         Ok(provider)
@@ -1517,7 +1521,8 @@ impl Client {
         let block_fut = async {
             self.pacer.acquire().await;
             provider
-                .get_block(block_id, true.into())
+                .get_block(block_id)
+                .full()
                 .await?
                 .ok_or(Error::FailedToGetBlock(number))
         };
@@ -1619,10 +1624,8 @@ impl Client {
         for (label, provider) in providers {
             self.pacer.acquire().await;
             match provider
-                .get_block(
-                    BlockId::Number(BlockNumberOrTag::Number(number)),
-                    true.into(),
-                )
+                .get_block(BlockId::Number(BlockNumberOrTag::Number(number)))
+                .full()
                 .await
             {
                 Ok(Some(block)) => {
@@ -1762,7 +1765,9 @@ impl Client {
             pacer.acquire().await;
             let answer = timed(
                 timeout,
-                provider.get_block(BlockId::Number(tag.into()), false.into()),
+                std::future::IntoFuture::into_future(
+                    provider.get_block(BlockId::Number(tag.into())),
+                ),
             )
             .await;
             (label.clone(), answer)
@@ -1829,10 +1834,9 @@ impl Client {
                         pacer.acquire().await;
                         let read = timed(
                             timeout,
-                            provider.get_block(
+                            std::future::IntoFuture::into_future(provider.get_block(
                                 BlockId::Number(BlockNumberOrTag::Number(candidate.number)),
-                                false.into(),
-                            ),
+                            )),
                         )
                         .await;
                         let confirmation = match read {
@@ -1952,7 +1956,8 @@ impl Client {
     pub async fn get_block_number_by_hash(&self, hash: BlockHash) -> Result<u64, Error> {
         let block_opt = self
             .rpc_provider
-            .get_block_by_hash(hash, true.into())
+            .get_block_by_hash(hash)
+            .full()
             .await
             .map_err(|e| {
                 error!("Failed to get block by hash: {:?}", e);
@@ -2816,7 +2821,7 @@ mod raw_rlp_tests {
         let txs: Vec<Transaction> = rpc_block.transactions.clone().into_transactions().collect();
         assert_eq!(txs.len(), 2);
         // Sender recovered from the signature, not trusted from anywhere.
-        assert!(txs.iter().all(|t| t.from == signer.address()));
+        assert!(txs.iter().all(|t| t.inner.signer() == signer.address()));
         assert_eq!(
             txs.iter().map(|t| t.transaction_index).collect::<Vec<_>>(),
             vec![Some(0), Some(1)]
@@ -2856,12 +2861,11 @@ mod raw_rlp_tests {
             .iter()
             .enumerate()
             .map(|(i, env)| Transaction {
-                inner: env.clone(),
+                inner: Recovered::new_unchecked(env.clone(), signer.address()),
                 block_hash: Some(hash),
                 block_number: Some(number),
                 transaction_index: Some(i as u64),
                 effective_gas_price: None,
-                from: signer.address(),
             })
             .collect();
         let gas_used = [21_000u64, 64_321];

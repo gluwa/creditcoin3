@@ -31,7 +31,7 @@ sp-core = { workspace = true }
 stream = { workspace = true }
 subxt = { workspace = true }
 supported-chains-primitives = { workspace = true }
-usc-abi-encoding = { workspace = true }
+attestcoin-abi-encoding = { workspace = true }
 
 # Ethereum
 eth = { workspace = true, default-features = true }
