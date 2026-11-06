@@ -51,7 +51,7 @@ members = [
     "tracing/client/rpc/debug",
     "tracing/client/rpc/trace",
 ]
-resolver = "2"
+resolver = "3"
 
 [workspace.package]
 authors = ["Gluwa Inc. Developer Support <support.dev@gluwa.com>"]
@@ -133,8 +133,8 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 url = { version = "2.4.0" }
 wasm-timer = { version = "0.2" }
 zeroize = { version = "1.8", features = ["derive"] }
-# Alloy
-alloy = { version = "0.11", features = [
+# Alloy (held at 1.6.x: 1.7+ needs rustc 1.91, toolchain is pinned to 1.88.0)
+alloy = { version = "~1.6", features = [
     "node-bindings",
     "providers",
     "provider-http",
@@ -285,8 +285,8 @@ pallet-randomness = { path = "pallets/randomness", default-features = false }
 pallet-supported-chains = { path = "pallets/supported-chains", default-features = false }
 
 # Encoding
-usc-abi-encoding = { version = "0.5" }
-usc-query-builder = { version = "0.7" }
+attestcoin-abi-encoding = { version = "0.7.0" }
+attestcoin-query-builder = { version = "0.9.0" }
 
 # Precompiles
 ethabi = { version = "18.0.0", default-features = false }
