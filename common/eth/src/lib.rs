@@ -755,8 +755,18 @@ impl OrderedBlock {
                 if !family.supports_tx_type(ty) {
                     return Err(Error::UnsupportedTransactionType { block, ty, family });
                 }
-                // The only non-Ethereum type any family admits today is the OP-Stack deposit.
-                debug_assert_eq!(ty, op_stack::DEPOSIT_TX_TYPE);
+                // alloy also yields `Unknown` for a type 0-4 payload it failed to parse. That is
+                // one peer's malformed data, so it stays fallback-eligible rather than a
+                // misconfiguration; the deposit is the only other type a family admits.
+                if ty != op_stack::DEPOSIT_TX_TYPE {
+                    return Err(Error::Deposit {
+                        block,
+                        source: op_stack::DepositError::NotADeposit {
+                            hash: unknown.hash,
+                            ty,
+                        },
+                    });
+                }
                 if receipt_ty != ty {
                     return Err(Error::ReceiptTypeMismatch {
                         block,
