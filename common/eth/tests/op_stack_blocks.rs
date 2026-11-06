@@ -388,3 +388,54 @@ fn deposit_leaf_bytes_are_pinned() {
         assert_eq!(block.items()[0].to_bytes(), leaf);
     }
 }
+
+/// alloy falls back to `AnyTxEnvelope::Unknown` for a type 0-4 payload it cannot parse. That is
+/// a malformed payload from one peer, not a deposit and not a family misconfiguration.
+#[test]
+fn unparsable_standard_type_is_a_fallback_eligible_error_not_a_deposit() {
+    let (mut block, receipts) = fixture(false);
+    let tx = &mut block["transactions"][1];
+    assert_eq!(tx["type"], "0x2");
+    tx.as_object_mut().unwrap().remove("maxFeePerGas");
+    let parsed: AnyRpcBlock = serde_json::from_value(block.clone()).unwrap();
+    assert!(
+        parsed
+            .inner
+            .transactions
+            .clone()
+            .into_transactions()
+            .any(|t| matches!(t.inner.inner, alloy::network::AnyTxEnvelope::Unknown(_))),
+        "the mutation must make alloy fall back to the unknown envelope"
+    );
+    for family in [ChainFamily::OpStack, ChainFamily::Ethereum] {
+        let block: AnyRpcBlock = serde_json::from_value(block.clone()).unwrap();
+        let height = block.header.number;
+        let receipts: Vec<AnyTransactionReceipt> =
+            serde_json::from_value(receipts.clone()).unwrap();
+        let err = OrderedBlock::try_from_fetched_block(
+            84532,
+            family,
+            block,
+            receipts,
+            height,
+            EncodingVersion::V1,
+        )
+        .unwrap_err();
+        // The deposit at index 0 is still met first under the Ethereum family.
+        match (family, &err) {
+            (
+                ChainFamily::OpStack,
+                Error::Deposit {
+                    source: DepositError::NotADeposit { ty: 2, .. },
+                    ..
+                },
+            )
+            | (ChainFamily::Ethereum, Error::UnsupportedTransactionType { ty: 0x7e, .. }) => {}
+            other => panic!("unexpected result {other:?}"),
+        }
+        assert_eq!(
+            err.is_unrecoverable(),
+            matches!(err, Error::UnsupportedTransactionType { .. })
+        );
+    }
+}
