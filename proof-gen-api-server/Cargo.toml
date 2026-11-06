@@ -56,6 +56,7 @@ tower-http = { workspace = true }
 tracing = { workspace = true }
 
 # Creditcoin / USC dependencies
+attestcoin-abi-encoding = { workspace = true }
 attestor-primitives = { workspace = true }
 cc-client = { workspace = true }
 continuity = { workspace = true }
@@ -65,7 +66,6 @@ merkle = { workspace = true }
 prometheus-client = { workspace = true }
 stream = { workspace = true, features = ["cc3"] }
 sysinfo = { workspace = true }
-attestcoin-abi-encoding = { workspace = true }
 
 [features]
 default = []
