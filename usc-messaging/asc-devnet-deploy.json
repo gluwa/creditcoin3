@@ -199,20 +199,66 @@
         }
       ],
       "coreFee": "1000000000000000000"
+    },
+    "3": {
+      "chainKey": 3,
+      "destChainId": 84532,
+      "destChainName": "Base Sepolia",
+      "registeredAt": "2026-10-29",
+      "attestorSigners": [
+        "0x5A9Acfb00D2897DF8f4B1E060196f68f144D2CE2",
+        "0x7be9836748b91ab25CCA6C2F640Bc3242Fb65c79",
+        "0xf98d492e84Bfcf348Fa8a177697CdD7226476B07",
+        "0xb079D2F4cbaDAf48763F7142f103Ea451ff7179A"
+      ],
+      "attestorSignersDerivedAt": "2026-10-30",
+      "attestorSignersSource": "attestation.attestorEvmAddress(3, ·) on asc-dev for cc3-asc-dev-base-sepolia-attestor bootnode + secret-0..2 (playground only)",
+      "dest": {
+        "chainId": 84532,
+        "rpc": "https://sepolia.base.org",
+        "chainKey": 3,
+        "creditcoinChainId": 102037,
+        "localChainKey": "0x0000000000000000000000000000000000000000000000000000000000000003",
+        "voteValidator": "0xdB80035792A769e2ac9b9aa845B9E68632CAfbC1",
+        "attestorRegistry": "0x540994de522923287110D5c7fA58e1082aF7b285",
+        "inbox": "0x1881349EeB2aC201d94616DCf1f6127DF0770CA3",
+        "dispatcherRouter": "0xbCEE163bb594751457Cb9a34cbd6c99856ec7db6",
+        "defaultDispatcher": "0xD5EB622c1C4091d24e1631e3F3247Acb9e2B6bA1",
+        "dapp": "0x010c23882cb1E86D9098104cc9339253FaAaCaFB",
+        "admin": "0x30Ab12D7254ee06bc856b30a0524D3e77c89F4C8",
+        "initialAttestors": [
+          "0x5A9Acfb00D2897DF8f4B1E060196f68f144D2CE2",
+          "0x7be9836748b91ab25CCA6C2F640Bc3242Fb65c79",
+          "0xf98d492e84Bfcf348Fa8a177697CdD7226476B07",
+          "0xb079D2F4cbaDAf48763F7142f103Ea451ff7179A"
+        ],
+        "deployedAt": "2026-10-30T17:30:28.935Z"
+      },
+      "source": {
+        "outbox": "0xDD08906726b53252d00d5c1b36BBA2a6a265ED04",
+        "attestorVault": "0x3605EBa12f46527D067c038016a5eEafEd25B86D",
+        "relayerFeeVault": "0x8903EAE16b0574F8eFe4ef184F5aC8d30EEa642b",
+        "relayerContract": "0x0777C99BfB33E25136409BC814D2BCFA102A16B3",
+        "relayerContractKind": "RelayerContractLite",
+        "ackValidator": "0x3D8bF144d323475c2f65a5ADD070f0B8Adc43ACa",
+        "quoterEOA": null,
+        "deployedAt": "2026-10-30T17:40:45.100Z",
+        "wiredAt": "2026-10-30T17:41:35.885Z"
+      }
     }
   },
   "superseded": {
-    "note": "first 2 Oct deploy (factory-direct) \u2014 both Inboxes reject these Outboxes; do not use",
+    "note": "first 2 Oct deploy (factory-direct) — both Inboxes reject these Outboxes; do not use",
     "creditcoin": {
-      "outboxDiscovery": "0x44D61789\u202653A1",
-      "chainRegistry": "0x036bede4\u2026A1C2",
-      "outbox1": "0xae7621e2\u2026Bb51",
-      "outbox2": "0x527AA49b\u20262bC3"
+      "outboxDiscovery": "0x44D61789…53A1",
+      "chainRegistry": "0x036bede4…A1C2",
+      "outbox1": "0xae7621e2…Bb51",
+      "outbox2": "0x527AA49b…2bC3"
     },
     "baseSepolia": {
       "leftoverAttestorRegistries": [
-        "0x3216EfbB\u2026A965",
-        "0x8829272A\u202613Db"
+        "0x3216EfbB…A965",
+        "0x8829272A…13Db"
       ]
     }
   },
