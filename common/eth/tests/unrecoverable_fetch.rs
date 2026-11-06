@@ -1,7 +1,7 @@
 //! A block that no retry can fetch (the node lacks the method, or serves bytes this client cannot
 //! decode) must fail the fetch at once instead of backing off through the full retry budget, and
 //! the startup check must report the endpoint as unusable for that fetch mode.
-use eth::{BlockFetchMode, Client, Error};
+use eth::{BlockFetchMode, ChainFamily, Client, Error};
 use serde_json::{json, Value};
 use std::{
     io::{BufRead, Read, Write},
@@ -151,6 +151,29 @@ async fn undecodable_raw_block_fails_the_fetch_at_once() {
     let mock = Mock::start(garbage_raw_block);
     let err = fetch(&mock.raw_rlp_client().await).await;
     assert!(matches!(err, Error::RawBlockDecode(NUMBER, _)), "{err}");
+}
+
+#[tokio::test]
+async fn raw_rlp_refuses_a_non_ethereum_family_before_any_debug_call() {
+    // The raw decoder only knows Ethereum envelopes. An OP-Stack client in raw-RLP mode must
+    // fail with the family error, not with the node's own `-32601` for the debug namespace.
+    let mock = Mock::start(no_debug_namespace);
+    let client = mock
+        .raw_rlp_client()
+        .await
+        .with_chain_family(ChainFamily::OpStack);
+    let err = fetch(&client).await;
+    assert!(
+        matches!(
+            err,
+            Error::FetchModeFamilyUnsupported {
+                mode: BlockFetchMode::RawRlp,
+                family: ChainFamily::OpStack,
+            }
+        ),
+        "{err}"
+    );
+    assert!(err.is_unrecoverable(), "{err}");
 }
 
 #[tokio::test]

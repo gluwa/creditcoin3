@@ -182,7 +182,7 @@ async fn receipts_are_fetched_by_the_hash_of_the_fetched_block() {
 
     assert_eq!(block.hash(), hash);
     assert!(
-        block.items()[0].rx().status(),
+        block.items()[0].eth_rx().unwrap().status(),
         "the receipt must be this block's, not the other fork's served by height"
     );
     assert_eq!(mock.by_hash.load(Ordering::SeqCst), 1);

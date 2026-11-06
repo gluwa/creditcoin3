@@ -4330,6 +4330,7 @@ dependencies = [
  "futures-util",
  "hex",
  "merkle",
+ "serde",
  "serde_json",
  "sp-core",
  "thiserror 1.0.69",
