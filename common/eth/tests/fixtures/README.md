@@ -14,3 +14,8 @@ The deposit receipt gas in the leaf is derived from the difference between conse
 `cumulativeGasUsed` values committed by `receiptsRoot`, never RPC `gasUsed` metadata.
 This preserves pre-Regolith system-deposit zero gas and user-deposit gas-limit accounting,
 as well as actual gas usage from Regolith onward. Canyon does not change this gas rule.
+
+`*_deposit_leaf.hex` pin the exact leaf bytes of each fixture's index-0 deposit
+(`deposit_leaf_bytes_are_pinned`). They were decoded independently with `cast abi-decode` and
+match the RPC fixtures. A change to them is a leaf-format change: it alters every OP-Stack
+attestation root.

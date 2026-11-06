@@ -356,3 +356,35 @@ fn decreasing_cumulative_deposit_gas_is_a_fallback_eligible_error() {
     assert!(error.inconsistent_block_payload_for_fallback());
     assert_eq!(error.inconsistent_block_number_hint(), Some(46_388_021));
 }
+
+/// Pins the exact bytes of the `txType = 126` deposit leaf. Changing the layout changes the root
+/// of every OP-Stack block, so the later swap to the `usc-abi-encoding` encoder must reproduce
+/// these byte-for-byte. The vectors were decoded independently with `cast abi-decode` and match
+/// the RPC fixtures field by field. The pre-Canyon vector carries nonce 0 although its RPC
+/// reports a nonzero one.
+#[test]
+fn deposit_leaf_bytes_are_pinned() {
+    let cases = [
+        (
+            false,
+            84532,
+            include_str!("fixtures/base_sepolia_46388021_deposit_leaf.hex"),
+        ),
+        (
+            true,
+            10,
+            include_str!("fixtures/op_mainnet_110000000_deposit_leaf.hex"),
+        ),
+    ];
+    for (historical, chain_id, expected) in cases {
+        let (block, receipts) = fixture(historical);
+        let block = ordered(block, receipts, chain_id).unwrap();
+        let leaf = block.items()[0].payload_bytes();
+        assert_eq!(
+            hex::encode(&leaf),
+            expected.trim(),
+            "deposit leaf layout changed (historical={historical})"
+        );
+        assert_eq!(block.items()[0].to_bytes(), leaf);
+    }
+}
