@@ -5,6 +5,7 @@ license.workspace = true
 name = "user"
 publish.workspace = true
 repository.workspace = true
+rust-version.workspace = true
 version.workspace = true
 
 [dependencies]

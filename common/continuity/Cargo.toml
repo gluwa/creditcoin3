@@ -6,6 +6,7 @@ keywords = ["creditcoin", "oracle", "proof", "attestation"]
 license = "MIT"
 name = "continuity"
 publish = false
+rust-version = { workspace = true }
 version = "0.1.0"
 
 [dependencies]

@@ -5,6 +5,7 @@ license.workspace = true
 name = "stream_attestation"
 publish.workspace = true
 repository.workspace = true
+rust-version.workspace = true
 version.workspace = true
 
 [dependencies]

@@ -5,6 +5,7 @@ license.workspace = true
 name = "stream_eth"
 publish.workspace = true
 repository.workspace = true
+rust-version.workspace = true
 version.workspace = true
 
 [[bench]]

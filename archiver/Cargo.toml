@@ -4,6 +4,7 @@ license.workspace = true
 name = "archiver"
 publish.workspace = true
 repository.workspace = true
+rust-version.workspace = true
 version.workspace = true
 
 [[bin]]

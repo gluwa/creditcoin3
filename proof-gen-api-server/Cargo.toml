@@ -5,6 +5,7 @@ license.workspace = true
 name = "proof-gen-api-server"
 publish.workspace = true
 repository.workspace = true
+rust-version.workspace = true
 version.workspace = true
 
 [lib]
@@ -72,7 +73,6 @@ default = []
 integration-tests = []
 
 [dev-dependencies]
-alloy-node-bindings = "~1.6"
 async-trait = { workspace = true }
 cc-client = { workspace = true, features = ["ws-fixture"] }
 parameterized = "2.1.0"
