@@ -67,8 +67,9 @@ export async function getBlockNumberByTag(
 const BLOCK_TIME_SPAN = 1_000;
 
 /**
- * Average block time in seconds over the last `BLOCK_TIME_SPAN` blocks. Both blocks come from the
- * same node, so a load-balanced RPC whose nodes sit at different heights cannot skew it.
+ * Average block time in seconds over the last `BLOCK_TIME_SPAN` blocks. The older block is
+ * addressed by number relative to the newer one, and a block's timestamp is the same on every
+ * node, so a load-balanced RPC whose nodes sit at different heights cannot skew it.
  */
 export async function getAverageBlockTime(rpcUrl: string): Promise<number> {
   const provider = getProvider(rpcUrl);

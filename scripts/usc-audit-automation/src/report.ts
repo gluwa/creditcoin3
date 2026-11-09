@@ -2,6 +2,8 @@
  * Report line formatting, kept free of I/O so it can be tested.
  */
 
+import { clampTagLag } from "./maturity.ts";
+
 export function formatNum(n: number): string {
   return n.toLocaleString("en-US");
 }
@@ -20,7 +22,7 @@ export interface BlockDiffDetail {
 
 /**
  * The attestation-lag report line. Tag maturities are reported against the tag, where the
- * allowance is stable (`maxBlockDiff - lag`); offset maturities against the tip.
+ * allowance is `maxBlockDiff - lag`; offset maturities against the tip.
  */
 export function formatBlockDiffDetail(d: BlockDiffDetail): string {
   const mark = d.ok ? "✅" : "❌";
@@ -32,14 +34,18 @@ export function formatBlockDiffDetail(d: BlockDiffDetail): string {
     })`;
   }
   const { name } = d.tag;
-  // Clamped as in getMaxBlockDiff: a load-balanced RPC can report a tag above its own tip.
-  const lag = Math.max(d.tag.lag, 0);
+  const lag = clampTagLag(d.tag.lag);
   const tagBlock = d.tip - lag;
   const behind = tagBlock - d.attested;
   const allowed = d.maxBlockDiff - lag;
   const heights = `latest ${formatNum(d.tip)}|${name} ${
     formatNum(tagBlock)
   }|attested ${formatNum(d.attested)}`;
+  if (d.attested > d.tip) {
+    return `${mark} Attestation above latest by ${
+      formatNum(d.attested - d.tip)
+    } (${heights})`;
+  }
   return behind >= 0
     ? `${mark} Attestation behind ${name}: ${formatNum(behind)} (allowed ${
       formatNum(allowed)

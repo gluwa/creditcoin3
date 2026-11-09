@@ -42,23 +42,41 @@ import { runBalanceChecks } from "./balances.ts";
 import { formatBlockDiffDetail, formatNum } from "./report.ts";
 import type { BlockDiffDetail } from "./report.ts";
 
-function buildReport(
-  chainLabel: string,
-  chainId: number,
-  chainKey: number,
-  maturityStrategy: string,
-  ethBlock: number,
-  attBlock: number,
-  maxBlockDiff: number,
-  tag: BlockDiffDetail["tag"],
-  checkpointBlock: number,
-  blockByHash: number | null,
-  blockDiffOk: boolean,
-  headerHashOk: boolean,
-  checkpointRangeOk: boolean,
-  graphqlAtt: { headerNumber: string; root: string; digest: string } | null,
-  graphqlCp: { lastCheckpointHeaderNumber: string } | null,
-): BuiltReport {
+interface ReportInputs {
+  chainLabel: string;
+  chainId: number;
+  chainKey: number;
+  maturityStrategy: string;
+  ethBlock: number;
+  attBlock: number;
+  maxBlockDiff: number;
+  tag: BlockDiffDetail["tag"];
+  checkpointBlock: number;
+  blockByHash: number | null;
+  blockDiffOk: boolean;
+  headerHashOk: boolean;
+  checkpointRangeOk: boolean;
+  graphqlAtt: { headerNumber: string; root: string; digest: string } | null;
+  graphqlCp: { lastCheckpointHeaderNumber: string } | null;
+}
+
+function buildReport({
+  chainLabel,
+  chainId,
+  chainKey,
+  maturityStrategy,
+  ethBlock,
+  attBlock,
+  maxBlockDiff,
+  tag,
+  checkpointBlock,
+  blockByHash,
+  blockDiffOk,
+  headerHashOk,
+  checkpointRangeOk,
+  graphqlAtt,
+  graphqlCp,
+}: ReportInputs): BuiltReport {
   const details: string[] = [];
   const title =
     `🚦 Attestation Chain Liveness: ${chainLabel} - ${chainId} - ${chainKey}`;
@@ -249,8 +267,8 @@ async function runChecksForChain(
   if (config.verbose) {
     console.log(
       `[${chainLabel}] tagLag=${tagLag ?? "n/a"} blockTime=${
-        blockTimeSecs?.toFixed(3) ?? "n/a"
-      }s maxAttBlockDiff=${maxAttBlockDiff}`,
+        blockTimeSecs !== undefined ? `${blockTimeSecs.toFixed(3)}s` : "n/a"
+      } maxAttBlockDiff=${maxAttBlockDiff}`,
     );
   }
   // maxCheckpointBlockDiff = maxAttBlockDiff + (lag bettween attestation creation and checkpoint creation)
@@ -276,25 +294,25 @@ async function runChecksForChain(
     lastCheckpoint.blockNumber,
   );
 
-  const report = buildReport(
+  const report = buildReport({
     chainLabel,
     chainId,
     chainKey,
-    maturityLabel,
+    maturityStrategy: maturityLabel,
     ethBlock,
     attBlock,
-    maxAttBlockDiff,
-    maturity.kind === "rpcTag" && tagLag !== undefined
+    maxBlockDiff: maxAttBlockDiff,
+    tag: maturity.kind === "rpcTag" && tagLag !== undefined
       ? { name: maturity.tag, lag: tagLag }
       : undefined,
-    lastCheckpoint.blockNumber,
-    fetchedBlockByHash,
+    checkpointBlock: lastCheckpoint.blockNumber,
+    blockByHash: fetchedBlockByHash,
     blockDiffOk,
     headerHashOk,
     checkpointRangeOk,
-    graphqlResult.attestation,
-    graphqlResult.checkpoint,
-  );
+    graphqlAtt: graphqlResult.attestation,
+    graphqlCp: graphqlResult.checkpoint,
+  });
 
   return report;
 }

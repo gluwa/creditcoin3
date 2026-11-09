@@ -88,14 +88,28 @@ it is not configured.
   `safe` / `finalized` block, measured on each run, plus one tag step, since the
   tag jumps rather than moving block by block. If that query fails, the check
   falls back to `EvmFinalized` with a warning.
-- The tag step is one Ethereum epoch (384 s) in the chain's own blocks, using
-  the average block time over the last 1,000 blocks, capped at the tag lag and
-  never below 32. Ethereum (12 s) and BSC (fast finality, tag a block or two
-  behind) get 32; Base (0.2 s, tag thousands of blocks behind) gets 1,920. If
-  the block time cannot be measured, the step is 32.
+- The tag step is 32 blocks, except when the tag trails the tip by at least one
+  Ethereum epoch (384 s) of the chain's own blocks: then it is that epoch, since
+  the tag is following L1 finality. The block time is the average over the last
+  1,000 blocks. Ethereum (12 s, epoch 32 blocks), BSC (fast finality, tag a
+  block or two behind) and Base `safe` (a few hundred behind) get 32; Base
+  `finalized` (0.2 s, thousands behind) gets 1,920. If the block time cannot be
+  measured or is under 0.05 s, the step is 32.
 - Each case adds 3 attestation intervals of slack.
 - If the strategy is missing or unrecognised, the audit falls back to `EvmSafe`
   with a warning, and the report shows `EvmSafe (fallback)`.
+
+For `RpcSafe` / `RpcFinalized` the Slack detail line reports the gap behind the
+tag against its allowance (`maxBlockDiff - tagLag`):
+
+```
+✅ Attestation behind finalized: 2,032 (allowed 3,720; latest 55,224,826|finalized 55,219,432|attested 55,217,400)
+```
+
+It reads "ahead of finalized by N" when the audit's RPC reports a tag below the
+attestation (its node trails the attestors'), and "above latest by N" (a
+failure) when the attestation is above the RPC's tip. Fixed-offset strategies
+keep `Attestation block heights diff: tip - attested (tip|attested|max)`.
 
 ## CLI
 

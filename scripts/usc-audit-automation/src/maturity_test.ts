@@ -56,6 +56,14 @@ Deno.test("getTagStepBuffer stays at 32 without a usable block time", () => {
   }
 });
 
+Deno.test("getTagStepBuffer stays at 32 for an implausibly short block time", () => {
+  // A broken RPC reporting near-identical timestamps must not loosen the limit.
+  for (const bt of [0.001, 0.01, 0.049]) {
+    assertEquals(getTagStepBuffer(100_000, bt), 32, String(bt));
+  }
+  assertEquals(getTagStepBuffer(100_000, 0.05), 7680);
+});
+
 // Block times and tag lags measured on each source chain (Nov 2026, 15 min sample); strategies
 // and intervals read from each network's SupportedChains / ChainAttestationInterval storage.
 // `allowed` is how far the last attestation may trail the tag: maxBlockDiff - tagLag.
@@ -128,22 +136,57 @@ Deno.test("getMaxBlockDiff allowance per source chain", () => {
   }
 });
 
-Deno.test("getMaxBlockDiff never allows less than the 32-block step", () => {
-  for (const c of SOURCE_CHAINS) {
-    for (const lag of c.lags) {
-      const fixedStep = lag + 32 + 3 * c.interval;
-      const now = getMaxBlockDiff(TAG, c.interval, lag, c.bt);
-      assertEquals(now >= fixedStep, true, `${c.chain} at tag lag ${lag}`);
+const BLOCK_TIMES = [
+  undefined,
+  0.001,
+  0.05,
+  0.2,
+  0.25,
+  0.45,
+  0.75,
+  2,
+  12,
+  12.3,
+  15,
+];
+const INTERVALS = [1, 10, 50, 100, 600];
+
+Deno.test("getMaxBlockDiff is never stricter than the fixed 32-block step", () => {
+  for (const bt of BLOCK_TIMES) {
+    for (const interval of INTERVALS) {
+      for (let lag = -50; lag <= 20_000; lag += 7) {
+        const fixedStep = Math.max(lag, 0) + 32 + 3 * interval;
+        const now = getMaxBlockDiff(TAG, interval, lag, bt);
+        assertEquals(
+          now >= fixedStep,
+          true,
+          `bt ${bt} I ${interval} lag ${lag}`,
+        );
+      }
     }
   }
 });
 
-Deno.test("getTagStepBuffer caps the step at the tag lag on fast chains", () => {
-  // Base safe trails by a few hundred blocks: the step cannot exceed that.
-  assertEquals(getTagStepBuffer(282, 0.2), 282);
-  assertEquals(getTagStepBuffer(1357, 0.2), 1357);
-  // Base finalized trails by thousands: the step is one epoch.
+Deno.test("getTagStepBuffer keeps 32 until the tag trails by a full epoch", () => {
+  // BSC (0.45 s, epoch 854 blocks): a finality stall with the tag 500 behind keeps 32.
+  assertEquals(getTagStepBuffer(500, 0.45), 32);
+  assertEquals(getTagStepBuffer(853, 0.45), 32);
+  assertEquals(getTagStepBuffer(854, 0.45), 854);
+  // Base safe trails by a few hundred blocks, under an epoch: 32 as before.
+  assertEquals(getTagStepBuffer(282, 0.2), 32);
+  assertEquals(getTagStepBuffer(1357, 0.2), 32);
+  // Base finalized trails by thousands: one epoch.
+  assertEquals(getTagStepBuffer(1919, 0.2), 32);
+  assertEquals(getTagStepBuffer(1920, 0.2), 1920);
   assertEquals(getTagStepBuffer(5394, 0.2), 1920);
+});
+
+Deno.test("getTagStepBuffer is 32 for Ethereum-speed chains at any lag", () => {
+  for (const bt of [12, 12.024, 12.3, 15]) {
+    for (let lag = 0; lag <= 10_000; lag += 3) {
+      assertEquals(getTagStepBuffer(lag, bt), 32, `bt ${bt} lag ${lag}`);
+    }
+  }
 });
 
 Deno.test("getMaxBlockDiff passes the 6 Nov 2026 asc-devnet Base Sepolia report", () => {

@@ -67,3 +67,17 @@ Deno.test("formatBlockDiffDetail says ahead when the RPC's tag trails the attest
     "✅ Attestation ahead of finalized by 1,282 (allowed 3,720 behind; latest 56,603,600|finalized 56,596,718|attested 56,598,000)",
   );
 });
+
+Deno.test("formatBlockDiffDetail says why an attestation above the RPC's tip fails", () => {
+  // The check requires tip - attested >= 0; an attestation above this RPC's tip fails it.
+  assertEquals(
+    formatBlockDiffDetail({
+      ok: false,
+      tip: 56_603_600,
+      attested: 56_604_200,
+      maxBlockDiff: 10_602,
+      tag: { name: "finalized", lag: 6_882 },
+    }),
+    "❌ Attestation above latest by 600 (latest 56,603,600|finalized 56,596,718|attested 56,604,200)",
+  );
+});

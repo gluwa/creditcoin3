@@ -19,9 +19,14 @@ export const RPC_TAG_STEP_BUFFER = 32;
 
 /**
  * One Ethereum epoch (32 slots of 12 s). L1-anchored `safe` / `finalized` tags, on Ethereum and
- * on OP-stack L2s such as Base, advance in steps of about this long.
+ * on OP-stack L2s such as Base, advance in steps of about this long. Assumes 12 s L1 slots: a
+ * shorter slot would make this, and the epoch step on L2s, larger than needed (looser, not
+ * stricter).
  */
 export const EPOCH_SECONDS = 384;
+
+/** Shorter measured block times are treated as an RPC fault and ignored (Base is 0.2 s). */
+export const MIN_PLAUSIBLE_BLOCK_TIME_SECS = 0.05;
 
 /** Used when a tag strategy's block cannot be fetched; `EvmSafe` is too tight for `tip - safe`. */
 export const TAG_FALLBACK_STRATEGY = "EvmFinalized";
@@ -72,28 +77,37 @@ export function resolveMaturity(
 }
 
 /**
- * How far a `safe` / `finalized` tag can jump between two reads, in source-chain blocks: one epoch
- * of the chain's blocks, capped by how far the tag trails the tip, and never below
- * `RPC_TAG_STEP_BUFFER`.
+ * The observed `tip - taggedBlock` lag as the checks use it. A load-balanced RPC can report a tag
+ * above its own tip; that counts as no lag.
+ */
+export function clampTagLag(tagLag: number | undefined): number {
+  return Math.max(tagLag ?? 0, 0);
+}
+
+/**
+ * How far a `safe` / `finalized` tag can jump between two reads, in source-chain blocks.
  *
- * - Ethereum (12 s blocks): an epoch is 32 blocks, so the step stays 32.
- * - BSC (sub-second blocks, fast finality): the tag trails the tip by a block or two and moves
- *   almost every block, so the cap keeps the step at 32.
- * - Base (0.2 s blocks): the tag follows L1 finality, trails the tip by thousands of blocks and
- *   jumps about 1,920 blocks per epoch, so the step is 1,920.
+ * A tag that trails the tip by at least one epoch of the chain's blocks is following L1
+ * finality and jumps by that epoch: Base (0.2 s blocks, finalized thousands of blocks behind)
+ * gets 1,920. Any other tag gets `RPC_TAG_STEP_BUFFER`: Ethereum (12 s, an epoch is 32 blocks),
+ * BSC (fast finality, a block or two behind) and Base `safe` (a few hundred behind).
  *
- * Without a usable `blockTimeSecs` the step is `RPC_TAG_STEP_BUFFER`.
+ * Without a plausible `blockTimeSecs` the step is `RPC_TAG_STEP_BUFFER`.
  */
 export function getTagStepBuffer(
   tagLag: number,
   blockTimeSecs?: number,
 ): number {
-  if (blockTimeSecs == null || !(blockTimeSecs > 0)) return RPC_TAG_STEP_BUFFER;
+  if (
+    blockTimeSecs == null ||
+    !(blockTimeSecs >= MIN_PLAUSIBLE_BLOCK_TIME_SECS)
+  ) {
+    return RPC_TAG_STEP_BUFFER;
+  }
   const epochBlocks = Math.ceil(EPOCH_SECONDS / blockTimeSecs);
-  return Math.max(
-    RPC_TAG_STEP_BUFFER,
-    Math.min(epochBlocks, Math.max(tagLag, 0)),
-  );
+  return clampTagLag(tagLag) >= epochBlocks
+    ? Math.max(epochBlocks, RPC_TAG_STEP_BUFFER)
+    : RPC_TAG_STEP_BUFFER;
 }
 
 /**
@@ -107,7 +121,7 @@ export function getMaxBlockDiff(
   tagLag?: number,
   blockTimeSecs?: number,
 ): number {
-  const lag = Math.max(tagLag ?? 0, 0);
+  const lag = clampTagLag(tagLag);
   const maturityLag = maturity.kind === "offset"
     ? maturity.delay
     : lag + getTagStepBuffer(lag, blockTimeSecs);
