@@ -49,6 +49,7 @@ libp2p = { workspace = true, features = [
     "tokio",
     "macros",
     "ed25519",
+    "serde",
     "dns",
     "quic",
     "tcp",
@@ -80,3 +81,6 @@ axum = { workspace = true }
 # Misc
 rand = { workspace = true, features = ["std_rng"] }
 zeroize = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["test-util"] }
