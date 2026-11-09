@@ -393,6 +393,9 @@ mod tests {
     /// Only production pricing is checked. Devnet and fast-runtime fit 75M gas
     /// into a third of the weight, which underprices EVM execution itself; with
     /// nothing of value at stake there, that is accepted.
+    /// A block shape, its largest size and its benchmarked weight function.
+    type Shape = (&'static str, u32, fn(u32) -> Weight);
+
     #[test]
     fn per_gas_charge_covers_execution_and_finalize() {
         use crate::weights::evm_block::WeightInfo as Bench;
@@ -403,7 +406,7 @@ mod tests {
         }
         let per_gas = crate::WeightPerGas::get().ref_time();
 
-        let shapes: [(&str, u32, fn(u32) -> Weight); 6] = [
+        let shapes: [Shape; 6] = [
             ("transfers", 3_571, W::evm_block_transfers),
             ("log0", 3_000, W::evm_block_log0),
             ("log4", 2_400, W::evm_block_log4),
