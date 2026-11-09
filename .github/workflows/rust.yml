@@ -8,6 +8,7 @@ name: rust
       - "**.toml"
       - "**Cargo**"
       - ".github/workflows/rust.yml"
+      - ".github/install-protoc.sh"
   # Populates rust-check / rust-clippy / rust-test on the default branch.
   #
   # A cache saved by a PR run lives under refs/pull/<n>/merge and cannot be restored
@@ -32,6 +33,7 @@ name: rust
       - "**/Cargo.lock"
       - "rust-toolchain.toml"
       - ".github/workflows/rust.yml"
+      - ".github/install-protoc.sh"
   # Hosted runners mix the image's preinstalled Rust into the cache key, so an image bump
   # orphans the default-branch entries without any manifest change, and every PR then
   # compiles from cold until the next Cargo.lock change on dev. A daily run re-creates them.
@@ -63,9 +65,7 @@ jobs:
       - uses: actions/checkout@v7
 
       - name: Install protobuf
-        uses: arduino/setup-protoc@v3
-        with:
-          repo-token: ${{ secrets.GITHUB_TOKEN }}
+        run: bash .github/install-protoc.sh
 
       - name: Configure rustc version
         run: |
@@ -134,9 +134,7 @@ jobs:
       - uses: actions/checkout@v7
 
       - name: Install protobuf
-        uses: arduino/setup-protoc@v3
-        with:
-          repo-token: ${{ secrets.GITHUB_TOKEN }}
+        run: bash .github/install-protoc.sh
 
       - name: Install libclang
         run: sudo apt-get update && sudo apt-get install -y libclang-dev
@@ -194,9 +192,7 @@ jobs:
       - uses: actions/checkout@v7
 
       - name: Install protobuf
-        uses: arduino/setup-protoc@v3
-        with:
-          repo-token: ${{ secrets.GITHUB_TOKEN }}
+        run: bash .github/install-protoc.sh
 
       - name: Install libclang
         run: sudo apt-get update && sudo apt-get install -y libclang-dev
@@ -275,9 +271,7 @@ jobs:
       - uses: actions/checkout@v7
 
       - name: Install protobuf
-        uses: arduino/setup-protoc@v3
-        with:
-          repo-token: ${{ secrets.GITHUB_TOKEN }}
+        run: bash .github/install-protoc.sh
 
       - name: Install libclang
         run: sudo apt-get update && sudo apt-get install -y libclang-dev

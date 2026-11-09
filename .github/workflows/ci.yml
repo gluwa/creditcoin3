@@ -100,6 +100,7 @@ jobs:
               - "rust-toolchain.toml"
               - ".github/workflows/ci.yml"
               - ".github/workflows/build-native.yml"
+              - ".github/install-protoc.sh"
               - "cli/src/test/archiver-tests/**"
               - "cli/src/test/archiver-tests.config.ts"
               - "cli/src/test/archiverSetup.ts"
@@ -131,6 +132,7 @@ jobs:
               - "rust-toolchain.toml"
               - ".github/workflows/ci.yml"
               - ".github/workflows/build-native.yml"
+              - ".github/install-protoc.sh"
               - "cli/src/test/junitReporters.ts"
               - ".github/seal-blocks.sh"
               - ".github/wait-for-creditcoin.sh"
@@ -153,6 +155,7 @@ jobs:
               - "rust-toolchain.toml"
               - ".github/workflows/ci.yml"
               - ".github/workflows/build-native.yml"
+              - ".github/install-protoc.sh"
               - "cli/src/test/attestation-tests.config.ts"
               - "cli/src/test/attestationSetup.ts"
               - "cli/src/test/junitReporters.ts"
@@ -179,6 +182,7 @@ jobs:
               - "rust-toolchain.toml"
               - ".github/workflows/ci.yml"
               - ".github/workflows/build-native.yml"
+              - ".github/install-protoc.sh"
               - "cli/src/test/cc3-indexer-tests.config.ts"
               - "cli/src/test/alphabeticalSequencer.js"
               - "cli/src/test/junitReporters.ts"
@@ -191,6 +195,7 @@ jobs:
               - "docs/smart-contract-development/**"
               - ".github/workflows/ci.yml"
               - ".github/workflows/build-native.yml"
+              - ".github/install-protoc.sh"
               - ".github/wait-for-creditcoin.sh"
             integration_test_blockchain:
               - "common/**"
@@ -208,6 +213,7 @@ jobs:
               - "rust-toolchain.toml"
               - ".github/workflows/ci.yml"
               - ".github/workflows/build-native.yml"
+              - ".github/install-protoc.sh"
               - "cli/src/test/blockchain-tests.config.ts"
               - "cli/src/test/blockchainSetup.ts"
               - "cli/src/test/junitReporters.ts"
@@ -235,6 +241,7 @@ jobs:
               - "rust-toolchain.toml"
               - ".github/workflows/ci.yml"
               - ".github/workflows/build-native.yml"
+              - ".github/install-protoc.sh"
               - "cli/src/test/junitReporters.ts"
               - ".github/seal-blocks.sh"
             # Carried over verbatim from attestor-compatibility.yml's own pull_request
@@ -265,6 +272,7 @@ jobs:
               - "rust-toolchain.toml"
               - ".github/workflows/ci.yml"
               - ".github/workflows/build-native.yml"
+              - ".github/install-protoc.sh"
             # What the runtime's call metadata is built from, including the FRAME pallets
             # that come in through Cargo.lock.
             extrinsics:
@@ -276,11 +284,13 @@ jobs:
               - ".github/check-extrinsics.sh"
               - ".github/workflows/ci.yml"
               - ".github/workflows/build-native.yml"
+              - ".github/install-protoc.sh"
             regenerate_metadata:
               - "**.rs"
               - "**Cargo**"
               - ".github/workflows/ci.yml"
               - ".github/workflows/build-native.yml"
+              - ".github/install-protoc.sh"
 
       - name: Devnet ENV
         id: devnet-env

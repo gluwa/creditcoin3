@@ -12,7 +12,7 @@ pub(crate) struct P2PBehavior {
     /// [`Limits`]: libp2p::connection_limits
     pub limits: libp2p::connection_limits::Behaviour,
 
-    /// Keeps inbound capacity for configured boot peers and known attestor peers
+    /// Keeps inbound capacity for configured boot/trusted peers and known attestor peers
     /// (see [`super::admission`]).
     pub admission: super::admission::Behaviour,
 

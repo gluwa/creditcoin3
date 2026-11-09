@@ -78,30 +78,49 @@ async fn probe_eth(url: &RpcSecret) -> Result<(), String> {
     }
 }
 
-/// Register a BLS key with the runtime if our status is `Idle`.
+/// Wait until our attestor record exists on-chain.
 ///
-/// `register_attestor` is signed by the stash, not by us, so our attestor record may not exist
-/// yet at startup; waits until it does. Returns [`Error::ShutdownDuringStartup`] if cancellation
-/// fires while we wait.
-pub async fn register_bls(
+/// `register_attestor` is signed by the stash, not by us, so the record may not exist yet at
+/// startup. Transient RPC errors are retried. Returns [`Error::ShutdownDuringStartup`] if
+/// cancellation fires while we wait.
+pub async fn wait_for_registration(
     token: &CancellationToken,
+    chain_key: ChainKey,
+    cc3: &Arc<Client>,
+    account_id: &AccountId32,
+) -> Result<(), Error> {
+    loop {
+        let status = crate::retry::with_retries(cc3, token, |cc3| async move {
+            cc3.get_attestor_status(chain_key).await
+        })
+        .await;
+        match status {
+            Ok(Some(_)) => return Ok(()),
+            Ok(None) => tracing::info!(
+                %account_id,
+                "⏲️ not registered on-chain yet — waiting for register_attestor to finalize"
+            ),
+            // `with_retries` reports a fired cancellation token as an RPC error.
+            Err(_) if token.is_cancelled() => return Err(Error::ShutdownDuringStartup),
+            Err(err) => return Err(err.into()),
+        }
+        tokio::select! {
+            _ = token.cancelled() => return Err(Error::ShutdownDuringStartup),
+            _ = tokio::time::sleep(std::time::Duration::from_secs(5)) => {}
+        }
+    }
+}
+
+/// Register a BLS key with the runtime if our status is `Idle`.
+pub async fn register_bls(
     chain_key: ChainKey,
     cc3: &Arc<Client>,
     account_id: &AccountId32,
     bls_key: &bls_signatures::PrivateKey,
 ) -> Result<(), Error> {
-    let status = loop {
-        if let Some(status) = cc3.get_attestor_status(chain_key).await? {
-            break status;
-        }
-        tracing::info!(%account_id, "⏲️ not registered on-chain yet — waiting for register_attestor to finalize");
-        tokio::select! {
-            _ = token.cancelled() => return Err(Error::ShutdownDuringStartup),
-            _ = tokio::time::sleep(std::time::Duration::from_secs(5)) => {}
-        }
-    };
-    if status != AttestorStatus::Idle {
-        tracing::info!(?status, %account_id, "ℹ️ skipping attest() — BLS key already submitted");
+    let status = cc3.get_attestor_status(chain_key).await?;
+    if status != Some(AttestorStatus::Idle) {
+        tracing::info!(?status, %account_id, "ℹ️ skipping attest() — status is not Idle");
         return Ok(());
     }
 
