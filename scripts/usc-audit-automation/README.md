@@ -85,9 +85,14 @@ it is not configured.
 - `EvmFinalized` (64), `EvmSafe` (32), `EvmLatest` (0) and `FixedDelay: N` are
   fixed offsets behind the tip.
 - `RpcSafe` / `RpcFinalized` use the lag between the tip and the source node's
-  `safe` / `finalized` block, measured on each run, plus one tag step (32
-  blocks) since the tag jumps by an epoch. If that query fails, the check falls
-  back to `EvmFinalized` with a warning.
+  `safe` / `finalized` block, measured on each run, plus one tag step, since the
+  tag jumps rather than moving block by block. If that query fails, the check
+  falls back to `EvmFinalized` with a warning.
+- The tag step is one Ethereum epoch (384 s) in the chain's own blocks, using
+  the average block time over the last 1,000 blocks, capped at the tag lag and
+  never below 32. Ethereum (12 s) and BSC (fast finality, tag a block or two
+  behind) get 32; Base (0.2 s, tag thousands of blocks behind) gets 1,920. If
+  the block time cannot be measured, the step is 32.
 - Each case adds 3 attestation intervals of slack.
 - If the strategy is missing or unrecognised, the audit falls back to `EvmSafe`
   with a warning, and the report shows `EvmSafe (fallback)`.

@@ -18,6 +18,7 @@ import {
 } from "./usc.ts";
 import {
   checkRpcHealthy,
+  getAverageBlockTime,
   getBlockNumber,
   getBlockNumberByHash,
   getBlockNumberByTag,
@@ -26,6 +27,7 @@ import {
   getMaxBlockDiff,
   parseMaturity,
   resolveMaturity,
+  RPC_TAG_STEP_BUFFER,
   TAG_FALLBACK_STRATEGY,
 } from "./maturity.ts";
 import type { ResolvedMaturity } from "./maturity.ts";
@@ -37,10 +39,8 @@ import {
   sendThreadSlackMessage,
 } from "./slack.ts";
 import { runBalanceChecks } from "./balances.ts";
-
-function formatNum(n: number): string {
-  return n.toLocaleString("en-US");
-}
+import { formatBlockDiffDetail, formatNum } from "./report.ts";
+import type { BlockDiffDetail } from "./report.ts";
 
 function buildReport(
   chainLabel: string,
@@ -50,6 +50,7 @@ function buildReport(
   ethBlock: number,
   attBlock: number,
   maxBlockDiff: number,
+  tag: BlockDiffDetail["tag"],
   checkpointBlock: number,
   blockByHash: number | null,
   blockDiffOk: boolean,
@@ -65,10 +66,13 @@ function buildReport(
     `🚦 Liveness Details: ${chainLabel} - ${chainId} - ${chainKey} - ${maturityStrategy}`;
 
   details.push(
-    (blockDiffOk ? "✅" : "❌") +
-      ` Attestation block heights diff: ${formatNum(ethBlock - attBlock)} (${
-        formatNum(ethBlock)
-      }|${formatNum(attBlock)}|${formatNum(maxBlockDiff)})`,
+    formatBlockDiffDetail({
+      ok: blockDiffOk,
+      tip: ethBlock,
+      attested: attBlock,
+      maxBlockDiff,
+      tag,
+    }),
   );
 
   const headerHashMatch = headerHashOk && blockByHash != null &&
@@ -226,11 +230,29 @@ async function runChecksForChain(
       maturityLabel = `${TAG_FALLBACK_STRATEGY} (fallback)`;
     }
   }
+  let blockTimeSecs: number | undefined;
+  if (tagLag !== undefined) {
+    try {
+      blockTimeSecs = await getAverageBlockTime(ethRpcUrl);
+    } catch (e) {
+      console.warn(
+        `⚠️  [${chainLabel}] could not measure block time (${e}), using the ${RPC_TAG_STEP_BUFFER}-block tag step`,
+      );
+    }
+  }
   const maxAttBlockDiff = getMaxBlockDiff(
     maturity,
     attestationInterval,
     tagLag,
+    blockTimeSecs,
   );
+  if (config.verbose) {
+    console.log(
+      `[${chainLabel}] tagLag=${tagLag ?? "n/a"} blockTime=${
+        blockTimeSecs?.toFixed(3) ?? "n/a"
+      }s maxAttBlockDiff=${maxAttBlockDiff}`,
+    );
+  }
   // maxCheckpointBlockDiff = maxAttBlockDiff + (lag bettween attestation creation and checkpoint creation)
   // Checkpoints are created when total_width_of_stored_attestations >= (checkpoint_width * 2) + 1
   const gapFromAttToCheck = checkpointWidth * 2 + 1;
@@ -262,6 +284,9 @@ async function runChecksForChain(
     ethBlock,
     attBlock,
     maxAttBlockDiff,
+    maturity.kind === "rpcTag" && tagLag !== undefined
+      ? { name: maturity.tag, lag: tagLag }
+      : undefined,
     lastCheckpoint.blockNumber,
     fetchedBlockByHash,
     blockDiffOk,

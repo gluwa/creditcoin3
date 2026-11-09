@@ -63,6 +63,33 @@ export async function getBlockNumberByTag(
   }
 }
 
+/** Blocks spanned when measuring the average block time. */
+const BLOCK_TIME_SPAN = 1_000;
+
+/**
+ * Average block time in seconds over the last `BLOCK_TIME_SPAN` blocks. Both blocks come from the
+ * same node, so a load-balanced RPC whose nodes sit at different heights cannot skew it.
+ */
+export async function getAverageBlockTime(rpcUrl: string): Promise<number> {
+  const provider = getProvider(rpcUrl);
+  try {
+    const newer = await withTimeout(
+      provider.getBlock("latest"),
+      RPC_TIMEOUT_MS,
+    );
+    if (!newer) throw new Error("latest block not returned");
+    const from = Math.max(newer.number - BLOCK_TIME_SPAN, 0);
+    if (newer.number <= from) {
+      throw new Error(`cannot measure block time at head ${newer.number}`);
+    }
+    const older = await withTimeout(provider.getBlock(from), RPC_TIMEOUT_MS);
+    if (!older) throw new Error(`block ${from} not returned`);
+    return (newer.timestamp - older.timestamp) / (newer.number - from);
+  } finally {
+    destroyProvider(provider);
+  }
+}
+
 export async function getBlockNumberByHash(
   rpcUrl: string,
   blockHash: string,
