@@ -3,11 +3,12 @@
 //! The message-relayer was extracted to gluwa/asc-message-relayer and keeps its own (wider)
 //! mirror of these bindings; the cross-repo contract is that both decode the *same*
 //! `MessagePublished` signature — a mismatch would make every signature verify as invalid
-//! on-chain. Since asc-contracts #54, the digest attestors sign is `messageId` itself (see
-//! `hash.rs`'s module doc), so there is no separate hash preimage left to keep in sync. This copy
-//! deliberately binds only what the attestor calls; destination-chain surfaces (`IInbox`,
-//! `IAcknowledgmentValidator`, the proof envelopes) and Outbox view/error bindings the attestor
-//! never reads live in the relayer repo only.
+//! on-chain. Message votes sign the EIP-712 digest built in `hash.rs`
+//! ([`MessageVoteDomain`](crate::hash::MessageVoteDomain)). This copy deliberately binds only
+//! what the attestor calls; on the destination side that is the validator plus
+//! `IInbox.defaultVoteValidator` (to bind votes to the Inbox). `IAcknowledgmentValidator`, the
+//! proof envelopes and Outbox view/error bindings the attestor never reads live in the relayer
+//! repo only.
 //!
 //! Inline `alloy::sol!` declarations are used while the production contracts are finalized — when
 //! they ship, switch each block to the JSON form (`#[sol(rpc)] interface X, "contracts/x.json"`)
@@ -167,6 +168,30 @@ sol! {
         /// verifies threshold-many and swaps in `newAttestors`. Permissionless — the relayer submits
         /// it once it has aggregated a threshold of gossiped signatures.
         function submitAttestorSetUpdate(address[] memory newAttestors, bytes memory signatures) external;
+
+        /// ERC-5267 EIP-712 domain of the validator. Attestors read it to confirm the deployed
+        /// validator signs over the same domain they build locally (name, version, chain id,
+        /// verifying contract) before producing any message vote.
+        function eip712Domain()
+            external
+            view
+            returns (
+                bytes1 fields,
+                string memory name,
+                string memory version,
+                uint256 chainId,
+                address verifyingContract,
+                bytes32 salt,
+                uint256[] memory extensions
+            );
+    }
+
+    #[sol(rpc)]
+    #[derive(Debug)]
+    contract IInbox {
+        /// The validator the Inbox hands votes to. Message votes are bound to this Inbox and this
+        /// validator, so attestors check the pair is actually wired together on-chain.
+        function defaultVoteValidator() external view returns (address);
     }
 
 }

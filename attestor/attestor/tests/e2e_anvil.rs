@@ -6,7 +6,7 @@
 //! chain:
 //!
 //!   resolve Outbox (`resolver`) → emit `MessagePublished` → index it (`listener::poll_once`,
-//!   real `eth_getLogs`) → sign the decoded `messageId` directly (`signing`, asc-contracts #54) →
+//!   real `eth_getLogs`) → sign the EIP-712 digest of the decoded `messageId` (`signing`) →
 //!   validate + count to quorum (`ingest` + `aggregator`).
 //!
 //! The attestor only ever watches the Outbox on the Creditcoin L1 EVM; it never interacts with the
@@ -175,6 +175,13 @@ async fn outbox_publish_indexed_signed_and_reaches_quorum() {
     // 6. Sign and run the full validate+count path; a single-attestor set (threshold 1) reaches quorum.
     let msigner = signing::MessageSigner::from_seed(&[9u8; 32]).unwrap();
     let active_set: HashSet<_> = std::iter::once(msigner.address()).collect();
+    // The destination side (validator + Inbox) is out of scope here; any fixed domain exercises
+    // the same sign → recover path the p2p task runs.
+    let vote_domain = write_ability::hash::MessageVoteDomain {
+        chain_id: 31_337,
+        validator: alloy::primitives::address!("00000000000000000000000000000000000000e1"),
+        inbox: alloy::primitives::address!("00000000000000000000000000000000000001b0"),
+    };
     let state = MessageVoteState {
         aggregator: Mutex::new(VoteAggregator::new(1, 1000, Duration::from_secs(60))),
         active_set: parking_lot::RwLock::new(active_set),
@@ -186,6 +193,7 @@ async fn outbox_publish_indexed_signed_and_reaches_quorum() {
         set_update_publish_tx: tokio::sync::mpsc::channel(8).0,
         reobs_tx: tokio::sync::mpsc::channel(8).0,
         destination_chain_key: parking_lot::RwLock::new(Some(ck_b32)),
+        vote_domain: parking_lot::RwLock::new(Some(vote_domain)),
     };
     // Chain-seen (the listener just indexed it).
     state
@@ -193,7 +201,9 @@ async fn outbox_publish_indexed_signed_and_reaches_quorum() {
         .lock()
         .note_indexed(indexed.message_id.0, Instant::now());
 
-    let signature = msigner.sign(&indexed.message_id).unwrap();
+    let signature = msigner
+        .sign(&vote_domain.digest(indexed.message_id))
+        .unwrap();
     let vote = MessageVote {
         chain_key,
         message_id: indexed.message_id.0,

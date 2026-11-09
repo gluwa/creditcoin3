@@ -218,7 +218,7 @@ pub async fn reobserve<P: Provider>(
         }
         // `messageId` is already cryptographically bound to emitter/outbox/sequence/payload by
         // `OutboxTypes.computeMessageId` at emission time (asc-contracts #54) — nothing left to
-        // recompute; sign `messageId` itself, same as the listener's fast path.
+        // recompute; vote on `messageId` itself, same as the listener's fast path.
         return Ok(Some(IndexedMessage {
             message_id: decoded.data.messageId,
             outbox,

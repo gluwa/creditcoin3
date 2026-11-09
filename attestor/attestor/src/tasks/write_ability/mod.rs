@@ -1,8 +1,9 @@
 //! USC write-ability: cross-chain message attestation (confluence §7.3).
 //!
 //! When enabled (`message_attestation_enabled`), this task makes the attestor a **message
-//! validator**: it watches the Creditcoin L1 Outbox for its `chain_key`, signs the `messageId`
-//! of each finalized `MessagePublished` directly, and gossips an ECDSA [`MessageVote`] on
+//! validator**: it watches the Creditcoin L1 Outbox for its `chain_key`, signs the EIP-712
+//! digest of each finalized `MessagePublished`'s `messageId` (bound to the destination chain,
+//! `EOAValidator` and Inbox, see [`MessageVoteDomain`]), and gossips an ECDSA [`MessageVote`] on
 //! `{chain_key}/message-votes/v1`. Relayers snoop the same topic and deliver once 2/3+1 unique
 //! attestors have voted — the attestor never relays or touches the destination chain (§1).
 //!
@@ -45,12 +46,13 @@ use tokio::sync::{mpsc, watch};
 use zeroize::Zeroizing;
 
 use write_ability::envelope::{MessageVote, ReobservationRequest, SetUpdateVote};
+use write_ability::hash::MessageVoteDomain;
 use write_ability::protocol::chain_key_to_bytes32;
 
 use crate::error::Error;
 use crate::shared::Shared;
 
-pub use config::{AttestorSet, Config};
+pub use config::Config;
 
 /// How often to re-attempt Outbox resolution while it is not yet registered on-chain (dynamic
 /// activation without a restart).
@@ -113,6 +115,11 @@ pub struct MessageVoteState {
     /// otherwise. `None` pauses signing until a successful finalized governance read enables it.
     /// Held through signing so a concurrent disable/key change cannot authorize a stale message.
     pub destination_chain_key: RwLock<Option<B256>>,
+    /// EIP-712 binding for message votes (destination chain id, `EOAValidator`, Inbox). Resolved
+    /// and kept fresh by the [`attestor_set`] watcher from on-chain reads. `None` until the first
+    /// successful check, or after the validator/Inbox stop matching: no vote is signed and every
+    /// incoming vote is ignored, since its signer could not be recovered against a known digest.
+    pub vote_domain: RwLock<Option<MessageVoteDomain>>,
 }
 
 /// Build the shared message-vote state and the matching publish channel receiver from config, or
@@ -167,9 +174,12 @@ pub async fn build_state(
         );
         return Ok(None);
     }
-    let Some(active_set) = resolve_active_set(cfg).await else {
-        return Ok(None);
-    };
+    // Do NOT block startup on the destination RPC. Start with an empty set (ingest rejects every
+    // vote, since no signer is in it) and let the `attestor_set::watch` task, spawned by `run` off
+    // the core-startup path, fill the set, aggregator threshold and vote domain on its first tick
+    // (which fires immediately), then re-poll every `ATTESTOR_SET_POLL_SECS`. The watcher's
+    // per-poll retry also recovers from a startup RPC blip without a restart.
+    let active_set: HashSet<Address> = HashSet::new();
     let pending = pending::Store::open(
         &cfg.state_dir,
         cfg.write_ability_chain_key,
@@ -193,6 +203,7 @@ pub async fn build_state(
         set_update_publish_tx,
         reobs_tx,
         destination_chain_key: RwLock::new(None),
+        vote_domain: RwLock::new(None),
     });
     tracing::info!(
         attestors = state.active_set.read().len(),
@@ -399,46 +410,6 @@ async fn resolve_authorized_outbox<P: Provider>(
     .map_err(|_| anyhow!("Outbox resolution timed out after {RPC_ATTEMPT_TIMEOUT:?}"))?
 }
 
-/// Resolve the authorized signer set. Returns `None` (with a logged reason) when the set can't be
-/// determined, which disables message attestation for the run while the rest of the attestor keeps
-/// working.
-///
-/// * [`AttestorSet::Static`] — the configured address list.
-/// * [`AttestorSet::OnChainValidator`] — read `EOAValidator.attestors()` from the **destination
-///   chain** (the chain this attestor set attests, where the validator lives), via
-///   `destination_eth_rpc_url`. This is the on-chain source of truth, kept in sync with the Inbox.
-async fn resolve_active_set(cfg: &Config) -> Option<HashSet<Address>> {
-    match &cfg.attestor_set {
-        AttestorSet::Static(addrs) if !addrs.is_empty() => Some(addrs.iter().copied().collect()),
-        AttestorSet::Static(_) => {
-            tracing::error!("message attestation enabled but attestor_set is empty — disabling");
-            None
-        }
-        AttestorSet::OnChainValidator(validator) => {
-            if cfg.destination_eth_rpc_url.is_none() {
-                tracing::error!(
-                    %validator,
-                    "OnChainValidator attestor set configured but no destination_eth_rpc_url — disabling"
-                );
-                return None;
-            }
-            // Do NOT block startup on the destination RPC. Start with an empty set — ingest rejects
-            // every vote (signer ∉ set) until it is populated — and let the `attestor_set::watch`
-            // task, spawned by `run` *off the core-startup path*, fill the set + aggregator threshold
-            // on its first tick (which fires immediately) and re-poll every `ATTESTOR_SET_POLL_SECS`.
-            // Previously this fetched here with ~94s of bounded retry inside `build_state`, delaying
-            // block-attestation / p2p / production startup (Bugbot: "Write-ability blocks attestor
-            // startup"). The watcher's per-poll retry also recovers from a startup RPC blip without a
-            // restart, which supersedes the old bounded-retry (C2) rationale.
-            tracing::info!(
-                %validator,
-                "🧑‍⚖️ on-chain attestor set will be populated by the watcher (non-blocking startup)"
-            );
-            Some(HashSet::new())
-        }
-    }
-}
-
 /// Connect the Creditcoin L1 EVM provider used for Outbox discovery and message observation.
 ///
 /// Factored out of [`run`] so the resolve loop can rebuild the connection in place once it looks
@@ -472,51 +443,47 @@ pub async fn run(
         return Ok(());
     };
 
-    // On-chain attestor-set hot-reload watcher (only when the set is sourced from the validator).
-    // Runs independently of Outbox resolution — the set is unrelated to the Outbox — so it keeps the
-    // active set in sync even while write-ability is idle waiting for the Outbox.
-    let mut set_watcher = match (&cfg.attestor_set, cfg.destination_eth_rpc_url.as_ref()) {
-        (AttestorSet::OnChainValidator(validator), Some(url)) => {
-            Some(tokio::spawn(attestor_set::watch(
-                state.clone(),
-                *validator,
-                url.to_string(),
-                shared.token.clone(),
-            )))
-        }
-        (AttestorSet::OnChainValidator(validator), None) => {
-            tracing::warn!(
-                %validator,
-                "OnChainValidator set but no destination_eth_rpc_url — attestor set will not hot-reload"
-            );
-            None
-        }
-        _ => None,
+    // `Config::validate` guarantees all three when message attestation is enabled.
+    let (Some(validator), Some(inbox), Some(dest_url)) = (
+        cfg.vote_validator,
+        cfg.destination_inbox,
+        cfg.destination_eth_rpc_url.as_ref(),
+    ) else {
+        return Err(Error::WriteAbility(anyhow!(
+            "validator_address, inbox_address and the destination EVM RPC URL are required"
+        )));
     };
+
+    // On-chain attestor-set hot-reload watcher. Runs independently of Outbox resolution (the set
+    // is unrelated to the Outbox), so it keeps the active set and vote domain in sync even while
+    // write-ability is idle waiting for the Outbox. `Option` only so the select arms below can
+    // take it once it has exited.
+    let mut set_watcher = Some(tokio::spawn(attestor_set::watch(
+        state.clone(),
+        validator,
+        inbox,
+        dest_url.to_string(),
+        shared.token.clone(),
+    )));
 
     // Attestor-set-update proposer (P2-8): gossips a signed vote when the elected set (from the
     // on-chain EVM-address registry) diverges from the destination validator's set, for the relayer
-    // to submit. Like `set_watcher` it is Outbox-independent, only meaningful for an OnChainValidator
-    // set, and derives its own EVM signer from `seed`.
-    let mut set_update_proposer = match (&cfg.attestor_set, cfg.destination_eth_rpc_url.as_ref()) {
-        (AttestorSet::OnChainValidator(validator), Some(url)) => {
-            match signing::MessageSigner::from_seed(&seed) {
-                Ok(proposer_signer) => Some(tokio::spawn(set_update::run_proposer(
-                    cc3.clone(),
-                    cfg.write_ability_chain_key,
-                    url.to_string(),
-                    *validator,
-                    proposer_signer,
-                    state.set_update_publish_tx.clone(),
-                    shared.token.clone(),
-                ))),
-                Err(err) => {
-                    tracing::error!(%err, "could not derive EVM signer for set-update proposer — disabling it");
-                    None
-                }
-            }
+    // to submit. Like `set_watcher` it is Outbox-independent and derives its own EVM signer from
+    // `seed`.
+    let mut set_update_proposer = match signing::MessageSigner::from_seed(&seed) {
+        Ok(proposer_signer) => Some(tokio::spawn(set_update::run_proposer(
+            cc3.clone(),
+            cfg.write_ability_chain_key,
+            dest_url.to_string(),
+            validator,
+            proposer_signer,
+            state.set_update_publish_tx.clone(),
+            shared.token.clone(),
+        ))),
+        Err(err) => {
+            tracing::error!(%err, "could not derive EVM signer for set-update proposer — disabling it");
+            None
         }
-        _ => None,
     };
 
     let rpc = cfg.cc3_eth_rpc_url.as_ref().ok_or_else(|| {
@@ -703,6 +670,36 @@ pub async fn run(
         chain_key = resolved.chain_key,
         "✅ write-ability route activated"
     );
+
+    // Votes are signed over an EIP-712 digest whose domain the attestor-set watcher reads from the
+    // destination chain. Hold the listener until it is known: scanning first would advance the
+    // durable cursor past messages we could not sign yet.
+    if state.vote_domain.read().is_none() {
+        tracing::info!("⏳ waiting for the message-vote EIP-712 domain before scanning the Outbox");
+    }
+    while state.vote_domain.read().is_none() {
+        tokio::select! {
+            () = shared.token.cancelled() => {
+                if let Some(watcher) = &set_watcher {
+                    watcher.abort();
+                }
+                if let Some(proposer) = &set_update_proposer {
+                    proposer.abort();
+                }
+                return Ok(());
+            }
+            joined = wait_for_optional_child(&mut set_watcher) => {
+                if let Some(proposer) = &set_update_proposer {
+                    proposer.abort();
+                }
+                if shared.token.is_cancelled() {
+                    return Ok(());
+                }
+                return Err(Error::WriteAbility(child_exit_error("attestor-set watcher", joined)));
+            }
+            () = tokio::time::sleep(Duration::from_secs(1)) => {}
+        }
+    }
 
     let signer = signing::MessageSigner::from_seed(&seed).map_err(Error::WriteAbility)?;
     let our_address = signer.address();
@@ -1282,7 +1279,11 @@ fn produce_vote(
         tracing::debug!(message_id = %indexed.message_id, "message signing paused or destination key changed");
         return;
     }
-    let signature = match signer.sign(&indexed.message_id) {
+    let Some(domain) = *state.vote_domain.read() else {
+        tracing::warn!(message_id = %indexed.message_id, "message-vote EIP-712 domain unresolved — not signing");
+        return;
+    };
+    let signature = match signer.sign(&domain.digest(indexed.message_id)) {
         Ok(sig) => sig,
         Err(err) => {
             tracing::error!(%err, message_id = %indexed.message_id, "failed to sign message vote");
@@ -1538,9 +1539,52 @@ mod tests {
                 set_update_publish_tx: mpsc::channel(8).0,
                 reobs_tx: mpsc::channel(8).0,
                 destination_chain_key: RwLock::new(None),
+                vote_domain: RwLock::new(Some(test_vote_domain())),
             },
             rx,
         )
+    }
+
+    fn test_vote_domain() -> MessageVoteDomain {
+        MessageVoteDomain {
+            chain_id: 11_155_111,
+            validator: address!("00000000000000000000000000000000000000e1"),
+            inbox: address!("00000000000000000000000000000000000001b0"),
+        }
+    }
+
+    #[test]
+    fn produced_vote_signs_the_eip712_digest_not_the_raw_message_id() {
+        let signer = signing::MessageSigner::from_seed(&[7; 32]).unwrap();
+        let (state, mut votes) = test_state(&signer);
+        let metrics = test_metrics();
+        let key = chain_key_to_bytes32(7);
+        apply_governance(&state, Some(key));
+        produce_vote(&state, &metrics, &signer, signer.address(), 7, message(key));
+        let vote = votes.try_recv().expect("vote produced").vote;
+        let id = B256::from(vote.message_id);
+        assert_eq!(
+            signing::recover_signer(&test_vote_domain().digest(id), &vote.signature).unwrap(),
+            signer.address()
+        );
+        assert_ne!(
+            signing::recover_signer(&id, &vote.signature).unwrap(),
+            signer.address(),
+            "a raw-messageId vote would be rejected by the validator"
+        );
+    }
+
+    #[test]
+    fn no_vote_is_signed_while_the_vote_domain_is_unresolved() {
+        let signer = signing::MessageSigner::from_seed(&[7; 32]).unwrap();
+        let (state, mut votes) = test_state(&signer);
+        let metrics = test_metrics();
+        let key = chain_key_to_bytes32(7);
+        apply_governance(&state, Some(key));
+        *state.vote_domain.write() = None;
+        produce_vote(&state, &metrics, &signer, signer.address(), 7, message(key));
+        assert!(votes.try_recv().is_err());
+        assert_eq!(state.aggregator.lock().tracked(), 0);
     }
 
     fn message(key: B256) -> listener::IndexedMessage {
