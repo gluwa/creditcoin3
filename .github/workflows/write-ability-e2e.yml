@@ -249,7 +249,22 @@ jobs:
         env:
           ASC_CONTRACTS_DIR: ${{ github.workspace }}/asc-contracts
           ABI_GATE_STRICT: "1"
-        run: cargo test --locked -p write-ability --test abi_surface --test vectors -- --nocapture
+        run: cargo test --locked -p write-ability --test abi_surface -- --nocapture
+
+      - name: Enforce the shared golden vectors
+        working-directory: candidate
+        env:
+          ASC_CONTRACTS_DIR: ${{ github.workspace }}/asc-contracts
+          ABI_GATE_STRICT: "1"
+          COMPONENT: ${{ matrix.component }}
+        run: |
+          # This workflow also tests relayer revisions from before the shared vectors existed;
+          # those have no such test target. Creditcoin always has it.
+          if [[ "$COMPONENT" == "creditcoin" || -f write-ability/tests/vectors.rs ]]; then
+            cargo test --locked -p write-ability --test vectors -- --nocapture
+          else
+            echo "::warning::The candidate relayer has no shared-vector test; its vectors were not checked."
+          fi
 
   e2e:
     needs: prepare
