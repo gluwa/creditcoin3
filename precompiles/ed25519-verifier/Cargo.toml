@@ -3,6 +3,7 @@ authors = { workspace = true }
 description = "A Precompile to verify ed25519 signatures"
 edition = "2021"
 name = "pallet-evm-precompile-ed25519-verifier"
+rust-version = { workspace = true }
 version = "0.1.0"
 
 [dependencies]

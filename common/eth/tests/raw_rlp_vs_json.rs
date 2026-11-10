@@ -7,8 +7,8 @@
 //!   cargo test -p eth --test raw_rlp_vs_json -- --ignored --nocapture
 //! ```
 
+use attestcoin_abi_encoding::common::EncodingVersion;
 use eth::{simple_merkle_tree, BlockFetchMode, Client};
-use usc_abi_encoding::common::EncodingVersion;
 
 fn env_u64(name: &str, default: u64) -> u64 {
     std::env::var(name)
@@ -51,7 +51,11 @@ async fn raw_rlp_and_json_modes_agree() {
             "merkle root differs at block {number}"
         );
         for (x, y) in a.items().iter().zip(b.items()) {
-            assert_eq!(x.tx().from, y.tx().from, "sender differs at block {number}");
+            assert_eq!(
+                x.tx().inner.signer(),
+                y.tx().inner.signer(),
+                "sender differs at block {number}"
+            );
             assert_eq!(
                 x.rx().gas_used,
                 y.rx().gas_used,

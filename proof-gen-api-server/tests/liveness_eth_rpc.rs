@@ -8,8 +8,8 @@ use continuity::rpc::{EthRpcProvider, ReconnectingEthRpcProvider};
 use serde_json::{json, Value};
 use wiremock::{matchers::method, Mock, MockServer, ResponseTemplate};
 
-const ENCODING: usc_abi_encoding::common::EncodingVersion =
-    usc_abi_encoding::common::EncodingVersion::V1;
+const ENCODING: attestcoin_abi_encoding::common::EncodingVersion =
+    attestcoin_abi_encoding::common::EncodingVersion::V1;
 
 /// JSON-RPC fixture: `eth_chainId` → 31337, `eth_blockNumber` → 1000 (or an error when
 /// `fail_tip`), everything under `delay`.
