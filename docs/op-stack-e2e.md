@@ -59,17 +59,17 @@ decimal height to check a specific historical block. It does not register a chai
 On the destination Creditcoin network, an account in Operators membership must register the
 source using `supportedChains.registerChain`. Set these parameters together at registration:
 
-| Parameter | Base Sepolia test setup |
-| --- | --- |
-| `chain_id` | `84532` |
-| `chain_name` | `Base Sepolia` |
-| `target_sample_size` | The intended attestor sample size; for example, `3` with three eligible attestors |
-| `chain_attestation_interval` | For example, `10` source blocks |
-| `attestation_checkpoint_interval` | For example, `10` attestations |
-| `max_attestors`, `max_invulnerables` | Values suitable for your attestor set, or `None` for runtime defaults |
-| `attestation_chain_genesis_block_number` | A recent source height aligned with the interval; record it as `SOURCE_GENESIS` |
-| `encoding` | `V1` |
-| `maturity_strategy` | An explicit `FixedDelay:<blocks>` appropriate for the test's reorg tolerance |
+| Parameter                                | Base Sepolia test setup                                                           |
+|------------------------------------------|-----------------------------------------------------------------------------------|
+| `chain_id`                               | `84532`                                                                           |
+| `chain_name`                             | `Base Sepolia`                                                                    |
+| `target_sample_size`                     | The intended attestor sample size; for example, `3` with three eligible attestors |
+| `chain_attestation_interval`             | For example, `10` source blocks                                                   |
+| `attestation_checkpoint_interval`        | For example, `10` attestations                                                    |
+| `max_attestors`, `max_invulnerables`     | Values suitable for your attestor set, or `None` for runtime defaults             |
+| `attestation_chain_genesis_block_number` | A recent source height aligned with the interval; record it as `SOURCE_GENESIS`   |
+| `encoding`                               | `V1`                                                                              |
+| `maturity_strategy`                      | An explicit `FixedDelay:<blocks>` appropriate for the test's reorg tolerance      |
 
 Record the `chain_key` from `supportedChains.ChainRegistered` as `CHAIN_KEY`. For an already
 registered source, check its stored chain ID, encoding, maturity, genesis height, and intervals.
@@ -198,13 +198,13 @@ regardless of the RPC chain ID, and reconnects preserve the selected family. Exi
 configurations need no new arguments or fields. All OP-Stack chains, including Base, Base Sepolia,
 OP Mainnet, and OP Sepolia, require an explicit `op-stack` setting on every source-reading component:
 
-| Component | Configuration |
-| --- | --- |
-| Attestor | `eth.chain_family`, `--eth-chain-family`, or `ATTESTOR_ETH_CHAIN_FAMILY` |
-| Proof API | Per-chain `eth_chain_family` in YAML; `--eth-chain-family` / `ETH_CHAIN_FAMILY` in single-chain mode |
-| Query CLI | Global `--eth-chain-family` / `ETH_CHAIN_FAMILY`, including transfer and batch modes |
-| Archiver | `--eth-chain-family` / `ETH_CHAIN_FAMILY` for HTTP, WS, backfill, and reconnects |
-| Continuity library | `ContinuityConfig::builder().eth_chain_family(Some(ChainFamily::OpStack))` |
+| Component          | Configuration                                                                                        |
+|--------------------|------------------------------------------------------------------------------------------------------|
+| Attestor           | `eth.chain_family`, `--eth-chain-family`, or `ATTESTOR_ETH_CHAIN_FAMILY`                             |
+| Proof API          | Per-chain `eth_chain_family` in YAML; `--eth-chain-family` / `ETH_CHAIN_FAMILY` in single-chain mode |
+| Query CLI          | Global `--eth-chain-family` / `ETH_CHAIN_FAMILY`, including transfer and batch modes                 |
+| Archiver           | `--eth-chain-family` / `ETH_CHAIN_FAMILY` for HTTP, WS, backfill, and reconnects                     |
+| Continuity library | `ContinuityConfig::builder().eth_chain_family(Some(ChainFamily::OpStack))`                           |
 
 Since Canyon, deposit leaves use the receipt-root-authenticated nonce. Missing transaction nonce
 metadata is accepted; a contradictory transaction nonce causes provider fallback. Before Canyon,
