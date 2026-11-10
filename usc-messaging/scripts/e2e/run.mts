@@ -5,12 +5,27 @@ import { parseArgs } from "node:util";
 import { Stack } from "./stack.mjs";
 import { durableRestart, happyPath } from "./scenarios.mjs";
 import { attestorRotation } from "./rotation.mjs";
+import { manualSealSmoke } from "./manual-seal.mjs";
+import { outboxRotation, PUBLISHER_ADDRESSES } from "./outbox-rotation.mjs";
+import type { StackOptions } from "./stack.mjs";
 import { type CaseResult, writeReports } from "./runtime.mjs";
 
 const scenarios = {
   "happy-path": happyPath,
   "durable-restart": durableRestart,
   "attestor-rotation": attestorRotation,
+  "manual-seal-smoke": manualSealSmoke,
+  "outbox-rotation": outboxRotation,
+};
+// On-demand scenarios that need their own stack shape. They never run by default and cannot
+// share a run with scenarios built for another shape.
+const stackOptions: Record<string, StackOptions> = {
+  "manual-seal-smoke": { sealing: "manual" },
+  "outbox-rotation": {
+    sealing: "manual",
+    secondOutbox: true,
+    publishers: PUBLISHER_ADDRESSES,
+  },
 };
 const { values } = parseArgs({
   options: {
@@ -30,6 +45,7 @@ const { values } = parseArgs({
 if (values.help) {
   console.log(
     "Usage: npm run e2e -- [--scenario happy-path,durable-restart,attestor-rotation] [--output-dir DIR] [--lookback-blocks 2] [--timeout-seconds 1200]\n" +
+      "On demand, alone in a run: --scenario manual-seal-smoke | outbox-rotation (manually sealed stack).\n" +
       "Requires compiled Creditcoin/attestor/proof-gen/relayer binaries, Foundry and ASC_CONTRACTS_DIR artifacts.\n" +
       "Uses a fresh state/ directory under DIR. Logs, exact-message evidence, report.json and junit.xml are retained.",
   );
@@ -42,6 +58,9 @@ if (values.help) {
   ) {
     throw new Error(`unknown or duplicate scenarios: ${selected.join(",")}`);
   }
+  const special = selected.filter((name) => Object.hasOwn(stackOptions, name));
+  if (special.length !== 0 && selected.length !== 1)
+    throw new Error(`${special.join(",")} must run alone on its own stack`);
   const lookback = Number(values["lookback-blocks"]);
   if (!Number.isSafeInteger(lookback) || lookback < 1 || lookback > 100)
     throw new Error("lookback-blocks must be an integer in 1..100");
@@ -63,7 +82,12 @@ if (values.help) {
     controller.signal,
     AbortSignal.timeout(timeout * 1000),
   ]);
-  const stack = new Stack(output, lookback, signal);
+  const stack = new Stack(
+    output,
+    lookback,
+    signal,
+    stackOptions[selected[0]] ?? {},
+  );
   const results: CaseResult[] = [];
   let current = "stack-startup";
   let started = Date.now();
