@@ -1,12 +1,12 @@
 use alloy::{
     consensus::proofs::ordered_trie_root_with_encoder,
     network::{AnyRpcBlock, AnyTransactionReceipt},
-    primitives::{keccak256, B256},
+    primitives::B256,
 };
 use attestcoin_abi_encoding::common::EncodingVersion;
 use eth::{
-    op_stack::{encode_deposit_receipt_2718, DepositError, DepositReceiptFields},
-    ChainFamily, DepositTransaction, Error, OrderedBlock, TxRx,
+    op_stack::{self, encode_deposit_receipt_2718, DepositError},
+    ChainFamily, Error, OrderedBlock, TxRx,
 };
 use serde_json::{json, Value};
 use utils::block_item_traits::BlockItem;
@@ -227,14 +227,14 @@ fn deposit_block(
     let parsed_block: AnyRpcBlock = serde_json::from_value(block.clone()).unwrap();
     let parsed_receipts: Vec<AnyTransactionReceipt> =
         serde_json::from_value(receipts.clone()).unwrap();
-    let original = DepositTransaction::try_from_rpc(
+    let original = op_stack::deposit_from_rpc(
         parsed_block
             .transactions
             .as_transactions()
             .unwrap()
             .first()
             .unwrap(),
-        DepositReceiptFields::from_other_fields(
+        op_stack::receipt_fields_from_other(
             &parsed_receipts[0].other,
             parsed_receipts[0].transaction_hash,
         )
@@ -254,7 +254,7 @@ fn deposit_block(
         deposit.source_hash = B256::repeat_byte(index as u8);
         deposit.gas_limit = *gas_limit;
         deposit.is_system_tx = *is_system;
-        deposit.hash = keccak256(deposit.encoded_2718());
+        deposit.hash = deposit.computed_hash();
         let mut tx = block["transactions"][0].clone();
         tx["sourceHash"] = json!(deposit.source_hash);
         tx["gas"] = json!(format!("{gas_limit:#x}"));
@@ -287,7 +287,7 @@ fn deposit_block(
         |rx, out| {
             encode_deposit_receipt_2718(
                 &rx.inner.inner,
-                DepositReceiptFields::from_other_fields(&rx.other, rx.transaction_hash).unwrap(),
+                op_stack::receipt_fields_from_other(&rx.other, rx.transaction_hash).unwrap(),
                 rx.transaction_hash,
                 out,
             )
@@ -358,8 +358,8 @@ fn decreasing_cumulative_deposit_gas_is_a_fallback_eligible_error() {
 }
 
 /// Pins the exact bytes of the `txType = 126` deposit leaf. Changing the layout changes the root
-/// of every OP-Stack block, so the later swap to the `usc-abi-encoding` encoder must reproduce
-/// these byte-for-byte. The vectors were decoded independently with `cast abi-decode` and match
+/// of every OP-Stack block, so the `attestcoin-abi-encoding` encoder (0.8.0 and later) must keep
+/// reproducing these byte-for-byte. The vectors were decoded independently with `cast abi-decode` and match
 /// the RPC fixtures field by field. The pre-Canyon vector carries nonce 0 although its RPC
 /// reports a nonzero one.
 #[test]
@@ -404,7 +404,10 @@ fn unparsable_standard_type_is_a_fallback_eligible_error_not_a_deposit() {
             .transactions
             .clone()
             .into_transactions()
-            .any(|t| matches!(t.inner.inner, alloy::network::AnyTxEnvelope::Unknown(_))),
+            .any(|t| matches!(
+                t.inner.inner.inner(),
+                alloy::network::AnyTxEnvelope::Unknown(_)
+            )),
         "the mutation must make alloy fall back to the unknown envelope"
     );
     for family in [ChainFamily::OpStack, ChainFamily::Ethereum] {

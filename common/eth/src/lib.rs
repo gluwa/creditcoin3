@@ -38,7 +38,7 @@ use alloy::rpc::client::RpcClient as AlloyRpcClient;
 use alloy::transports::http::{reqwest, Http};
 use alloy::transports::utils::guess_local_url;
 use anyhow::{Context, Result};
-use attestcoin_abi_encoding::common::EncodingVersion;
+use attestcoin_abi_encoding::{abi::TxRxInput, common::EncodingVersion};
 use hex::FromHexError;
 use sp_core::H256;
 use std::num::NonZeroUsize;
@@ -491,23 +491,28 @@ impl TxRx {
 
 impl BlockItem for TxRx {
     fn payload_bytes(&self) -> Vec<u8> {
-        match self {
-            Self::Ethereum { tx, rx, encoding } => {
-                attestcoin_abi_encoding::abi::abi_encode((**tx).clone(), (**rx).clone(), *encoding)
-                    .expect("Transaction and receipt should be encodable.")
-                    .abi()
-                    .to_vec()
-            }
-            // The deposit leaf layout is versioned alongside V1 (additive: types 0–4 are
-            // byte-identical). Matching exhaustively on `encoding` makes a future encoding
-            // version a compile error here instead of a silently V1-shaped deposit leaf.
+        let (input, encoding) = match self {
+            Self::Ethereum { tx, rx, encoding } => (
+                TxRxInput::Ethereum {
+                    tx: (**tx).clone(),
+                    rx: (**rx).clone(),
+                },
+                *encoding,
+            ),
             Self::OpDeposit {
                 tx, rx, encoding, ..
-            } => match encoding {
-                EncodingVersion::V1 => op_stack::abi_encode_deposit_leaf(tx, rx)
-                    .expect("Deposit transaction and receipt should be encodable."),
-            },
-        }
+            } => (
+                TxRxInput::OpDeposit {
+                    tx: (**tx).clone(),
+                    rx: (**rx).clone(),
+                },
+                *encoding,
+            ),
+        };
+        attestcoin_abi_encoding::abi::abi_encode(input, encoding)
+            .expect("Transaction and receipt should be encodable.")
+            .abi()
+            .to_vec()
     }
 
     fn tx_type(&self) -> Option<u8> {
@@ -778,12 +783,10 @@ impl OrderedBlock {
                         receipt_ty,
                     });
                 }
-                let deposit_fields =
-                    op_stack::DepositReceiptFields::from_other_fields(&rx.other, unknown.hash)
-                        .map_err(|source| Error::Deposit { block, source })?;
-                let deposit =
-                    op_stack::DepositTransaction::try_from_unknown(unknown, from, deposit_fields)
-                        .map_err(|source| Error::Deposit { block, source })?;
+                let deposit_fields = op_stack::receipt_fields_from_other(&rx.other, unknown.hash)
+                    .map_err(|source| Error::Deposit { block, source })?;
+                let deposit = op_stack::deposit_from_unknown(unknown, from, deposit_fields)
+                    .map_err(|source| Error::Deposit { block, source })?;
                 Ok(TxRx::OpDeposit {
                     tx: Box::new(deposit),
                     rx: Box::new(rx.inner),
