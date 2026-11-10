@@ -31,7 +31,7 @@ name: write-ability-e2e
       relayer-ref:
         description: Full relayer candidate commit SHA
         type: string
-        default: 65d39aaeba706df0eea1f9737620933cdc74d776
+        default: 399b0b1c2842c4ecbaadf865b7f65e24cdfa738c
       contracts-ref:
         description: Full compatible contracts commit SHA
         type: string
@@ -63,7 +63,7 @@ name: write-ability-e2e
         default: gluwa/asc-message-relayer
       relayer-ref:
         type: string
-        default: 65d39aaeba706df0eea1f9737620933cdc74d776
+        default: 399b0b1c2842c4ecbaadf865b7f65e24cdfa738c
       contracts-ref:
         type: string
         default: 55709ffbf238c2ab23fff7355ce0a93fbb65061e
@@ -105,7 +105,7 @@ jobs:
           CREDITCOIN_RUN_ID: ${{ inputs.creditcoin-run-id }}
           CREDITCOIN_ARTIFACT_ID: ${{ inputs.creditcoin-artifact-id }}
           RELAYER_REPOSITORY: ${{ inputs.relayer-repository || 'gluwa/asc-message-relayer' }}
-          RELAYER_REF: ${{ inputs.relayer-ref || '65d39aaeba706df0eea1f9737620933cdc74d776' }}
+          RELAYER_REF: ${{ inputs.relayer-ref || '399b0b1c2842c4ecbaadf865b7f65e24cdfa738c' }}
           CONTRACTS_REF: ${{ inputs.contracts-ref || '55709ffbf238c2ab23fff7355ce0a93fbb65061e' }}
           SCENARIOS: ${{ inputs.scenarios || 'happy-path,durable-restart,attestor-rotation' }}
           CONTRACTS_TOKEN: ${{ secrets.GLUWA_BOT_TOKEN }}
@@ -131,6 +131,8 @@ jobs:
           for scenario in "${cases[@]}"; do
             case "$scenario" in
               happy-path|durable-restart|attestor-rotation) ;;
+              # On demand only: each needs its own manually sealed stack, so it runs alone.
+              manual-seal-smoke|outbox-rotation) ;;
               *) echo "::error::Unknown scenario: $scenario"; exit 1 ;;
             esac
           done

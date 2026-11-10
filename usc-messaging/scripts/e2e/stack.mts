@@ -1,4 +1,5 @@
 import { appendFile, mkdir, writeFile } from "node:fs/promises";
+import { Contract, JsonRpcProvider, Wallet } from "ethers";
 import { homedir } from "node:os";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -11,19 +12,28 @@ import {
 } from "./runtime.mjs";
 import { assertPortFree, Rpc, RpcProxy } from "./rpc.mjs";
 import { ATTESTOR_MNEMONICS } from "./committee.mjs";
+import { Sealer } from "./sealer.mjs";
 
 export const SOURCE_KEY =
   "0x8075991ce870b93a8870eca0c0f91913d12f47948ca0fd25b49c6fa7cdbeee8b";
 export const ANVIL_KEY =
   "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80";
 
+/** An Outbox with the fee contract and acknowledgment validator bound to it. */
+export interface OutboxSet {
+  outbox: string;
+  ackValidator: string;
+  relayerContract: string;
+}
+
 export interface Deployment {
-  source: {
+  source: OutboxSet & {
     chainKey: number;
-    outbox: string;
-    ackValidator: string;
-    relayerContract: string;
     attest: string;
+    twapReader: string;
+    outboxDiscovery: string;
+    /** A second Outbox for the same chain key; present only when the stack deploys one. */
+    second?: OutboxSet;
   };
   dest: {
     inbox: string;
@@ -31,6 +41,15 @@ export interface Deployment {
     attestorRegistry: string;
     dapp: string;
   };
+}
+
+export interface StackOptions {
+  /** `manual`: blocks and finality come only from the runner's sealer, on demand. */
+  sealing?: "babe" | "manual";
+  /** Deploy and register a second source Outbox with its own fee contract and quoter. */
+  secondOutbox?: boolean;
+  /** Addresses funded with native coin on the source chain before the relayer starts. */
+  publishers?: string[];
 }
 
 export class Stack {
@@ -49,19 +68,27 @@ export class Stack {
   readonly destinationPort = Number(process.env.E2E_DESTINATION_PORT ?? 8545);
   readonly proofPort = Number(process.env.E2E_PROOF_PORT ?? 3100);
   readonly quoterPort = Number(process.env.E2E_QUOTER_PORT ?? 3010);
+  readonly secondQuoterPort = Number(
+    process.env.E2E_SECOND_QUOTER_PORT ?? 3011,
+  );
+  readonly sealing: "babe" | "manual";
   readonly relayerPort = Number(process.env.E2E_RELAYER_PORT ?? 3200);
   readonly sourceWs: string;
   readonly destinationWs: string;
   readonly configPath: string;
   deployment!: Deployment;
   relayer?: ManagedProcess;
+  /** Present only on a manual-seal stack, where it is the sole source of blocks and finality. */
+  sealer?: Sealer;
   private generation = 0;
 
   constructor(
     readonly output: string,
     readonly lookback: number,
     readonly signal: AbortSignal,
+    readonly options: StackOptions = {},
   ) {
+    this.sealing = options.sealing ?? "babe";
     this.state = resolve(output, "state");
     this.checkpoint = resolve(this.state, "relayer-checkpoints.json");
     this.deployPath = resolve(this.state, "deploy.json");
@@ -113,6 +140,7 @@ export class Stack {
   assertAlive = (): void => {
     this.signal.throwIfAborted();
     for (const child of this.processes) child.assertAlive();
+    this.sealer?.assertAlive();
   };
 
   wait<T>(
@@ -191,6 +219,7 @@ export class Stack {
       this.proofPort,
       this.quoterPort,
       this.relayerPort,
+      ...(this.options.secondOutbox ? [this.secondQuoterPort] : []),
     ];
     if (new Set(ports).size !== ports.length)
       throw new Error("E2E service ports must be distinct");
@@ -224,11 +253,32 @@ export class Stack {
         "--port",
         String(process.env.E2E_SOURCE_P2P_PORT ?? 30333),
         "--no-prometheus",
+        // A fast-forward seals a timelock's worth of blocks in seconds. Attestors re-verify a
+        // publication at its own block when asked to re-observe it, so the node must keep that
+        // history; with default pruning (256 blocks) every such request after a jump is refused.
+        ...(this.sealing === "manual"
+          ? [
+              "--sealing",
+              "manual",
+              "--state-pruning",
+              "archive",
+              "--blocks-pruning",
+              "archive",
+            ]
+          : []),
       ],
     );
     await this.wait("source RPC", async () =>
       (await this.source.call("eth_chainId")) === "0x2a" ? true : undefined,
     );
+    if (this.sealing === "manual") {
+      this.sealer = new Sealer(
+        this.source,
+        Number(process.env.E2E_SEAL_INTERVAL_MS ?? 1000),
+        this.signal,
+      );
+      this.sealer.start();
+    }
     await this.wait("destination RPC", async () =>
       (await this.destination.call("eth_chainId")) === "0x7a69"
         ? true
@@ -242,9 +292,24 @@ export class Stack {
       this.env,
       600_000,
     );
+    if (this.options.secondOutbox) {
+      await this.script(
+        "deploy-second-outbox",
+        "scripts/deploy-second-outbox.mts",
+        [],
+        {
+          ...this.env,
+          E2E_PUBLISHER_ADDRESSES: (this.options.publishers ?? []).join(","),
+        },
+        600_000,
+      );
+    }
     this.deployment = await readJson<Deployment>(this.deployPath);
     if (!this.deployment.source?.outbox || !this.deployment.dest?.inbox)
       throw new Error("incomplete deployment manifest");
+    if (this.options.secondOutbox && !this.deployment.source.second)
+      throw new Error("deployment manifest lacks the second Outbox");
+    if (this.sealing === "manual") await this.outliveFastForwards();
     const sourceStart = Number(
       BigInt(await this.source.call<string>("eth_blockNumber")),
     );
@@ -275,31 +340,45 @@ export class Stack {
         .map(([key, value]) => `${key}=${JSON.stringify(value)}`)
         .join("\n") + "\n",
     );
-    this.start(
-      "quoter",
-      process.execPath,
-      ["--import", "tsx", "src/quoter/index.ts"],
-      {
-        ...this.env,
-        QUOTER_PRIVATE_KEY:
-          "0x2a871d0798f97d79848a013d4936a73bf4cc922c825d33c1cf7073dff6d409c6",
-        QUOTER_PORT: String(this.quoterPort),
-        QUOTER_SOURCE_CHAIN_ID: "42",
-        QUOTER_RELAYER_CONTRACT: this.deployment.source.relayerContract,
-        QUOTER_EST_DELIVERY_SECS: "900",
-        QUOTER_QUOTE_TTL_SECS: "600",
-        QUOTER_CHAINS: JSON.stringify([
-          {
-            chainKey: 2,
-            nativeUsd: "3000",
-            gasPriceGwei: "1",
-            coreFeeAttest: "1",
-            ackGas: 500000,
-          },
-        ]),
-      },
-    );
+    const quoterArgs = ["--import", "tsx", "src/quoter/index.ts"];
+    const quoterEnv = {
+      ...this.env,
+      QUOTER_PRIVATE_KEY:
+        "0x2a871d0798f97d79848a013d4936a73bf4cc922c825d33c1cf7073dff6d409c6",
+      QUOTER_PORT: String(this.quoterPort),
+      QUOTER_SOURCE_CHAIN_ID: "42",
+      QUOTER_RELAYER_CONTRACT: this.deployment.source.relayerContract,
+      QUOTER_EST_DELIVERY_SECS: "900",
+      QUOTER_QUOTE_TTL_SECS: "600",
+      // A manually sealed chain's clock runs ahead of the wall clock after a fast-forward.
+      ...(this.sealing === "manual"
+        ? { QUOTER_CLOCK_RPC_URL: this.source.url }
+        : {}),
+      QUOTER_CHAINS: JSON.stringify([
+        {
+          chainKey: 2,
+          nativeUsd: "3000",
+          gasPriceGwei: "1",
+          coreFeeAttest: "1",
+          ackGas: 500000,
+        },
+      ]),
+    };
+    this.start("quoter", process.execPath, quoterArgs, quoterEnv);
     await this.httpReady("quoter", `${this.env.QUOTER_URL}/health`);
+    const second = this.deployment.source.second;
+    if (second) {
+      // A signed quote is bound to one RelayerContract, so the second Outbox has its own quoter.
+      this.start("quoter-second", process.execPath, quoterArgs, {
+        ...quoterEnv,
+        QUOTER_PORT: String(this.secondQuoterPort),
+        QUOTER_RELAYER_CONTRACT: second.relayerContract,
+      });
+      await this.httpReady(
+        "second quoter",
+        `http://127.0.0.1:${this.secondQuoterPort}/health`,
+      );
+    }
     await writeFile(
       this.env.E2E_ATTESTOR_SEEDS_FILE!,
       ATTESTOR_MNEMONICS.join("\n") + "\n",
@@ -363,6 +442,10 @@ export class Stack {
             inbox_address: this.deployment.dest.inbox,
             signer_key: ANVIL_KEY,
             relayer_contract_address: this.deployment.source.relayerContract,
+            // One fee contract per Outbox; the relayer settles each message in its own.
+            ...(second
+              ? { relayer_contract_addresses: [second.relayerContract] }
+              : {}),
             start_block: sourceStart,
             block_confirmation_depth: 2,
             attestor_set: {
@@ -381,6 +464,26 @@ export class Stack {
       }),
     );
     await this.startRelayer();
+  }
+
+  /**
+   * Chain time moves one slot per sealed block, so a jump across a Discovery timelock outlives
+   * `TWAPReader.maxPriceAge`. The drill is about Outbox rotation, not oracle freshness: lift the
+   * age limit once, before the relayer starts sharing the deployer key.
+   */
+  private async outliveFastForwards(): Promise<void> {
+    const provider = new JsonRpcProvider(this.source.url);
+    try {
+      const twap = new Contract(
+        this.deployment.source.twapReader,
+        ["function setMaxPriceAge(uint32)"],
+        new Wallet(SOURCE_KEY, provider),
+      );
+      const receipt = await (await twap.setMaxPriceAge(0xffffffff)).wait();
+      if (receipt?.status !== 1) throw new Error("setMaxPriceAge reverted");
+    } finally {
+      provider.destroy();
+    }
   }
 
   async startRelayer(): Promise<void> {
@@ -429,6 +532,7 @@ export class Stack {
 
   async close(): Promise<void> {
     const errors: string[] = [];
+    await this.sealer?.stop();
     for (const child of [...this.processes].reverse()) {
       try {
         await child.stop();
