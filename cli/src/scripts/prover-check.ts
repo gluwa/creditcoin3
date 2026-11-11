@@ -1,7 +1,7 @@
 import { mkdirSync, writeFileSync } from 'fs';
-import { blockProver, chainInfo, proofProvider, utils } from '@gluwa/asc-sdk';
-import EvmV1DecoderABI from '@gluwa/asc-sdk/dist/utils/evmV1DecoderAbi.json';
-import ChainInfoABI from '@gluwa/asc-sdk/dist/chain-info/chain_info.json';
+import { blockProver, chainInfo, proofProvider, utils } from '@gluwa/attestcoin-sdk';
+import EvmV1DecoderABI from '@gluwa/attestcoin-sdk/dist/utils/evmV1DecoderAbi.json';
+import ChainInfoABI from '@gluwa/attestcoin-sdk/dist/chain-info/chain_info.json';
 import { Contract, JsonRpcProvider, Wallet, WebSocketProvider } from 'ethers';
 import { createClient } from 'graphqurl';
 import axios from 'axios';
@@ -273,7 +273,7 @@ async function main(
     const estimateGasSigner = Wallet.createRandom().connect(creditcoinWs);
     const blockProverContractWithSigner = prover.blockProverContract.connect(estimateGasSigner);
     // ABI fragment for the state-changing `verifyAndEmit` precompile entry-point;
-    // mirrors the constant used inside @gluwa/asc-sdk's PrecompileBlockProver.
+    // mirrors the constant used inside @gluwa/attestcoin-sdk's PrecompileBlockProver.
     const verifyAndEmitSingleFragment =
         'verifyAndEmit(uint64,uint64,bytes,(bytes32,(bytes32,bool)[]),(bytes32,bytes32[]))';
 

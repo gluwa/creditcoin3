@@ -15,7 +15,7 @@ Creditcoin is a Substrate based layer 1 blockchain with full EVM support. Users 
 
 - [Creditcoin Gitbook](https://docs.creditcoin.org/): A comprehensive resource describing the core systems of the Creditcoin chain, 1st party on-chain services, and Universal Smart Contracts
 - [USC Examples Repository](https://github.com/gluwa/usc-testnet-bridge-examples): A series of examples to lead builders through constructing and deploying their first Universal Smart Contracts
-- [ASC SDK](https://github.com/gluwa/asc-sdk): Tools which make it easy to interact with all the components of the Attestcoin protocol.
+- [Attestcoin SDK](https://github.com/gluwa/attestcoin-sdk-ts): Tools which make it easy to interact with all the components of the Attestcoin protocol.
 
 ## Major components
 
