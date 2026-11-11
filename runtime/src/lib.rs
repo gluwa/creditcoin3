@@ -139,12 +139,20 @@ pub mod opaque {
 }
 
 mod version;
+mod weights;
 pub use version::VERSION;
 
 #[cfg(feature = "runtime-benchmarks")]
 mod ethereum_finalize_benchmarking;
 #[cfg(feature = "runtime-benchmarks")]
 use ethereum_finalize_benchmarking::Pallet as EthereumFinalizeBench;
+#[cfg(any(
+    feature = "runtime-benchmarks",
+    all(test, not(any(feature = "devnet", feature = "fast-runtime")))
+))]
+mod evm_block_benchmarking;
+#[cfg(feature = "runtime-benchmarks")]
+use evm_block_benchmarking::Pallet as EvmBlockBench;
 
 macro_rules! prod_devnet_fast {
     ($prod: expr, $devnet: expr, $fast: expr) => {
@@ -536,6 +544,7 @@ impl pallet_ethereum::Config for Runtime {
     type StateRoot = pallet_ethereum::IntermediateStateRoot<Self::Version>;
     type PostLogContent = PostBlockAndTxnHashes;
     type ExtraDataLength = ConstU32<30>;
+    type EthereumWeightInfo = weights::EthereumWeightInfo;
 }
 
 parameter_types! {
@@ -1356,6 +1365,7 @@ mod benches {
         [pallet_randomness, Randomness]
         [pallet_membership, Operators]
         [pallet_ethereum, EthereumFinalizeBench::<Runtime>]
+        [evm_block, EvmBlockBench::<Runtime>]
     );
 }
 
