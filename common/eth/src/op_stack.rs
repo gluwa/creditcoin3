@@ -58,6 +58,14 @@ pub enum DepositError {
     /// The transaction is not a `0x7e` deposit.
     #[error("transaction {hash} has type {ty:#x}, not a deposit (0x7e)")]
     NotADeposit { hash: B256, ty: u8 },
+    /// A type `0x7e` transaction without a `sourceHash`. Every OP-Stack deposit carries one, so
+    /// the source is not an OP-Stack chain: Scroll, for one, reuses type `0x7e` for its L1
+    /// messages with a different layout. Another endpoint of the same source cannot serve it.
+    #[error(
+        "transaction {hash} has type 0x7e but no `sourceHash`, so it is not an OP-Stack deposit \
+         (the source is probably not an OP-Stack chain; Scroll L1 messages also use type 0x7e)"
+    )]
+    NotOpStack { hash: B256 },
     /// A required deposit field is absent or malformed on the RPC transaction object.
     #[error("deposit transaction {hash}: missing or malformed field `{field}`")]
     Field { hash: B256, field: &'static str },
@@ -85,6 +93,14 @@ pub enum DepositError {
         previous: u64,
         cumulative: u64,
     },
+}
+
+impl DepositError {
+    /// The payload shows the source chain is not in the configured family at all, which no
+    /// other endpoint of the same source can fix: a misconfiguration, not a flaky peer.
+    pub fn is_wrong_family(&self) -> bool {
+        matches!(self, Self::NotOpStack { .. })
+    }
 }
 
 /// Parse a deposit from an `AnyNetwork` RPC transaction and verify its hash.
@@ -129,10 +145,11 @@ pub fn deposit_from_unknown(
     let fields = &unknown.inner.fields;
     let field = |name: &'static str| DepositError::Field { hash, field: name };
 
-    let source_hash: B256 = fields
-        .get_deserialized("sourceHash")
-        .and_then(Result::ok)
-        .ok_or(field("sourceHash"))?;
+    let source_hash: B256 = match fields.get_deserialized::<B256>("sourceHash") {
+        Some(Ok(v)) => v,
+        Some(Err(_)) => return Err(field("sourceHash")),
+        None => return Err(DepositError::NotOpStack { hash }),
+    };
     // `mint` is omitted by some providers when zero; `isSystemTx` is omitted post-Regolith
     // by some providers as well. Both default to their zero value per the spec.
     let mint: U256 = match fields.get_deserialized::<U256>("mint") {

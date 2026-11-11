@@ -442,3 +442,52 @@ fn unparsable_standard_type_is_a_fallback_eligible_error_not_a_deposit() {
         );
     }
 }
+
+/// Scroll reuses type `0x7e` for its `L1MessageTx`, but with a different RLP layout and RPC shape:
+/// `queueIndex` and `sender` instead of `sourceHash`, `mint` and `isSystemTx`. It must never be
+/// read as an OP-Stack deposit: the Ethereum family rejects the type outright, and the OP-Stack
+/// family fails on the missing `sourceHash` instead of building a leaf. Both are misconfigurations
+/// that no other endpoint can fix, so neither is fallback-eligible.
+#[test]
+fn scroll_shaped_l1_message_is_never_read_as_an_op_deposit() {
+    let (mut block, receipts) = fixture(false);
+    let tx = block["transactions"][0].as_object_mut().unwrap();
+    assert_eq!(tx["type"], "0x7e");
+    for key in ["sourceHash", "mint", "isSystemTx"] {
+        tx.remove(key);
+    }
+    tx.insert("queueIndex".into(), json!("0x5"));
+    tx.insert("sender".into(), tx["from"].clone());
+
+    for family in [ChainFamily::OpStack, ChainFamily::Ethereum] {
+        let block: AnyRpcBlock = serde_json::from_value(block.clone()).unwrap();
+        let height = block.header.number;
+        let receipts: Vec<AnyTransactionReceipt> =
+            serde_json::from_value(receipts.clone()).unwrap();
+        let err = OrderedBlock::try_from_fetched_block(
+            534352,
+            family,
+            block,
+            receipts,
+            height,
+            EncodingVersion::V1,
+        )
+        .unwrap_err();
+        match (family, &err) {
+            (
+                ChainFamily::OpStack,
+                Error::Deposit {
+                    source: DepositError::NotOpStack { .. },
+                    ..
+                },
+            )
+            | (ChainFamily::Ethereum, Error::UnsupportedTransactionType { ty: 0x7e, .. }) => {}
+            other => panic!("unexpected result {other:?}"),
+        }
+        assert!(err.is_unrecoverable(), "{family}: {err}");
+        assert!(
+            !err.inconsistent_block_payload_for_fallback(),
+            "{family}: {err}"
+        );
+    }
+}

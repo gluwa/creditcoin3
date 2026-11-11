@@ -256,15 +256,18 @@ impl Error {
     /// reconnect-retry path in [`crate::ReconnectingEthRpcProvider`] and (b) map them to a
     /// non-retriable 422 in the API, both of which are wrong for a peer that's just lagging.
     pub fn inconsistent_block_payload_for_fallback(&self) -> bool {
-        matches!(
-            self,
-            Error::BlockHeaderRootsMismatch(_)
-                | Error::TransactionsReceiptsMismatch(_)
-                | Error::NotFullTransactionsFetched(_)
-                | Error::ReceiptTypeMismatch { .. }
-                | Error::Deposit { .. }
-                | Error::ReceiptsBlockMismatch { .. }
-        )
+        match self {
+            // A wrong-family source is a misconfiguration; see [`Error::is_unrecoverable`].
+            Error::Deposit { source, .. } => !source.is_wrong_family(),
+            _ => matches!(
+                self,
+                Error::BlockHeaderRootsMismatch(_)
+                    | Error::TransactionsReceiptsMismatch(_)
+                    | Error::NotFullTransactionsFetched(_)
+                    | Error::ReceiptTypeMismatch { .. }
+                    | Error::ReceiptsBlockMismatch { .. }
+            ),
+        }
     }
 
     /// True when the provider refused the request because we are over its rate limit or credit
@@ -298,11 +301,13 @@ impl Error {
     /// attempt. A block fetch still tries the other endpoints, but stops once every endpoint
     /// failed this way, and callers should fail rather than reconnect and fetch it again.
     /// A chain-family misconfiguration ([`Error::UnsupportedTransactionType`],
-    /// [`Error::FetchModeFamilyUnsupported`]) is the same: every block of an OP-Stack source
-    /// opens with a deposit, so an Ethereum-family client fails on each of them.
+    /// [`Error::FetchModeFamilyUnsupported`], a type `0x7e` transaction without a `sourceHash` on
+    /// an `op-stack` source) is the same: every block of an OP-Stack source opens with a deposit,
+    /// so an Ethereum-family client fails on each of them.
     pub fn is_unrecoverable(&self) -> bool {
         use alloy::transports::RpcError;
         match self {
+            Error::Deposit { source, .. } if source.is_wrong_family() => true,
             Error::RawBlockDecode(..)
             | Error::RawReceiptDecode(..)
             | Error::SenderRecovery(..)
@@ -3132,6 +3137,14 @@ mod error_classification_tests {
             family: ChainFamily::OpStack,
         }
         .is_unrecoverable());
+        let wrong_family = Error::Deposit {
+            block: 7,
+            source: super::op_stack::DepositError::NotOpStack {
+                hash: Default::default(),
+            },
+        };
+        assert!(wrong_family.is_unrecoverable());
+        assert!(!wrong_family.inconsistent_block_payload_for_fallback());
     }
 
     #[test]
