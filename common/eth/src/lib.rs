@@ -1,7 +1,9 @@
 use alloy::{
     consensus::{
         proofs::{calculate_receipt_root, calculate_transaction_root},
+        transaction::{Recovered, SignerRecoverable},
         Block as ConsensusBlock, ReceiptEnvelope, Transaction as ConsensusTransaction, TxEnvelope,
+        Typed2718,
     },
     eips::eip2718::Decodable2718,
     hex::ToHexExt,
@@ -32,13 +34,13 @@ use alloy::rpc::client::RpcClient as AlloyRpcClient;
 use alloy::transports::http::{reqwest, Http};
 use alloy::transports::utils::guess_local_url;
 use anyhow::{Context, Result};
+use attestcoin_abi_encoding::common::EncodingVersion;
 use hex::FromHexError;
 use sp_core::H256;
 use std::num::NonZeroUsize;
 use std::str::FromStr;
 use thiserror::Error;
 use tracing::{error, info, trace};
-use usc_abi_encoding::common::EncodingVersion;
 use user::prelude::*;
 use utils::block_item_traits::BlockItem;
 
@@ -364,19 +366,20 @@ impl TxRx {
 
 impl BlockItem for TxRx {
     fn payload_bytes(&self) -> Vec<u8> {
-        usc_abi_encoding::abi::abi_encode(self.tx().clone(), self.rx().clone(), self.encoding)
-            .expect("Transaction and receipt should be encodable.")
-            .abi()
-            .to_vec()
+        attestcoin_abi_encoding::abi::abi_encode(
+            self.tx().clone(),
+            self.rx().clone(),
+            self.encoding,
+        )
+        .expect("Transaction and receipt should be encodable.")
+        .abi()
+        .to_vec()
     }
 
     fn tx_type(&self) -> Option<u8> {
-        match self.tx.inner.clone() {
-            TxEnvelope::Legacy(_) => None,
-            TxEnvelope::Eip2930(_) => Some(1),
-            TxEnvelope::Eip1559(_) => Some(2),
-            TxEnvelope::Eip4844(_) => Some(3),
-            TxEnvelope::Eip7702(_) => Some(4),
+        match self.tx.inner.ty() {
+            0 => None,
+            ty => Some(ty),
         }
     }
 }
@@ -627,8 +630,10 @@ pub fn rpc_block_from_raw(
         .enumerate()
     {
         let tx_index = index as u64;
+        // Blocks are already canonical, so skip alloy 1.x's EIP-2 low-s check (it rejects
+        // pre-Homestead high-s signatures that JSON mode accepts).
         let from = envelope
-            .recover_signer()
+            .recover_signer_unchecked()
             .map_err(|e| Error::SenderRecovery(number, index, e.to_string()))?;
         let tx_hash = *envelope.tx_hash();
         let effective_gas_price = envelope.effective_gas_price(base_fee);
@@ -671,12 +676,11 @@ pub fn rpc_block_from_raw(
             contract_address,
         });
         txs.push(Transaction {
-            inner: envelope,
+            inner: Recovered::new_unchecked(envelope, from),
             block_hash: Some(hash),
             block_number: Some(number),
             transaction_index: Some(tx_index),
             effective_gas_price: Some(effective_gas_price),
-            from,
         });
     }
 
@@ -715,11 +719,11 @@ enum Confirmation {
 /// failure so the caller's error handling covers it.
 async fn timed<T>(
     timeout: std::time::Duration,
-    call: impl std::future::Future<
+    call: impl std::future::IntoFuture<
         Output = std::result::Result<T, alloy::transports::RpcError<TransportErrorKind>>,
     >,
 ) -> Result<T, Error> {
-    match tokio::time::timeout(timeout, call).await {
+    match tokio::time::timeout(timeout, call.into_future()).await {
         Ok(Ok(v)) => Ok(v),
         Ok(Err(e)) => Err(Error::from(e)),
         Err(_) => Err(Error::ClientError(anyhow::anyhow!(
@@ -843,13 +847,18 @@ const WS_MAX_FRAME_SIZE: usize = 32 * 1024 * 1024;
 /// Largest reassembled websocket message accepted. Doubles tungstenite's 64 MiB default so
 /// growing blocks keep headroom over the frame cap.
 const WS_MAX_MESSAGE_SIZE: usize = 128 * 1024 * 1024;
+/// Keepalive ping interval. alloy 1.x drops the socket when a ping goes unanswered for a full
+/// interval (0.11 never checked), so this is the stall a slow or loaded RPC node may ride out.
+const WS_KEEPALIVE_INTERVAL: std::time::Duration = std::time::Duration::from_secs(30);
 
 fn ws_connect(url: impl Into<String>) -> WsConnect {
-    WsConnect::new(url).with_config(
-        WebSocketConfig::default()
-            .max_frame_size(Some(WS_MAX_FRAME_SIZE))
-            .max_message_size(Some(WS_MAX_MESSAGE_SIZE)),
-    )
+    WsConnect::new(url)
+        .with_keepalive_interval(WS_KEEPALIVE_INTERVAL)
+        .with_config(
+            WebSocketConfig::default()
+                .max_frame_size(Some(WS_MAX_FRAME_SIZE))
+                .max_message_size(Some(WS_MAX_MESSAGE_SIZE)),
+        )
 }
 
 impl Client {
@@ -870,14 +879,14 @@ impl Client {
                 let is_local = guess_local_url(url.as_str());
                 ProviderBuilder::new()
                     .network::<Ethereum>()
-                    .on_client(AlloyRpcClient::new(transport, is_local))
+                    .connect_client(AlloyRpcClient::new(transport, is_local))
             }
 
             "ws" | "wss" => {
                 let ws = ws_connect(url.clone());
                 ProviderBuilder::new()
                     .network::<Ethereum>()
-                    .on_ws(ws)
+                    .connect_ws(ws)
                     .await?
             }
 
@@ -1266,8 +1275,8 @@ impl Client {
         let builder = ProviderBuilder::new().wallet(EthereumWallet::from(self.get_signer()?));
 
         let provider = match self.get_url()? {
-            ConnectionTransport::Http(url) => builder.on_http(url),
-            ConnectionTransport::Ws(ws_client) => builder.on_ws(ws_client).await?,
+            ConnectionTransport::Http(url) => builder.connect_http(url),
+            ConnectionTransport::Ws(ws_client) => builder.connect_ws(ws_client).await?,
         };
 
         Ok(provider)
@@ -1517,7 +1526,8 @@ impl Client {
         let block_fut = async {
             self.pacer.acquire().await;
             provider
-                .get_block(block_id, true.into())
+                .get_block(block_id)
+                .full()
                 .await?
                 .ok_or(Error::FailedToGetBlock(number))
         };
@@ -1619,10 +1629,8 @@ impl Client {
         for (label, provider) in providers {
             self.pacer.acquire().await;
             match provider
-                .get_block(
-                    BlockId::Number(BlockNumberOrTag::Number(number)),
-                    true.into(),
-                )
+                .get_block(BlockId::Number(BlockNumberOrTag::Number(number)))
+                .full()
                 .await
             {
                 Ok(Some(block)) => {
@@ -1760,11 +1768,7 @@ impl Client {
         let pacer = &self.pacer;
         let answers = join_all(providers.iter().map(|(label, provider)| async move {
             pacer.acquire().await;
-            let answer = timed(
-                timeout,
-                provider.get_block(BlockId::Number(tag.into()), false.into()),
-            )
-            .await;
+            let answer = timed(timeout, provider.get_block(BlockId::Number(tag.into()))).await;
             (label.clone(), answer)
         }))
         .await;
@@ -1829,10 +1833,9 @@ impl Client {
                         pacer.acquire().await;
                         let read = timed(
                             timeout,
-                            provider.get_block(
-                                BlockId::Number(BlockNumberOrTag::Number(candidate.number)),
-                                false.into(),
-                            ),
+                            provider.get_block(BlockId::Number(BlockNumberOrTag::Number(
+                                candidate.number,
+                            ))),
                         )
                         .await;
                         let confirmation = match read {
@@ -1952,7 +1955,7 @@ impl Client {
     pub async fn get_block_number_by_hash(&self, hash: BlockHash) -> Result<u64, Error> {
         let block_opt = self
             .rpc_provider
-            .get_block_by_hash(hash, true.into())
+            .get_block_by_hash(hash)
             .await
             .map_err(|e| {
                 error!("Failed to get block by hash: {:?}", e);
@@ -2792,6 +2795,60 @@ mod raw_rlp_tests {
         )
     }
 
+    /// A legacy tx whose signature is the high-s twin of a valid one: same signer, but
+    /// rejected by alloy 1.x's EIP-2 check. Pre-Homestead mainnet blocks contain these.
+    fn high_s_legacy(signer: &PrivateKeySigner, nonce: u64) -> TxEnvelope {
+        let TxEnvelope::Legacy(signed) = signed_legacy(signer, nonce) else {
+            unreachable!()
+        };
+        let n = U256::from_be_slice(
+            &alloy::hex::decode("fffffffffffffffffffffffffffffffebaaedce6af48a03bbfd25e8cd0364141")
+                .unwrap(),
+        );
+        let sig = *signed.signature();
+        let high = alloy::primitives::Signature::new(sig.r(), n - sig.s(), !sig.v());
+        let (tx, _, _) = signed.into_parts();
+        TxEnvelope::Legacy(tx.into_signed(high))
+    }
+
+    #[test]
+    fn raw_path_recovers_the_sender_of_a_high_s_signature() {
+        let signer = PrivateKeySigner::random();
+        let txs = vec![high_s_legacy(&signer, 3)];
+        let receipts = vec![ReceiptEnvelope::Legacy(
+            Receipt {
+                status: true.into(),
+                cumulative_gas_used: 21_000,
+                logs: vec![],
+            }
+            .with_bloom(),
+        )];
+        let header = ConsensusHeader {
+            number: 1_000_000,
+            timestamp: 1_400_000_000,
+            gas_used: 21_000,
+            gas_limit: 3_141_592,
+            transactions_root: calculate_transaction_root(&txs),
+            receipts_root: calculate_receipt_root(&receipts),
+            ..Default::default()
+        };
+        let block = ConsensusBlock {
+            header,
+            body: BlockBody {
+                transactions: txs,
+                ommers: vec![],
+                withdrawals: None,
+            },
+        };
+        let (raw_block, raw_receipts) = raw(&block, &receipts);
+
+        let (rpc_block, _) =
+            rpc_block_from_raw(block.header.number, &raw_block, &raw_receipts).unwrap();
+
+        let txs: Vec<Transaction> = rpc_block.transactions.into_transactions().collect();
+        assert_eq!(txs[0].inner.signer(), signer.address());
+    }
+
     #[test]
     fn header_hash_is_sliced_from_raw_block() {
         let (_, block, receipts) = fixture();
@@ -2816,7 +2873,7 @@ mod raw_rlp_tests {
         let txs: Vec<Transaction> = rpc_block.transactions.clone().into_transactions().collect();
         assert_eq!(txs.len(), 2);
         // Sender recovered from the signature, not trusted from anywhere.
-        assert!(txs.iter().all(|t| t.from == signer.address()));
+        assert!(txs.iter().all(|t| t.inner.signer() == signer.address()));
         assert_eq!(
             txs.iter().map(|t| t.transaction_index).collect::<Vec<_>>(),
             vec![Some(0), Some(1)]
@@ -2856,12 +2913,11 @@ mod raw_rlp_tests {
             .iter()
             .enumerate()
             .map(|(i, env)| Transaction {
-                inner: env.clone(),
+                inner: Recovered::new_unchecked(env.clone(), signer.address()),
                 block_hash: Some(hash),
                 block_number: Some(number),
                 transaction_index: Some(i as u64),
                 effective_gas_price: None,
-                from: signer.address(),
             })
             .collect();
         let gas_used = [21_000u64, 64_321];

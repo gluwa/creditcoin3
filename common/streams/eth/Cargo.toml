@@ -5,6 +5,7 @@ license.workspace = true
 name = "stream_eth"
 publish.workspace = true
 repository.workspace = true
+rust-version.workspace = true
 version.workspace = true
 
 [[bench]]
@@ -16,9 +17,9 @@ name = "block_sync"
 eth = { workspace = true, default-features = true }
 
 # Creditcoin
+attestcoin-abi-encoding = { workspace = true }
 attestor-primitives = { workspace = true, default-features = true }
 supported-chains-primitives = { workspace = true, default-features = true }
-usc-abi-encoding = { workspace = true }
 
 # Async & Parallelism
 async-stream = { workspace = true }

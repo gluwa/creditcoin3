@@ -915,12 +915,15 @@ jobs:
           # logs "Creditcoin reconnect failed ... Connection refused". The gate matches "error:"
           # case-insensitively anywhere in a line, and the subxt error text inside that WARN
           # contains it, so the same benign restart would otherwise fail the gate.
+          # The archiver's root-stream reconnect loop retries `eth::Client::new` on a backoff and
+          # logs each failed attempt as "failed to connect WS client: ..." wrapping the same IO
+          # error while anvil is still down.
           # Allowlist ONLY these three documented errors, and ONLY from those known reconnect
           # sources, scoped to THIS step via ERROR_ALLOWLIST so the shared gate stays strict
           # everywhere else (e.g. the archiver-testing job, which never restarts eth). Any other
           # error from those sources still fails the gate; functional correctness is asserted
           # separately (checkpoint compare).
-          export ERROR_ALLOWLIST='(alloy_transport_ws|alloy_pubsub|stream_eth|Eth connection error|Creditcoin reconnect failed).*(Connection reset by peer \(os error 104\)|Connection refused \(os error 111\)|Connection reset without closing handshake)'
+          export ERROR_ALLOWLIST='(alloy_transport_ws|alloy_pubsub|stream_eth|Eth connection error|Creditcoin reconnect failed|failed to connect WS client).*(Connection reset by peer \(os error 104\)|Connection refused \(os error 111\)|Connection reset without closing handshake)'
           .github/check-logs-for-error.sh /var/tmp/integration-test-attestor-network/archiver.log
 
       - name: Check attestor logs for errors
@@ -938,6 +941,11 @@ jobs:
           # designed behavior — the gate is for everything else (task failures, submission
           # errors, invalid event mappings).
           ALLOWLIST='Failed to reconnect to CC3|Reconnected but at_latest failed|connection (error|lost)|Subscription error while fetching next block|Failed to start finalized-block subscription|ping failed'
+          # alloy >= 1.0 tracks the keepalive reply (`expecting_pong`, alloy-transport-ws) and
+          # errors when a ping goes unanswered for 10s; 0.11 never noticed. Anvil and the CC3 node
+          # stall past that under CI load and the attestors reconnect normally. Scoped to the
+          # transport that emits it.
+          ALLOWLIST="$ALLOWLIST"'|WS server missed a pong.*alloy_transport_ws'
           shopt -s nullglob
           LOGS=(./logs/attestor-*.json.*)
           if [ "${#LOGS[@]}" -eq 0 ]; then

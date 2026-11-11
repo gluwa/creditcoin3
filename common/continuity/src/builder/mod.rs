@@ -25,13 +25,13 @@ use crate::{
     rpc::{ReconnectingEthRpcProvider, SharedCcProvider, SharedEthProvider},
 };
 use anyhow::{Context, Result};
+use attestcoin_abi_encoding::common::EncodingVersion;
 use cc_client::Client as CcClient;
 use eth::Client as EthClient;
 use indexer_client::{AttestationWithProof, IndexerClient};
 use sp_core::H256;
 use std::sync::Arc;
 use tracing::info;
-use usc_abi_encoding::common::EncodingVersion;
 
 /// Builder for generating continuity proofs.
 ///

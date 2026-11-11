@@ -3,6 +3,7 @@ authors = { workspace = true }
 description = "A Precompile exposing stash-facing operations of pallet-attestation (register, unregister, withdraw_unbonded)."
 edition = "2021"
 name = "pallet-evm-precompile-attestor-stash"
+rust-version = { workspace = true }
 version = "0.1.0"
 
 [lints.clippy]

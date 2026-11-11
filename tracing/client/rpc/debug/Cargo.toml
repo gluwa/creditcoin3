@@ -3,6 +3,7 @@ description = "Moonbeam RPC debug (vendored from Moonbeam, maintained by Gluwa)"
 edition = "2021"
 license = "GPL-3.0-only"
 name = "moonbeam-rpc-debug"
+rust-version = { workspace = true }
 version = "0.1.0"
 
 [lints.rust]

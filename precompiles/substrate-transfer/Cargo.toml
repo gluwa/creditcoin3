@@ -3,6 +3,7 @@ authors = { workspace = true }
 description = "A Precompile to expose a Balances pallet through an ERC20-compliant interface."
 edition = "2021"
 name = "pallet-evm-precompile-substrate-transfer"
+rust-version = { workspace = true }
 version = "0.1.0"
 
 [dependencies]

@@ -220,7 +220,7 @@ impl Attestor {
             .ok_or(Error::UnsupportedMaturityStrategy(strategy))?;
         tracing::info!(chain_key, %maturity, "⏳ block maturity resolved from on-chain strategy");
         let encoding =
-            usc_abi_encoding::common::EncodingVersion::from(supported_chain.chain_encoding);
+            attestcoin_abi_encoding::common::EncodingVersion::from(supported_chain.chain_encoding);
 
         // ----------------------------------* balance check *---------------------------------- //
 
@@ -235,6 +235,14 @@ impl Attestor {
 
         // ----------------------------------* register + eligibility *------------------------- //
 
+        match startup::wait_for_registration(&token, chain_key, &cc3, &account_id).await {
+            Ok(()) => {}
+            Err(Error::ShutdownDuringStartup) => {
+                tracing::info!("🔌 shutdown during startup (registration wait)");
+                return Ok(());
+            }
+            Err(e) => return Err(e),
+        }
         match peer_registry::ensure_registered(
             &cc3,
             &token,

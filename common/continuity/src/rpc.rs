@@ -6,6 +6,7 @@
 
 use anyhow::{anyhow, Context, Result};
 use async_trait::async_trait;
+use attestcoin_abi_encoding::common::EncodingVersion;
 use attestor_primitives::{block::Block, AttestationCheckpoint, SignedAttestation};
 use cc_client::{AccountId32, Client as CcClient};
 use eth::continuity::Manager as ContinuityManager;
@@ -14,7 +15,6 @@ use std::{future::Future, sync::Arc, time::Duration};
 use tokio::sync::RwLock;
 use tokio_retry::strategy::{jitter, ExponentialBackoff};
 use tracing::warn;
-use usc_abi_encoding::common::EncodingVersion;
 use user::prelude::*;
 use utils::block_item_traits::BlockItem;
 
