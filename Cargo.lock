@@ -1056,7 +1056,7 @@ dependencies = [
 
 [[package]]
 name = "archiver"
-version = "3.141.0"
+version = "3.142.0"
 dependencies = [
  "anyhow",
  "attestcoin-abi-encoding",
@@ -1807,7 +1807,7 @@ dependencies = [
 
 [[package]]
 name = "attestor"
-version = "3.141.0"
+version = "3.142.0"
 dependencies = [
  "anyhow",
  "attestcoin-abi-encoding",
@@ -1846,7 +1846,7 @@ dependencies = [
 
 [[package]]
 name = "attestor-primitives"
-version = "3.141.0"
+version = "3.142.0"
 dependencies = [
  "attestcoin-abi-encoding",
  "bls-signatures",
@@ -1865,7 +1865,7 @@ dependencies = [
 
 [[package]]
 name = "attestor_pool"
-version = "3.141.0"
+version = "3.142.0"
 dependencies = [
  "attestor-primitives",
  "bls-signatures",
@@ -1881,7 +1881,7 @@ dependencies = [
 
 [[package]]
 name = "attestor_zombienet"
-version = "3.141.0"
+version = "3.142.0"
 dependencies = [
  "anyhow",
  "attestor",
@@ -2376,7 +2376,7 @@ dependencies = [
 
 [[package]]
 name = "builder"
-version = "3.141.0"
+version = "3.142.0"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -2512,7 +2512,7 @@ dependencies = [
 
 [[package]]
 name = "cc-client"
-version = "3.141.0"
+version = "3.142.0"
 dependencies = [
  "anyhow",
  "arc-swap",
@@ -2611,7 +2611,7 @@ dependencies = [
 
 [[package]]
 name = "checkpoint-builder"
-version = "3.141.0"
+version = "3.142.0"
 dependencies = [
  "anyhow",
  "attestor-primitives",
@@ -2786,7 +2786,7 @@ dependencies = [
 
 [[package]]
 name = "common"
-version = "3.141.0"
+version = "3.142.0"
 dependencies = [
  "attestor-primitives",
  "rstest 0.26.1",
@@ -3171,14 +3171,14 @@ dependencies = [
 
 [[package]]
 name = "creditcoin3-cli-opt"
-version = "3.141.0"
+version = "3.142.0"
 dependencies = [
  "clap",
 ]
 
 [[package]]
 name = "creditcoin3-node"
-version = "3.141.0"
+version = "3.142.0"
 dependencies = [
  "async-trait",
  "attestor-primitives",
@@ -3263,7 +3263,7 @@ dependencies = [
 
 [[package]]
 name = "creditcoin3-runtime"
-version = "3.141.0"
+version = "3.142.0"
 dependencies = [
  "attestor-primitives",
  "ethereum",
@@ -4471,7 +4471,7 @@ dependencies = [
 
 [[package]]
 name = "eth"
-version = "3.141.0"
+version = "3.142.0"
 dependencies = [
  "alloy",
  "anyhow",
@@ -5816,7 +5816,7 @@ dependencies = [
 
 [[package]]
 name = "generate-bags"
-version = "3.141.0"
+version = "3.142.0"
 dependencies = [
  "clap",
  "creditcoin3-runtime",
@@ -6779,7 +6779,7 @@ dependencies = [
 
 [[package]]
 name = "indexer-client"
-version = "3.141.0"
+version = "3.142.0"
 dependencies = [
  "anyhow",
  "attestor-primitives",
@@ -8234,7 +8234,7 @@ dependencies = [
 
 [[package]]
 name = "merkle"
-version = "3.141.0"
+version = "3.142.0"
 dependencies = [
  "parity-scale-codec",
  "precompile-utils",
@@ -8273,7 +8273,7 @@ dependencies = [
 
 [[package]]
 name = "metrics"
-version = "3.141.0"
+version = "3.142.0"
 dependencies = [
  "attestor-primitives",
  "builder",
@@ -9200,7 +9200,7 @@ dependencies = [
 
 [[package]]
 name = "pallet-attestation"
-version = "3.141.0"
+version = "3.142.0"
 dependencies = [
  "attestor-primitives",
  "bls-signatures",
@@ -9847,7 +9847,7 @@ dependencies = [
 
 [[package]]
 name = "pallet-randomness"
-version = "3.141.0"
+version = "3.142.0"
 dependencies = [
  "frame-benchmarking",
  "frame-election-provider-support",
@@ -9945,7 +9945,7 @@ dependencies = [
 
 [[package]]
 name = "pallet-supported-chains"
-version = "3.141.0"
+version = "3.142.0"
 dependencies = [
  "attestor-primitives",
  "frame-benchmarking",
@@ -11166,7 +11166,7 @@ dependencies = [
 
 [[package]]
 name = "proof-gen-api-server"
-version = "3.141.0"
+version = "3.142.0"
 dependencies = [
  "alloy",
  "anyhow",
@@ -11618,7 +11618,7 @@ dependencies = [
 
 [[package]]
 name = "randomness-primitives"
-version = "3.141.0"
+version = "3.142.0"
 dependencies = [
  "impl-trait-for-tuples",
  "sp-api",
@@ -15418,7 +15418,7 @@ dependencies = [
 
 [[package]]
 name = "stream"
-version = "3.141.0"
+version = "3.142.0"
 dependencies = [
  "stream_attestation",
  "stream_cc3",
@@ -15428,7 +15428,7 @@ dependencies = [
 
 [[package]]
 name = "stream_attestation"
-version = "3.141.0"
+version = "3.142.0"
 dependencies = [
  "attestcoin-abi-encoding",
  "attestor-primitives",
@@ -15453,7 +15453,7 @@ dependencies = [
 
 [[package]]
 name = "stream_cc3"
-version = "3.141.0"
+version = "3.142.0"
 dependencies = [
  "anyhow",
  "async-stream",
@@ -15468,7 +15468,7 @@ dependencies = [
 
 [[package]]
 name = "stream_eth"
-version = "3.141.0"
+version = "3.142.0"
 dependencies = [
  "async-stream",
  "attestcoin-abi-encoding",
@@ -15490,7 +15490,7 @@ dependencies = [
 
 [[package]]
 name = "stream_util"
-version = "3.141.0"
+version = "3.142.0"
 dependencies = [
  "attestor-primitives",
  "futures 0.3.32",
@@ -16065,7 +16065,7 @@ dependencies = [
 
 [[package]]
 name = "supported-chains-primitives"
-version = "3.141.0"
+version = "3.142.0"
 dependencies = [
  "attestor-primitives",
  "impl-trait-for-tuples",
@@ -17083,7 +17083,7 @@ dependencies = [
 
 [[package]]
 name = "user"
-version = "3.141.0"
+version = "3.142.0"
 
 [[package]]
 name = "utf-8"
@@ -17105,7 +17105,7 @@ checksum = "06abde3611657adf66d383f00b093d7faecc7fa57071cce2578660c9f1010821"
 
 [[package]]
 name = "utils"
-version = "3.141.0"
+version = "3.142.0"
 dependencies = [
  "anyhow",
  "fs2",

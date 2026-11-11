@@ -60,7 +60,7 @@ license = "Unlicense"
 publish = false
 repository = "https://github.com/gluwa/creditcoin3-next/"
 rust-version = "1.88"
-version = "3.141.0"
+version = "3.142.0"
 
 [workspace.dependencies]
 arc-swap = "1.9.1"
