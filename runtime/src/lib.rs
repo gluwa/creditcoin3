@@ -146,7 +146,10 @@ pub use version::VERSION;
 mod ethereum_finalize_benchmarking;
 #[cfg(feature = "runtime-benchmarks")]
 use ethereum_finalize_benchmarking::Pallet as EthereumFinalizeBench;
-#[cfg(any(test, feature = "runtime-benchmarks"))]
+#[cfg(any(
+    feature = "runtime-benchmarks",
+    all(test, not(any(feature = "devnet", feature = "fast-runtime")))
+))]
 mod evm_block_benchmarking;
 #[cfg(feature = "runtime-benchmarks")]
 use evm_block_benchmarking::Pallet as EvmBlockBench;

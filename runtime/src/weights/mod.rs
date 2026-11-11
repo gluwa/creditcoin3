@@ -5,8 +5,9 @@
 use crate::Runtime;
 use frame_support::weights::Weight;
 
-/// Whole EVM blocks, executed and finalized. Only the tests read them.
-#[cfg(test)]
+/// Whole EVM blocks, executed and finalized. Only the production-pricing
+/// tests read them.
+#[cfg(all(test, not(any(feature = "devnet", feature = "fast-runtime"))))]
 pub mod evm_block;
 /// `pallet_ethereum`'s `on_finalize`, from `ethereum_finalize_benchmarking`.
 #[allow(dead_code)]
@@ -30,7 +31,7 @@ mod tests {
 
     #[test]
     fn ethereum_on_initialize_reserves_the_benchmarked_finalize_base() {
-        crate::evm_block_benchmarking::new_test_ext().execute_with(|| {
+        sp_io::TestExternalities::default().execute_with(|| {
             let base =
                 <EthereumWeightInfo as ::pallet_ethereum::weights::WeightInfo>::on_finalize_base();
             let reserved = crate::Ethereum::on_initialize(1);

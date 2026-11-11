@@ -168,6 +168,15 @@ fn create_storage<T: Config>(k: u32) {
 pub mod shapes {
     use super::*;
 
+    /// The largest size of each shape, shared by its benchmark range and the
+    /// per-gas test so the two cannot drift apart.
+    pub const TRANSFERS_MAX: u32 = 3_571;
+    pub const LOG0_MAX: u32 = 3_000;
+    pub const LOG4_MAX: u32 = 2_400;
+    pub const SSTORE_NEW_MAX: u32 = 3_300;
+    pub const SSTORE_CHANGE_MAX: u32 = 14_400;
+    pub const CALLDATA_MAX_KIB: u32 = 5_000;
+
     /// `n` plain value transfers, each from its own sender to a new account.
     /// 75M gas / 21k gas caps a block at 3571.
     pub fn transfers_setup<T: Config>(n: u32) -> Vec<H160> {
@@ -255,7 +264,7 @@ mod benchmarks {
 
     /// `n` value transfers. 75M gas / 21k caps a block at 3571.
     #[benchmark]
-    fn evm_block_transfers(n: Linear<1, 3_571>) {
+    fn evm_block_transfers(n: Linear<1, TRANSFERS_MAX>) {
         let senders = transfers_setup::<T>(n);
 
         #[block]
@@ -269,7 +278,7 @@ mod benchmarks {
 
     /// `i` iterations of 64 LOG0s, ~24.3k gas each, so 3000 is ~73M gas.
     #[benchmark]
-    fn evm_block_log0(i: Linear<1, 3_000>) {
+    fn evm_block_log0(i: Linear<1, LOG0_MAX>) {
         log0_setup::<T>();
 
         #[block]
@@ -283,7 +292,7 @@ mod benchmarks {
 
     /// `i` iterations of 16 LOG4s, ~30.2k gas each, so 2400 is ~73M gas.
     #[benchmark]
-    fn evm_block_log4(i: Linear<1, 2_400>) {
+    fn evm_block_log4(i: Linear<1, LOG4_MAX>) {
         log4_setup::<T>();
 
         #[block]
@@ -297,7 +306,7 @@ mod benchmarks {
 
     /// `i` new storage slots, ~22.1k gas each, so 3300 is ~73M gas.
     #[benchmark]
-    fn evm_block_sstore_new(i: Linear<1, 3_300>) {
+    fn evm_block_sstore_new(i: Linear<1, SSTORE_NEW_MAX>) {
         sstore_new_setup::<T>();
 
         #[block]
@@ -312,7 +321,7 @@ mod benchmarks {
     /// `i` changed existing storage slots, ~5k gas each, so 14400 is ~73M gas.
     /// Every changed slot is a dirty key for the intermediate state root.
     #[benchmark]
-    fn evm_block_sstore_change(i: Linear<1, 14_400>) {
+    fn evm_block_sstore_change(i: Linear<1, SSTORE_CHANGE_MAX>) {
         sstore_change_setup::<T>(i);
 
         #[block]
@@ -327,7 +336,7 @@ mod benchmarks {
     /// `s` KiB of zero calldata in one transaction. The 5 MiB block length caps
     /// it below 5120 KiB, well before the gas limit does.
     #[benchmark]
-    fn evm_block_calldata(s: Linear<1, 5_000>) {
+    fn evm_block_calldata(s: Linear<1, CALLDATA_MAX_KIB>) {
         calldata_setup::<T>();
 
         #[block]
@@ -346,7 +355,10 @@ mod benchmarks {
     );
 }
 
-#[cfg(test)]
+/// Only production pricing is checked. Devnet and fast-runtime fit 75M gas into
+/// a third of the weight, which underprices EVM execution itself; with nothing
+/// of value at stake there, that is accepted, and these tests are not built.
+#[cfg(all(test, not(any(feature = "devnet", feature = "fast-runtime"))))]
 mod tests {
     use super::shapes::*;
     use super::*;
@@ -389,30 +401,26 @@ mod tests {
     /// finalizing, than the weight its gas is charged. `on_initialize` reserves
     /// only the fixed part of `on_finalize`, so this is what keeps the rest of
     /// it inside the block's normal budget.
-    ///
-    /// Only production pricing is checked. Devnet and fast-runtime fit 75M gas
-    /// into a third of the weight, which underprices EVM execution itself; with
-    /// nothing of value at stake there, that is accepted.
-    /// A block shape, its largest size and its benchmarked weight function.
-    type Shape = (&'static str, u32, fn(u32) -> Weight);
-
     #[test]
     fn per_gas_charge_covers_execution_and_finalize() {
         use crate::weights::evm_block::WeightInfo as Bench;
         type W = Bench<Runtime>;
+        /// A block shape, its largest size and its benchmarked weight function.
+        type Shape = (&'static str, u32, fn(u32) -> Weight);
 
-        if cfg!(any(feature = "devnet", feature = "fast-runtime")) {
-            return;
-        }
         let per_gas = crate::WeightPerGas::get().ref_time();
 
         let shapes: [Shape; 6] = [
-            ("transfers", 3_571, W::evm_block_transfers),
-            ("log0", 3_000, W::evm_block_log0),
-            ("log4", 2_400, W::evm_block_log4),
-            ("sstore_new", 3_300, W::evm_block_sstore_new),
-            ("sstore_change", 14_400, W::evm_block_sstore_change),
-            ("calldata", 5_000, W::evm_block_calldata),
+            ("transfers", TRANSFERS_MAX, W::evm_block_transfers),
+            ("log0", LOG0_MAX, W::evm_block_log0),
+            ("log4", LOG4_MAX, W::evm_block_log4),
+            ("sstore_new", SSTORE_NEW_MAX, W::evm_block_sstore_new),
+            (
+                "sstore_change",
+                SSTORE_CHANGE_MAX,
+                W::evm_block_sstore_change,
+            ),
+            ("calldata", CALLDATA_MAX_KIB, W::evm_block_calldata),
         ];
         for (shape, max, weight) in shapes {
             let (gas_low, gas_high) = (shape_gas(shape, 1), shape_gas(shape, max));
