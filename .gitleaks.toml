@@ -19,4 +19,7 @@ regexes = [
     # Well-known public dev node key (Alice). Not a secret; used across CI
     # workflows to get a deterministic local bootnode peer id.
     '''d182d503b7dd97e7c055f33438c7717145840fd66b2a055284ee8d768241a463''',
+    # Well-known public dev account key (Alith). Prefunded on local dev chains only; used by the
+    # Base attestor CI workflow.
+    '''5fb92d6e98884f76de468fa3f6278f8807c48bebc13595d45af5bdc4da702133''',
 ]
