@@ -9,6 +9,35 @@ import {
 } from '../blockchain-tests/pallets/supported-chains/consts';
 import { randomIntBetween } from '../utils';
 
+// The pallet rejects any attestation that is not at least one interval past
+// the last committed one, so a healthy stream contains one height per event.
+// This counts the events that repeat an already-seen height; a non-zero
+// result means the event count was inflated by re-attesting the same height.
+const countReattestedHeights = (heights: readonly number[]): number => {
+    const seen = new Set<number>();
+    let reattested = 0;
+    for (const height of heights) {
+        if (seen.has(height)) {
+            reattested += 1;
+        } else {
+            seen.add(height);
+        }
+    }
+    return reattested;
+};
+
+describe('distinct-height invariant', (): void => {
+    test('strictly increasing heights are all distinct', (): void => {
+        expect(countReattestedHeights([10, 20, 30, 40])).toBe(0);
+    });
+    test('repeated heights are counted', (): void => {
+        // the case the old ceil(2/3) floor let through: two events at the same
+        // height, distinct-height set of size 1, floor of 1
+        expect(countReattestedHeights([20, 20])).toBe(1);
+        expect(countReattestedHeights([20, 20, 30])).toBe(1);
+    });
+});
+
 describe('BlockAttested events', (): void => {
     let api: ApiPromise;
     let root: KeyringPair;
@@ -26,7 +55,10 @@ describe('BlockAttested events', (): void => {
     const minEpochBoundaries = 3;
     const minIntervalChanges = 2;
     const minAttestedAfterIntervalChange = 2;
-    const minAttestedAfterCatchUp = 2;
+    // Two *distinct* heights, not two events: with 3 attestors and two post-catch-up
+    // events at the same height, ceil(2/3) is 1, so a plain count-based floor would
+    // accept the duplicate.
+    const minDistinctHeightsAfterCatchUp = 2;
 
     beforeAll(async () => {
         ({ api } = await newApi((global as any).CREDITCOIN_API_URL));
@@ -71,8 +103,10 @@ describe('BlockAttested events', (): void => {
         // Anvil-1 attestations past the head it had when the test started, i.e. once the
         // attestors have caught up with the preloaded blocks and follow the tip
         let attestedAfterCatchUp_Anvil1 = 0;
-        // Distinct Anvil-1 heights attested past the starting head. Event counts alone can be
-        // inflated by re-attesting the same height, so progress is asserted on this instead.
+        // Distinct Anvil-1 heights attested past the starting head. The pallet only accepts an
+        // attestation at least one interval past the last committed one, so a healthy stream
+        // contains one height per event; the distinct count must stay equal to the event count.
+        let distinctHeightsAfterCatchUp_Anvil1 = 0;
         const attestedHeightsAfterCatchUp_Anvil1 = new Set<number>();
         const initialBlock = (await getChainStatus(api)).bestNumber;
 
@@ -80,7 +114,7 @@ describe('BlockAttested events', (): void => {
             epochBoundaries >= minEpochBoundaries &&
             intervalChangedEvents[chain_Anvil2_Key] >= minIntervalChanges &&
             attestedAfterIntervalChange_Anvil2 >= minAttestedAfterIntervalChange &&
-            attestedAfterCatchUp_Anvil1 >= minAttestedAfterCatchUp &&
+            distinctHeightsAfterCatchUp_Anvil1 >= minDistinctHeightsAfterCatchUp &&
             attestedEvents[chain_Anvil1_Key] >= 15 &&
             attestedEvents[chain_Anvil2_Key] >= 4;
 
@@ -113,7 +147,11 @@ describe('BlockAttested events', (): void => {
                                 (headerNumber as U64).toNumber() > startBlock_Anvil1
                             ) {
                                 attestedAfterCatchUp_Anvil1++;
-                                attestedHeightsAfterCatchUp_Anvil1.add((headerNumber as U64).toNumber());
+                                const height = (headerNumber as U64).toNumber();
+                                if (!attestedHeightsAfterCatchUp_Anvil1.has(height)) {
+                                    attestedHeightsAfterCatchUp_Anvil1.add(height);
+                                    distinctHeightsAfterCatchUp_Anvil1++;
+                                }
                             }
                             if (
                                 supportedChainKeyStr === String(chain_Anvil2_Key) &&
@@ -211,8 +249,9 @@ describe('BlockAttested events', (): void => {
             expect(attestedEvents[chain_Anvil1_Key]).toBeGreaterThan(0);
             expect(attestedEvents[chain_Anvil2_Key]).toBeGreaterThan(0);
 
-            // attestors caught up with the preloaded Anvil-1 blocks and keep following its tip
-            expect(attestedAfterCatchUp_Anvil1).toBeGreaterThanOrEqual(minAttestedAfterCatchUp);
+            // attestors caught up with the preloaded Anvil-1 blocks and keep following its tip,
+            // at least twice, at two different heights
+            expect(attestedAfterCatchUp_Anvil1).toBeGreaterThanOrEqual(minDistinctHeightsAfterCatchUp);
 
             const endBlock_Anvil1 = await provider_Anvil1.getBlockNumber();
             // There are 10013 initial blocks, attested at one per interval over each catch-up
@@ -238,18 +277,13 @@ describe('BlockAttested events', (): void => {
             // so allow for some timing differences
             expect(attestedEvents[chain_Anvil1_Key]).toBeLessThanOrEqual(expectedBlockAttestedEvents_Anvil1 + 2);
 
-            // ... and the heights behind those events are distinct, so the count cannot be inflated
-            // by re-attesting a handful of heights. One per interval of progress is the shape of a
-            // tip-following run, but while the catch-up window is still open heights step by up to
-            // `max_catchup` and can be clamped to a tip that has only just moved, so the floor is
-            // also capped by what the observed events can support: no more than one attestation per
-            // attestor per height. Duplicates still fail, because a run that re-attests one height
-            // raises the second term without raising the first.
-            const minDistinctHeights = Math.max(
-                1,
-                Math.min(intervalsElapsed - 2, Math.ceil(attestedAfterCatchUp_Anvil1 / attestorsForAnvil1)),
-            );
-            expect(attestedHeightsAfterCatchUp_Anvil1.size).toBeGreaterThanOrEqual(minDistinctHeights);
+            // ... and no event repeats a height already attested for this chain. The pallet
+            // only accepts an attestation at least one interval past the last committed one,
+            // so the event count and the distinct-height count must be exactly equal; a
+            // non-zero gap means some height was re-attested and inflated the count.
+            expect(attestedAfterCatchUp_Anvil1).toBe(distinctHeightsAfterCatchUp_Anvil1);
+            // and at least two distinct heights, matching the isDone() gate
+            expect(distinctHeightsAfterCatchUp_Anvil1).toBeGreaterThanOrEqual(minDistinctHeightsAfterCatchUp);
 
             // note: interval for Anvil2 changes dynamically during this test
             expect(attestedEvents[chain_Anvil2_Key]).toBeLessThanOrEqual(40);
