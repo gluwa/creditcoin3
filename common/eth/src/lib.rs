@@ -2425,14 +2425,15 @@ mod provider_lookup_tests {
 
     #[test]
     fn redact_url_query_keeps_human_readable_path_segments() {
-        // Real-world googleapis URL — the path tokens are identifiers we
-        // *want* to keep for log readability; the actual key sits in `?key=`.
+        // Gateway-style URL with a long, human-readable path — the path tokens
+        // are identifiers we *want* to keep for log readability; the actual key
+        // sits in `?key=`.
         let redacted = redact_url_query(
-            "https://blockchain.googleapis.com/v1/projects/cc3-testnet-rpckey-2/locations/us-central1/endpoints/ethereum-sepolia/rpc?key=AIzaSyVxWM",
+            "https://rpc-gateway.example.io/v1/projects/cc3-testnet-rpckey-2/locations/us-central1/endpoints/ethereum-sepolia/rpc?key=AbCdEf012345",
         );
         assert_eq!(
             redacted,
-            "https://blockchain.googleapis.com/v1/projects/cc3-testnet-rpckey-2/locations/us-central1/endpoints/ethereum-sepolia/rpc?…"
+            "https://rpc-gateway.example.io/v1/projects/cc3-testnet-rpckey-2/locations/us-central1/endpoints/ethereum-sepolia/rpc?…"
         );
     }
 
