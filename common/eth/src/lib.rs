@@ -2429,7 +2429,7 @@ mod provider_lookup_tests {
         // are identifiers we *want* to keep for log readability; the actual key
         // sits in `?key=`.
         let redacted = redact_url_query(
-            "https://rpc-gateway.example.io/v1/projects/cc3-testnet-rpckey-2/locations/us-central1/endpoints/ethereum-sepolia/rpc?key=AbCdEf012345",
+            "https://rpc-gateway.example.io/v1/projects/cc3-testnet-rpckey-2/locations/us-central1/endpoints/ethereum-sepolia/rpc?key=dummykey",
         );
         assert_eq!(
             redacted,
