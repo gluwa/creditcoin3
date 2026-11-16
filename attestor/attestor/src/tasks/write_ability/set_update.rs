@@ -69,7 +69,9 @@ pub fn required_quorum(active: usize, params: &ThresholdParams) -> U256 {
 }
 
 /// Whether proposing the registered subset keeps the destination quorum at or above
-/// [`required_quorum`] (CSUB-2136), and reachable by the subset itself.
+/// [`required_quorum`] (CSUB-2136), and reachable by the subset itself. The guarantee is on the
+/// signature count, not the set size: a binding `minAttestorCount` can admit a smaller subset, but
+/// it then needs at least `required_quorum` signers, all of them elected attestors.
 #[must_use]
 pub fn enough_registered(registered: usize, active: usize, params: &ThresholdParams) -> bool {
     let quorum = params.threshold(registered);
@@ -381,6 +383,36 @@ mod tests {
             ..two_thirds()
         };
         assert_eq!(required_quorum(10, &strict), U256::from(7u64));
+    }
+
+    #[test]
+    fn binding_min_attestor_count_never_lowers_the_required_signers() {
+        // Floor 8 over 10 attestors with weak 15/30 params: required quorum is min(7, 8) = 7.
+        let floored = ThresholdParams {
+            numerator: U256::from(15u64),
+            min_attestor_count: U256::from(8u64),
+            ..two_thirds()
+        };
+        assert_eq!(required_quorum(10, &floored), U256::from(7u64));
+        assert!(enough_registered(8, 10, &floored)); // needs all 8 to sign, above the committee's 7
+        assert!(!enough_registered(7, 10, &floored)); // floor makes the quorum 8 > 7 registered
+                                                      // Odd committee, floor 5 over 9 attestors (committee quorum 7, validator quorum 5).
+        let odd = ThresholdParams {
+            numerator: U256::from(15u64),
+            min_attestor_count: U256::from(5u64),
+            ..two_thirds()
+        };
+        assert_eq!(required_quorum(9, &odd), U256::from(5u64));
+        assert!(enough_registered(5, 9, &odd)); // 5-of-5, same signer count as the full set needs
+        assert!(!enough_registered(4, 9, &odd));
+        // Whatever passes, the signers it needs never fall below the required quorum.
+        for active in 1..=40usize {
+            for registered in 1..=active {
+                if enough_registered(registered, active, &odd) {
+                    assert!(odd.threshold(registered) >= required_quorum(active, &odd));
+                }
+            }
+        }
     }
 
     #[test]
