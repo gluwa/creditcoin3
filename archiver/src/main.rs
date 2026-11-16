@@ -45,6 +45,7 @@ async fn new_fetch_client(cfg: &Config, deadline: Duration) -> Result<eth::Clien
         &cfg.rpc_fallback_urls,
         deadline,
         cfg.eth_rps,
+        cfg.eth_chain_family,
     )
     .await?
     .with_fetch_mode(cfg.fetch_mode))
@@ -165,17 +166,17 @@ async fn main() -> Result<()> {
         &cfg.rpc_fallback_urls,
         rpc_timeout,
         cfg.eth_rps,
+        cfg.eth_chain_family,
     )
-    .await?
-    .with_chain_family_override(cfg.eth_chain_family);
+    .await?;
     let http_client = dial(
         cfg.rpc_http.as_str(),
         &cfg.rpc_fallback_urls,
         rpc_timeout,
         cfg.eth_rps,
+        cfg.eth_chain_family,
     )
-    .await?
-    .with_chain_family_override(cfg.eth_chain_family);
+    .await?;
     if ws_client.chain_id() != http_client.chain_id() {
         return Err(anyhow!(
             "chain_id's from ws vs http don't match! ws_chain_id: {}, http_chain_id: {}",
@@ -460,7 +461,6 @@ async fn main() -> Result<()> {
                     }
                     c = new_fetch_client(&cfg, rpc_timeout) => c?,
                 };
-                let ws_client = ws_client.with_chain_family_override(cfg.eth_chain_family);
                 // Same identity rule as startup and reconnect: a fresh dial that lands on
                 // another chain must not fill gaps with foreign roots (the reorg guard only
                 // fires for heights that already exist, so gaps have no second line of
@@ -720,7 +720,6 @@ async fn main() -> Result<()> {
                             );
                         }
                         Ok(new_ws) => {
-                            let new_ws = new_ws.with_chain_family_override(cfg.eth_chain_family);
                             // The chain may have reorged past our tail while we were away.
                             // Same rule as startup: verify the anchor, fail closed unless
                             // bounded re-anchoring is allowed. An RPC error here is just a
@@ -925,8 +924,12 @@ async fn dial(
     fallback_urls: &[String],
     deadline: Duration,
     rps: Option<std::num::NonZeroU32>,
+    family: Option<eth::ChainFamily>,
 ) -> Result<eth::Client> {
-    let client = dial_unpaced(url, fallback_urls, deadline).await?;
+    // Every dial applies the family, so a dial path added later cannot forget it.
+    let client = dial_unpaced(url, fallback_urls, deadline)
+        .await?
+        .with_chain_family_override(family);
     // Pace before anything clones the client: clones share the pacer they were made from.
     Ok(match rps {
         Some(rps) => client.with_rate_limit(rps),
