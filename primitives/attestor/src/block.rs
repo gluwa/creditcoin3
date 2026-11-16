@@ -210,7 +210,7 @@ impl TryFrom<ContinuityBlockSerializable> for ContinuityBlock {
 /// Block number for index i = startBlock + i, where startBlock = queryBlockHeight
 /// The query block is at index 0 for optimal proof size
 #[derive(
-    Debug, Clone, Default, PartialEq, Eq, Codec, Serialize, Deserialize, Encode, Decode, TypeInfo,
+    Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, Encode, Decode, TypeInfo,
 )]
 #[serde(rename_all = "camelCase")]
 pub struct ContinuityProof {
@@ -223,6 +223,50 @@ pub struct ContinuityProof {
 
 // H256 is fixed-size with no heap allocation; Vec<H256> uses tracked allocation via Vec's impl.
 impl DecodeWithMemTracking for ContinuityProof {}
+
+/// Maximum number of continuity-chain roots accepted when ABI-decoding a proof in a
+/// precompile. Re-exported by the block-prover precompile as
+/// `pallet_evm_precompile_block_prover::verify::MAX_CONTINUITY_ROOTS`.
+pub const MAX_CONTINUITY_ROOTS: u32 = 50_000;
+
+/// Solidity `Codec` that limits `roots` to [`MAX_CONTINUITY_ROOTS`] entries.
+///
+/// `write`, `signature` and `has_static_size` delegate to the plain field tuple, so the
+/// ABI encoding and every precompile selector are the same as with `derive(Codec)`.
+const _: () = {
+    use precompile_utils::solidity::codec::{
+        BoundedVec, Codec, Reader, String as AbiString, Writer,
+    };
+    use precompile_utils::solidity::revert::{BacktraceExt, MayRevert};
+    use sp_core::ConstU32;
+
+    impl Codec for ContinuityProof {
+        fn read(reader: &mut Reader) -> MayRevert<Self> {
+            let (lower_endpoint_digest, roots): (
+                H256,
+                BoundedVec<H256, ConstU32<MAX_CONTINUITY_ROOTS>>,
+            ) = reader
+                .read()
+                .map_in_tuple_to_field(&["lower_endpoint_digest", "roots"])?;
+            Ok(Self {
+                lower_endpoint_digest,
+                roots: roots.into(),
+            })
+        }
+
+        fn write(writer: &mut Writer, value: Self) {
+            Codec::write(writer, (value.lower_endpoint_digest, value.roots));
+        }
+
+        fn has_static_size() -> bool {
+            <(H256, Vec<H256>)>::has_static_size()
+        }
+
+        fn signature() -> AbiString {
+            <(H256, Vec<H256>)>::signature()
+        }
+    }
+};
 
 impl ContinuityProof {
     /// Create a new simplified continuity proof from a lower endpoint digest and roots
