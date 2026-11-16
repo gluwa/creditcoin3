@@ -37,14 +37,35 @@ use super::signing::MessageSigner;
 /// how long a diverged set goes un-proposed.
 const SET_UPDATE_POLL_SECS: u64 = 60;
 
+/// The destination validator's threshold configuration, read from the contract: it is set at
+/// deploy time, so the proposer must not assume `2N/3 + 1`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ThresholdParams {
+    pub numerator: U256,
+    pub addition: U256,
+    pub denominator: U256,
+    pub min_attestor_count: U256,
+}
+
+impl ThresholdParams {
+    /// Mirrors `EOAValidator.threshold()` for a set of `n` attestors.
+    #[must_use]
+    pub fn threshold(&self, n: usize) -> U256 {
+        let scaled = U256::from(n).saturating_mul(self.numerator);
+        let t = scaled
+            .checked_div(self.denominator)
+            .map_or(U256::MAX, |q| q.saturating_add(self.addition));
+        t.max(self.min_attestor_count)
+    }
+}
+
 /// Whether proposing the registered subset keeps the destination quorum at or above the elected
-/// committee's: the validator derives its threshold from the proposed set, so a smaller subset
-/// would let fewer attestors than the committee quorum authorize delivery (CSUB-2136). Waiting for
-/// full registration is not required, only `threshold(registered) >= threshold(active)`.
+/// committee's `calculate_threshold(active)` (CSUB-2136), and reachable by the subset itself.
 #[must_use]
-pub fn enough_registered(registered: usize, active: usize) -> bool {
-    let threshold = |n: usize| attestor_primitives::calculate_threshold(n as u32);
-    threshold(registered) >= threshold(active)
+pub fn enough_registered(registered: usize, active: usize, params: &ThresholdParams) -> bool {
+    let quorum = params.threshold(registered);
+    quorum >= U256::from(attestor_primitives::calculate_threshold(active as u32))
+        && quorum <= U256::from(registered)
 }
 
 /// Whether the destination validator's `current` set differs from our `candidate` set, compared as
@@ -108,8 +129,36 @@ async fn propose_once(
         // empty set would brick the validator.)
         return Ok(None);
     }
+    let provider = ProviderBuilder::new()
+        .connect(dest_rpc_url)
+        .await
+        .map_err(|e| anyhow::anyhow!("connect destination chain RPC: {e}"))?;
+    let contract = IVoteValidator::new(validator, &provider);
+
+    let params = ThresholdParams {
+        numerator: contract
+            .thresholdNumerator()
+            .call()
+            .await
+            .context("read EOAValidator.thresholdNumerator()")?,
+        addition: contract
+            .thresholdAddition()
+            .call()
+            .await
+            .context("read EOAValidator.thresholdAddition()")?,
+        denominator: contract
+            .THRESHOLD_DENOMINATOR()
+            .call()
+            .await
+            .context("read EOAValidator.THRESHOLD_DENOMINATOR()")?,
+        min_attestor_count: contract
+            .minAttestorCount()
+            .call()
+            .await
+            .context("read EOAValidator.minAttestorCount()")?,
+    };
     // Defer while the registered subset's quorum would be lower than the committee's (CSUB-2136).
-    if !enough_registered(candidate.len(), active_count) {
+    if !enough_registered(candidate.len(), active_count, &params) {
         tracing::debug!(
             registered = candidate.len(),
             active = active_count,
@@ -117,12 +166,6 @@ async fn propose_once(
         );
         return Ok(None);
     }
-
-    let provider = ProviderBuilder::new()
-        .connect(dest_rpc_url)
-        .await
-        .map_err(|e| anyhow::anyhow!("connect destination chain RPC: {e}"))?;
-    let contract = IVoteValidator::new(validator, &provider);
 
     let current = contract
         .attestors()
@@ -255,22 +298,73 @@ mod tests {
     use super::*;
     use alloy::primitives::address;
 
+    /// `EOAValidator` as deployed by default: 20/30 + 1, no effective minimum.
+    fn two_thirds() -> ThresholdParams {
+        ThresholdParams {
+            numerator: U256::from(20u64),
+            addition: U256::from(1u64),
+            denominator: U256::from(30u64),
+            min_attestor_count: U256::from(1u64),
+        }
+    }
+
     #[test]
     fn enough_registered_never_lowers_the_committee_quorum() {
-        assert!(enough_registered(1, 1));
-        assert!(!enough_registered(1, 2));
-        assert!(enough_registered(2, 2));
-        assert!(!enough_registered(2, 3));
-        assert!(enough_registered(3, 3));
-        assert!(!enough_registered(2, 4));
-        assert!(enough_registered(3, 4)); // quorum 3 either way
-        assert!(!enough_registered(4, 7));
-        assert!(!enough_registered(5, 7)); // quorum 4 < 5
-        assert!(enough_registered(6, 7)); // quorum 5 either way
-                                          // The audit's case: 67 of 100 registered would give quorum 45 against the committee's 67.
-        assert!(!enough_registered(67, 100));
-        assert!(enough_registered(99, 100));
-        assert!(!enough_registered(98, 100));
+        let p = two_thirds();
+        assert!(enough_registered(1, 1, &p));
+        assert!(!enough_registered(1, 2, &p));
+        assert!(enough_registered(2, 2, &p));
+        assert!(!enough_registered(2, 3, &p));
+        assert!(enough_registered(3, 3, &p));
+        assert!(!enough_registered(2, 4, &p));
+        assert!(enough_registered(3, 4, &p)); // quorum 3 either way
+        assert!(!enough_registered(4, 7, &p));
+        assert!(!enough_registered(5, 7, &p)); // quorum 4 < 5
+        assert!(enough_registered(6, 7, &p)); // quorum 5 either way
+                                              // 67 of 100 registered would give quorum 45 against the committee's 67.
+        assert!(!enough_registered(67, 100, &p));
+        assert!(enough_registered(99, 100, &p));
+        assert!(!enough_registered(98, 100, &p));
+    }
+
+    #[test]
+    fn enough_registered_uses_the_validators_configured_threshold() {
+        // A validator deployed at 15/30 + 1: with the 2N/3 + 1 assumption 3 of 4 would pass, but
+        // its real quorum for 3 attestors is 2, below the committee's 3.
+        let half = ThresholdParams {
+            numerator: U256::from(15u64),
+            ..two_thirds()
+        };
+        assert!(!enough_registered(3, 4, &half));
+        // A stricter validator (25/30 + 1) clears the committee quorum with fewer registrations.
+        let strict = ThresholdParams {
+            numerator: U256::from(25u64),
+            ..two_thirds()
+        };
+        assert!(enough_registered(8, 10, &strict)); // quorum 7 >= committee 7
+    }
+
+    #[test]
+    fn enough_registered_rejects_an_unreachable_destination_quorum() {
+        // minAttestorCount above the registered count: the floor makes the quorum unreachable.
+        let floor3 = ThresholdParams {
+            min_attestor_count: U256::from(3u64),
+            ..two_thirds()
+        };
+        assert!(!enough_registered(2, 3, &floor3)); // quorum 3 > 2 registered
+        assert!(enough_registered(3, 3, &floor3));
+    }
+
+    #[test]
+    fn threshold_params_mirror_the_contract_formula() {
+        let p = two_thirds();
+        assert_eq!(p.threshold(100), U256::from(67u64));
+        assert_eq!(p.threshold(4), U256::from(3u64));
+        let zero_den = ThresholdParams {
+            denominator: U256::ZERO,
+            ..p
+        };
+        assert_eq!(zero_den.threshold(4), U256::MAX);
     }
 
     #[test]
