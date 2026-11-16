@@ -69,12 +69,19 @@ source using `supportedChains.registerChain`. Set these parameters together at r
 | `max_attestors`, `max_invulnerables`     | Values suitable for your attestor set, or `None` for runtime defaults             |
 | `attestation_chain_genesis_block_number` | A recent source height aligned with the interval; record it as `SOURCE_GENESIS`   |
 | `encoding`                               | `V1`                                                                              |
-| `maturity_strategy`                      | An explicit `FixedDelay:<blocks>` appropriate for the test's reorg tolerance      |
+| `maturity_strategy`                      | `FixedDelay:<blocks>` for this local test only; see the finality note below       |
 
 Record the `chain_key` from `supportedChains.ChainRegistered` as `CHAIN_KEY`. For an already
 registered source, check its stored chain ID, encoding, maturity, genesis height, and intervals.
-Genesis cannot be changed after attestations or checkpoints exist. A fixed block delay does not
-mean OP's L1 finality; do not interpret `EvmSafe` / `EvmFinalized` as OP RPC safe/finalized tags.
+Genesis cannot be changed after attestations or checkpoints exist.
+
+**Finality.** `FixedDelay:<blocks>` is fine for this local test, but a real Base / OP source should
+be registered with `RpcSafe` or `RpcFinalized`. Those resolve the mature height from the source
+node's `safe` / `finalized` block tags, which on an OP-Stack rollup follow L1 batch inclusion and L1
+finality. A fixed block count cannot follow those on a 2-second chain, so a block attested after a
+fixed delay can still be reorged out by the sequencer. `EvmSafe` / `EvmFinalized` are not RPC tags
+either: they are fixed 32 / 64 block offsets. The source node must serve the `safe` / `finalized`
+tags.
 
 Fund and make the intended attestor accounts eligible under that chain's bond/election policy.
 One process alone cannot satisfy a three-attestor quorum. Each process needs its own secret,
