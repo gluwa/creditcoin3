@@ -183,8 +183,12 @@ pub enum BlockFetchMode {
     Json,
     /// `debug_getRawBlock(n)` + `debug_getRawReceipts(hash)`: the node hands back the RLP it stores
     /// and this client decodes it. Roughly 3 to 5× smaller payloads and no JSON marshalling on the
-    /// node, at the cost of recovering transaction senders locally. Needs the `debug` namespace,
-    /// which public providers generally do not expose; meant for a node we operate ourselves.
+    /// node, at the cost of an extra round trip per block and decoding the RLP locally. Needs the
+    /// `debug` namespace, which public providers generally do not expose; meant for a node we
+    /// operate ourselves.
+    ///
+    /// Both modes recover every transaction sender locally (one ECDSA recovery per transaction):
+    /// raw mode while decoding, JSON mode to check the `from` the node reported.
     RawRlp,
 }
 
@@ -609,13 +613,13 @@ fn header_hash_from_raw_block(raw: &[u8]) -> Result<BlockHash, alloy::rlp::Error
 /// still pass every header check. The raw-RLP path has no `from` to trust and recovers it itself
 /// in [`rpc_block_from_raw`].
 ///
-/// CPU-bound (one ECDSA recovery per transaction); callers on the async runtime should run it on
-/// the blocking pool.
-fn verify_json_senders(number: u64, block: &Block) -> Result<(), Error> {
-    let Some(txs) = block.transactions.as_transactions() else {
-        return Ok(());
-    };
-    for (index, tx) in txs.iter().enumerate() {
+/// Runs on a block whose header roots already verified, so the signature bytes are known to be the
+/// canonical ones and a recovery failure repeats on every provider. CPU-bound (one ECDSA recovery
+/// per transaction).
+fn verify_json_senders(block: &OrderedBlock) -> Result<(), Error> {
+    let number = block.number();
+    for (index, item) in block.items().iter().enumerate() {
+        let tx = item.tx();
         // Unchecked recovery for the same reason as in `rpc_block_from_raw`: blocks are
         // already canonical, and the EIP-2 low-s rule would reject old pre-Homestead signatures.
         let recovered = tx
@@ -634,6 +638,35 @@ fn verify_json_senders(number: u64, block: &Block) -> Result<(), Error> {
         }
     }
     Ok(())
+}
+
+/// Build the [`OrderedBlock`] for a fetched pair: the header-root checks first, then, for a JSON
+/// payload, the sender check. Raw-RLP payloads carry no `from`, so there is nothing to check.
+fn build_ordered_block(
+    chain_id: u64,
+    fetch_mode: BlockFetchMode,
+    block: Block,
+    receipts: Vec<TransactionReceipt>,
+    number: u64,
+    encoding: EncodingVersion,
+) -> Result<OrderedBlock, Error> {
+    let ordered =
+        OrderedBlock::try_from_fetched_block(chain_id, block, receipts, number, encoding)?;
+    if fetch_mode == BlockFetchMode::Json {
+        verify_json_senders(&ordered)?;
+    }
+    Ok(ordered)
+}
+
+/// Run CPU-bound `work` on the blocking pool, reporting a failed join as [`Error::ClientError`].
+async fn run_blocking<T, F>(label: &str, work: F) -> Result<T, Error>
+where
+    T: Send + 'static,
+    F: FnOnce() -> Result<T, Error> + Send + 'static,
+{
+    tokio::task::spawn_blocking(work)
+        .await
+        .map_err(|e| Error::ClientError(anyhow::anyhow!("{label} task failed: {e}")))?
 }
 
 /// Rebuild the rpc-shaped [`Block`] and [`TransactionReceipt`]s from the RLP a node returns for
@@ -1392,13 +1425,14 @@ impl Client {
             for (label, provider) in self.providers_with_labels() {
                 match self.fetch_pair_from_provider(provider, number).await {
                     Ok((block, receipts)) => {
-                        match OrderedBlock::try_from_fetched_block(
-                            self.chain_id,
-                            block,
-                            receipts,
-                            number,
-                            encoding,
-                        ) {
+                        let (chain_id, fetch_mode) = (self.chain_id, self.fetch_mode);
+                        match run_blocking("block verification", move || {
+                            build_ordered_block(
+                                chain_id, fetch_mode, block, receipts, number, encoding,
+                            )
+                        })
+                        .await
+                        {
                             Ok(ob) => {
                                 // Don't silently drop earlier-provider failures: if the primary
                                 // (or an earlier fallback) errored and a later peer served the
@@ -1452,17 +1486,6 @@ impl Client {
                                 return Err(Interrupt::Cont(e));
                             }
                         }
-                    }
-                    Err(e) if e.inconsistent_block_payload_for_fallback() => {
-                        // Raised by the fetch itself (e.g. a JSON sender that does not match
-                        // its signature), so it never reaches the validation arm above.
-                        tracing::warn!(
-                            provider = %label,
-                            block_number = number,
-                            error = %e,
-                            "block from this RPC peer failed a consistency check; trying next endpoint"
-                        );
-                        payload_inconsistent_errs.push((label, e));
                     }
                     Err(e) if e.is_unrecoverable() => {
                         tracing::warn!(
@@ -1597,11 +1620,6 @@ impl Client {
                 .ok_or(Error::FailedToGetReceipts(number))
         };
         let (block, receipts) = tokio::try_join!(block_fut, receipts_fut)?;
-        let block = tokio::task::spawn_blocking(move || {
-            verify_json_senders(number, &block).map(|()| block)
-        })
-        .await
-        .map_err(|e| Error::ClientError(anyhow::anyhow!("sender check task failed: {e}")))??;
         Ok((block, receipts))
     }
 
@@ -1652,9 +1670,10 @@ impl Client {
             .map_err(|e| Error::RawBlockDecode(number, e.to_string()))?;
         self.pacer.acquire().await;
         let raw_receipts = provider.debug_get_raw_receipts(BlockId::hash(hash)).await?;
-        tokio::task::spawn_blocking(move || rpc_block_from_raw(number, &raw_block, &raw_receipts))
-            .await
-            .map_err(|e| Error::ClientError(anyhow::anyhow!("raw block decode task failed: {e}")))?
+        run_blocking("raw block decode", move || {
+            rpc_block_from_raw(number, &raw_block, &raw_receipts)
+        })
+        .await
     }
 
     pub async fn get_block(
@@ -2748,10 +2767,11 @@ mod raw_rlp_tests {
     use super::*;
     use alloy::{
         consensus::{
-            BlockBody, Header as ConsensusHeader, Receipt, SignableTransaction, TxEip1559, TxLegacy,
+            BlockBody, Header as ConsensusHeader, Receipt, SignableTransaction, Signed, TxEip1559,
+            TxLegacy,
         },
         eips::eip2718::Encodable2718,
-        primitives::{address, Log as PrimitiveLog, LogData, TxKind, B256, U256},
+        primitives::{address, Log as PrimitiveLog, LogData, Signature, TxKind, B256, U256},
         signers::{local::PrivateKeySigner, SignerSync},
     };
 
@@ -3050,24 +3070,59 @@ mod raw_rlp_tests {
         );
     }
 
-    #[test]
-    fn json_sender_check_accepts_genuine_senders_and_rejects_forged_ones() {
+    /// The fixture as a node would serve it over JSON, plus a way to build it in a given mode.
+    fn json_fixture() -> (u64, Block, Vec<TransactionReceipt>) {
         let (_, block, receipts) = fixture();
         let number = block.header.number;
         let (raw_block, raw_receipts) = raw(&block, &receipts);
-        let (rpc_block, _) = rpc_block_from_raw(number, &raw_block, &raw_receipts).unwrap();
-        verify_json_senders(number, &rpc_block).unwrap();
+        let (rpc_block, rpc_receipts) =
+            rpc_block_from_raw(number, &raw_block, &raw_receipts).unwrap();
+        (number, rpc_block, rpc_receipts)
+    }
+
+    fn build(
+        mode: BlockFetchMode,
+        block: Block,
+        receipts: &[TransactionReceipt],
+        number: u64,
+    ) -> Result<OrderedBlock, Error> {
+        build_ordered_block(
+            CHAIN_ID,
+            mode,
+            block,
+            receipts.to_vec(),
+            number,
+            EncodingVersion::V1,
+        )
+    }
+
+    fn with_transaction(block: &Block, index: usize, tx: Transaction) -> Block {
+        let mut txs: Vec<Transaction> = block.transactions.clone().into_transactions().collect();
+        txs[index] = tx;
+        Block {
+            transactions: BlockTransactions::Full(txs),
+            ..block.clone()
+        }
+    }
+
+    #[test]
+    fn json_sender_check_accepts_genuine_senders_and_rejects_forged_ones() {
+        let (number, rpc_block, receipts) = json_fixture();
+        build(BlockFetchMode::Json, rpc_block.clone(), &receipts, number).unwrap();
 
         let forged = Address::repeat_byte(0xaa);
-        let mut txs: Vec<Transaction> =
-            rpc_block.transactions.clone().into_transactions().collect();
-        let genuine = txs[1].inner.signer();
-        txs[1].inner = Recovered::new_unchecked(txs[1].inner.inner().clone(), forged);
-        let tampered = Block {
-            transactions: BlockTransactions::Full(txs),
-            ..rpc_block
-        };
-        let err = verify_json_senders(number, &tampered).unwrap_err();
+        let mut tx = rpc_block
+            .transactions
+            .clone()
+            .into_transactions()
+            .nth(1)
+            .unwrap();
+        let genuine = tx.inner.signer();
+        tx.inner = Recovered::new_unchecked(tx.inner.inner().clone(), forged);
+        let tampered = with_transaction(&rpc_block, 1, tx);
+
+        // The header roots do not cover `from`, so only the sender check can reject this.
+        let err = build(BlockFetchMode::Json, tampered.clone(), &receipts, number).unwrap_err();
         assert!(matches!(
             err,
             Error::SenderMismatch { number: n, index: 1, claimed, recovered }
@@ -3075,6 +3130,38 @@ mod raw_rlp_tests {
         ));
         assert!(err.inconsistent_block_payload_for_fallback());
         assert_eq!(err.inconsistent_block_number_hint(), Some(number));
+
+        // Raw-RLP payloads carry no `from` to trust, so the check is not run for them.
+        build(BlockFetchMode::RawRlp, tampered, &receipts, number).unwrap();
+    }
+
+    #[test]
+    fn a_corrupted_json_signature_fails_the_root_check_and_falls_back() {
+        let (number, rpc_block, receipts) = json_fixture();
+        let mut tx = rpc_block
+            .transactions
+            .clone()
+            .into_transactions()
+            .next()
+            .unwrap();
+        let claimed = tx.inner.signer();
+        let TxEnvelope::Legacy(signed) = tx.inner.inner().clone() else {
+            panic!("the first fixture transaction is legacy");
+        };
+        let (legacy, _, hash) = signed.into_parts();
+        let broken = Signature::new(U256::ZERO, U256::ZERO, false);
+        tx.inner = Recovered::new_unchecked(
+            TxEnvelope::Legacy(Signed::new_unchecked(legacy, broken, hash)),
+            claimed,
+        );
+        let tampered = with_transaction(&rpc_block, 0, tx);
+
+        // Sender recovery would fail for good on this signature, but it only runs once the roots
+        // verified, so a tampered payload is a per-peer inconsistency, not an unrecoverable block.
+        let err = build(BlockFetchMode::Json, tampered, &receipts, number).unwrap_err();
+        assert!(matches!(err, Error::BlockHeaderRootsMismatch(n) if n == number));
+        assert!(err.inconsistent_block_payload_for_fallback());
+        assert!(!err.is_unrecoverable());
     }
 
     #[test]
