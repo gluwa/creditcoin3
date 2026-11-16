@@ -1,4 +1,4 @@
-use crate::ConstU10MB;
+use crate::MaxEncodedTxBytes;
 use attestor_primitives::block::ContinuityProof;
 use ethabi::Token;
 use fp_evm::{ExitError, PrecompileFailure, PrecompileHandle};
@@ -21,7 +21,8 @@ use merkle::TransactionMerkleProof;
 // - SLOAD: 2,100 (warm) / 2,600 (cold)
 //
 // Gas Model:
-// - Transaction data: Calldata gas is pre-charged by EVM before reaching the precompile
+// - Raw input: charged per word (INPUT_DECODE_WORD_COST)
+// - Transaction data: the Merkle leaf hash is charged at the Keccak-256 rate
 // - Hash operations: Keccak-256 hash cost = 30 base + 6 per word
 //   - Merkle sibling: hash_inner(left, right) = 65 bytes = 3 words = 48 gas
 //   - Continuity block: hash_payload(height, root, prev_digest) = 72 bytes = 3 words = 48 gas
@@ -31,6 +32,19 @@ pub const CONTINUITY_BLOCK_HASH_COST: u64 = 48; // Keccak-256 hash cost: 30 base
 
 // Gas cost for a storage lookup (matches cold SLOAD)
 pub const GAS_STORAGE_LOOKUP: u64 = 2_600;
+
+// Keccak-256 pricing (matches the EVM `KECCAK256` opcode): 30 base + 6 per 32-byte word.
+pub const KECCAK_BASE_COST: u64 = 30;
+pub const KECCAK_WORD_COST: u64 = 6;
+
+/// Gas charged per 32-byte word of raw precompile input.
+/// Matches the EVM copy rate (`CALLDATACOPY`/`MCOPY`: 3 gas per word).
+pub const INPUT_DECODE_WORD_COST: u64 = 3;
+
+/// Number of 32-byte words needed to hold `len` bytes.
+pub(crate) fn words(len: usize) -> u64 {
+    (len as u64).div_ceil(32)
+}
 
 /// Hard upper bound on the number of continuity roots accepted in a single proof.
 ///
@@ -48,8 +62,10 @@ pub const GAS_STORAGE_LOOKUP: u64 = 2_600;
 /// gas-metered at the EVM keccak rate, and an oversized proof can only reach the
 /// revert path (success requires a real attestation/checkpoint at the final block,
 /// which an attacker cannot fabricate). It mirrors the bounded arrays used
-/// elsewhere in this precompile (`MaxBatchSize`, `ConstU10MB`).
-pub const MAX_CONTINUITY_ROOTS: usize = 50_000;
+/// elsewhere in this precompile (`MaxBatchSize`, `MaxEncodedTxBytes`).
+///
+/// Defined next to the `ContinuityProof` type so the two cannot drift apart.
+pub const MAX_CONTINUITY_ROOTS: usize = attestor_primitives::block::MAX_CONTINUITY_ROOTS as usize;
 
 // Gas cost constants for calculateTxIndex
 // Base cost: 10 gas units
@@ -70,27 +86,33 @@ where
     Runtime::AccountId: From<[u8; 32]>,
     <Runtime as pallet_evm::Config>::AddressMapping: AddressMapping<Runtime::AccountId>,
 {
-    /// Charge gas for merkle proof verification
-    /// Note: Transaction data (calldata) gas is pre-charged by EVM before reaching the precompile
+    /// Charge gas for merkle proof verification: the leaf hash over the transaction bytes
+    /// plus one inner hash per sibling.
     fn charge_query_gas(
         handle: &mut impl PrecompileHandle,
-        _tx_bytes_len: usize, // Kept for API compatibility, but not used (calldata pre-charged)
+        tx_bytes_len: usize,
         merkle_siblings_len: usize,
     ) -> EvmResult<()> {
-        let merkle_gas = CONTINUITY_BLOCK_HASH_COST
+        let out_of_gas = PrecompileFailure::Error {
+            exit_status: ExitError::OutOfGas,
+        };
+
+        // `hash_leaf` hashes a one-byte prefix followed by the transaction bytes.
+        let leaf_gas = KECCAK_WORD_COST
+            .checked_mul(words(tx_bytes_len.saturating_add(1)))
+            .and_then(|gas| gas.checked_add(KECCAK_BASE_COST))
+            .ok_or(out_of_gas.clone())?;
+        let siblings_gas = CONTINUITY_BLOCK_HASH_COST
             .checked_mul(merkle_siblings_len as u64)
-            .ok_or(PrecompileFailure::Error {
-                exit_status: ExitError::OutOfGas,
-            })?;
-        handle.record_cost(merkle_gas)?;
+            .ok_or(out_of_gas.clone())?;
+        handle.record_cost(leaf_gas.checked_add(siblings_gas).ok_or(out_of_gas)?)?;
 
         Ok(())
     }
 
     /// Verify merkle proof for transaction inclusion
     ///
-    /// Charges gas for merkle proof verification.
-    /// Note: Transaction data (calldata) gas is pre-charged by EVM.
+    /// Charges gas for the leaf hash and the merkle path before hashing.
     ///
     /// # Returns
     /// `true` if the merkle proof is valid, `false` otherwise
@@ -99,7 +121,7 @@ where
         merkle_proof: &TransactionMerkleProof,
         tx_bytes: &[u8],
     ) -> EvmResult<bool> {
-        // Charge gas for merkle proof (calldata gas is pre-charged by EVM)
+        // Charge for the leaf hash and the merkle path before doing the work
         Self::charge_query_gas(handle, tx_bytes.len(), merkle_proof.siblings.len())?;
 
         Ok(merkle_proof.verify(tx_bytes))
@@ -186,7 +208,7 @@ where
         handle: &mut impl PrecompileHandle,
         chain_key: u64,
         height: u64,
-        encoded_transaction: BoundedBytes<ConstU10MB>,
+        encoded_transaction: BoundedBytes<MaxEncodedTxBytes>,
         merkle_proof: TransactionMerkleProof,
         continuity_proof: ContinuityProof,
         emit_events: bool,
@@ -301,7 +323,7 @@ where
         handle: &mut impl PrecompileHandle,
         chain_key: u64,
         heights: Vec<u64>,
-        encoded_transactions: Vec<BoundedBytes<ConstU10MB>>,
+        encoded_transactions: Vec<BoundedBytes<MaxEncodedTxBytes>>,
         merkle_proofs: Vec<TransactionMerkleProof>,
         shared_continuity_proof: ContinuityProof,
         emit_events: bool,
