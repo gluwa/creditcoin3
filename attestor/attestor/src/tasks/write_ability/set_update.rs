@@ -59,13 +59,21 @@ impl ThresholdParams {
     }
 }
 
-/// Whether proposing the registered subset keeps the destination quorum at or above the elected
-/// committee's `calculate_threshold(active)` (CSUB-2136), and reachable by the subset itself.
+/// The quorum the proposed set must keep: the lower of Creditcoin's `calculate_threshold(active)`
+/// and what this validator already requires of the full committee. A validator configured weaker
+/// than Creditcoin must still be able to rotate, so it is held to its own full-committee quorum.
+#[must_use]
+pub fn required_quorum(active: usize, params: &ThresholdParams) -> U256 {
+    U256::from(attestor_primitives::calculate_threshold(active as u32))
+        .min(params.threshold(active))
+}
+
+/// Whether proposing the registered subset keeps the destination quorum at or above
+/// [`required_quorum`] (CSUB-2136), and reachable by the subset itself.
 #[must_use]
 pub fn enough_registered(registered: usize, active: usize, params: &ThresholdParams) -> bool {
     let quorum = params.threshold(registered);
-    quorum >= U256::from(attestor_primitives::calculate_threshold(active as u32))
-        && quorum <= U256::from(registered)
+    quorum >= required_quorum(active, params) && quorum <= U256::from(registered)
 }
 
 /// Whether the destination validator's `current` set differs from our `candidate` set, compared as
@@ -158,6 +166,10 @@ async fn propose_once(
             .context("read EOAValidator.minAttestorCount()")?,
     };
     // Defer while the registered subset's quorum would be lower than the committee's (CSUB-2136).
+    let weaker = params.threshold(active_count)
+        < U256::from(attestor_primitives::calculate_threshold(
+            active_count as u32,
+        ));
     if !enough_registered(candidate.len(), active_count, &params) {
         tracing::debug!(
             registered = candidate.len(),
@@ -187,6 +199,14 @@ async fn propose_once(
             .await
             .context("read destination chain id")?,
     );
+
+    if weaker {
+        tracing::warn!(
+            validator_quorum = %params.threshold(active_count),
+            committee_quorum = attestor_primitives::calculate_threshold(active_count as u32),
+            "destination validator's full-committee quorum is below the Creditcoin committee's"
+        );
+    }
 
     let vote = build_set_update_vote(signer, chain_key, validator, &candidate, chain_id, nonce)?;
     tracing::info!(
@@ -342,6 +362,25 @@ mod tests {
             ..two_thirds()
         };
         assert!(enough_registered(8, 10, &strict)); // quorum 7 >= committee 7
+    }
+
+    #[test]
+    fn weaker_validator_can_still_rotate_without_lowering_its_own_quorum() {
+        // 15/30 + 1 over 10 attestors: the validator needs 6, Creditcoin 7. Creditcoin's bar is
+        // out of reach for this deployment, so it is held to its own full-committee quorum.
+        let half = ThresholdParams {
+            numerator: U256::from(15u64),
+            ..two_thirds()
+        };
+        assert_eq!(required_quorum(10, &half), U256::from(6u64));
+        assert!(enough_registered(10, 10, &half)); // full registration rotates
+        assert!(!enough_registered(9, 10, &half)); // quorum 5 < 6
+                                                   // A stricter validator keeps Creditcoin's bar.
+        let strict = ThresholdParams {
+            numerator: U256::from(25u64),
+            ..two_thirds()
+        };
+        assert_eq!(required_quorum(10, &strict), U256::from(7u64));
     }
 
     #[test]
