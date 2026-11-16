@@ -87,6 +87,24 @@ macro_rules! log_covered_failure {
     };
 }
 
+/// Only type `0x7e` is an OP-Stack deposit; pointing at `op-stack` for any other type misleads.
+fn unsupported_type_hint(ty: u8) -> &'static str {
+    if ty == op_stack::DEPOSIT_TX_TYPE {
+        " (hint: OP-Stack chains such as Base need the `op-stack` chain family)"
+    } else {
+        ""
+    }
+}
+
+/// Why alloy could not parse a type 0-4 transaction: re-read the catch-all envelope as the
+/// standard one, since the untagged `AnyTxEnvelope` discards the original serde error.
+fn standard_parse_error(unknown: &alloy::network::UnknownTxEnvelope) -> String {
+    serde_json::to_value(unknown)
+        .and_then(serde_json::from_value::<alloy::consensus::TxEnvelope>)
+        .err()
+        .map_or_else(|| "unknown parse error".into(), |e| e.to_string())
+}
+
 #[derive(Debug, Error)]
 pub enum Error {
     #[error("Failed to get block {0}")]
@@ -105,12 +123,25 @@ pub enum Error {
     NotFullTransactionsFetched(u64),
     #[error(
         "Block {block} contains a type {ty:#x} transaction which the `{family}` chain family does \
-         not support (hint: OP-Stack chains such as Base need the `op-stack` chain family)"
+         not support{}", unsupported_type_hint(*.ty)
     )]
     UnsupportedTransactionType {
         block: u64,
         ty: u8,
         family: ChainFamily,
+    },
+    /// A standard (type 0-4) transaction the RPC returned in a shape that does not parse. This
+    /// is one peer's bad payload, not a chain-family problem.
+    #[error(
+        "Block {block}: transaction {hash} at index {index} has standard type {ty:#x} but does \
+         not parse: {reason}"
+    )]
+    MalformedTransaction {
+        block: u64,
+        index: usize,
+        hash: TxHash,
+        ty: u8,
+        reason: String,
     },
     #[error("Block {block}: receipt type {receipt_ty:#x} does not match transaction type {tx_ty:#x} at index {index}")]
     ReceiptTypeMismatch {
@@ -266,6 +297,7 @@ impl Error {
                     | Error::NotFullTransactionsFetched(_)
                     | Error::ReceiptTypeMismatch { .. }
                     | Error::ReceiptsBlockMismatch { .. }
+                    | Error::MalformedTransaction { .. }
             ),
         }
     }
@@ -772,12 +804,12 @@ impl OrderedBlock {
                 // one peer's malformed data, so it stays fallback-eligible rather than a
                 // misconfiguration; the deposit is the only other type a family admits.
                 if ty != op_stack::DEPOSIT_TX_TYPE {
-                    return Err(Error::Deposit {
+                    return Err(Error::MalformedTransaction {
                         block,
-                        source: op_stack::DepositError::NotADeposit {
-                            hash: unknown.hash,
-                            ty,
-                        },
+                        index,
+                        hash: unknown.hash,
+                        ty,
+                        reason: standard_parse_error(unknown),
                     });
                 }
                 if receipt_ty != ty {
@@ -3145,6 +3177,20 @@ mod error_classification_tests {
         };
         assert!(wrong_family.is_unrecoverable());
         assert!(!wrong_family.inconsistent_block_payload_for_fallback());
+    }
+
+    #[test]
+    fn op_stack_hint_is_only_given_for_the_deposit_type() {
+        let unsupported = |ty| {
+            Error::UnsupportedTransactionType {
+                block: 7,
+                ty,
+                family: ChainFamily::Ethereum,
+            }
+            .to_string()
+        };
+        assert!(unsupported(0x7e).contains("`op-stack`"));
+        assert!(!unsupported(0x7f).contains("op-stack"));
     }
 
     #[test]

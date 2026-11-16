@@ -72,19 +72,17 @@ fn canyon_missing_rpc_nonce_uses_the_verified_receipt_nonce() {
 }
 
 #[test]
-fn inconsistent_rpc_nonce_is_a_fallback_eligible_error() {
+fn inconsistent_rpc_nonce_does_not_change_the_leaf() {
     let (mut block, receipts) = fixture(false);
+    let canonical = ordered(block.clone(), receipts.clone(), 84532).unwrap();
+    // op-geth reports 0 when its receipt lookup fails; the receipt's nonce still wins.
     block["transactions"][0]["nonce"] = json!("0x0");
-    let error = ordered(block, receipts, 84532).unwrap_err();
-    assert!(matches!(
-        error,
-        Error::Deposit {
-            source: DepositError::NonceMismatch { .. },
-            ..
-        }
-    ));
-    assert!(error.inconsistent_block_payload_for_fallback());
-    assert_eq!(error.inconsistent_block_number_hint(), Some(46_388_021));
+    let skewed = ordered(block, receipts, 84532).unwrap();
+    assert_eq!(skewed.items()[0].deposit().unwrap().nonce, 46_388_024);
+    assert_eq!(
+        skewed.items()[0].to_bytes(),
+        canonical.items()[0].to_bytes()
+    );
 }
 
 #[test]
@@ -392,7 +390,7 @@ fn deposit_leaf_bytes_are_pinned() {
 /// alloy falls back to `AnyTxEnvelope::Unknown` for a type 0-4 payload it cannot parse. That is
 /// a malformed payload from one peer, not a deposit and not a family misconfiguration.
 #[test]
-fn unparsable_standard_type_is_a_fallback_eligible_error_not_a_deposit() {
+fn unparsable_standard_type_is_a_fallback_eligible_malformed_transaction() {
     let (mut block, receipts) = fixture(false);
     let tx = &mut block["transactions"][1];
     assert_eq!(tx["type"], "0x2");
@@ -428,14 +426,20 @@ fn unparsable_standard_type_is_a_fallback_eligible_error_not_a_deposit() {
         match (family, &err) {
             (
                 ChainFamily::OpStack,
-                Error::Deposit {
-                    source: DepositError::NotADeposit { ty: 2, .. },
+                Error::MalformedTransaction {
+                    ty: 2,
+                    index: 1,
+                    reason,
                     ..
                 },
-            )
-            | (ChainFamily::Ethereum, Error::UnsupportedTransactionType { ty: 0x7e, .. }) => {}
+            ) => assert!(reason.contains("maxFeePerGas"), "{reason}"),
+            (ChainFamily::Ethereum, Error::UnsupportedTransactionType { ty: 0x7e, .. }) => {}
             other => panic!("unexpected result {other:?}"),
         }
+        assert_eq!(
+            err.inconsistent_block_payload_for_fallback(),
+            matches!(err, Error::MalformedTransaction { .. })
+        );
         assert_eq!(
             err.is_unrecoverable(),
             matches!(err, Error::UnsupportedTransactionType { .. })

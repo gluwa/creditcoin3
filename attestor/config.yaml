@@ -74,7 +74,7 @@ eth:
   url: "ws://localhost:8545"
 
   # Optional: Source chain family
-  #   ethereum: L1 and L1-shaped chains (Sepolia, Anvil, Polygon PoS)
+  #   ethereum: L1 and L1-shaped chains (Sepolia, Anvil)
   #   op-stack: OP-Stack rollups such as Base / OP Mainnet, whose blocks carry
   #             0x7e deposit transactions
   #   If omitted, defaults to ethereum for every chain id.

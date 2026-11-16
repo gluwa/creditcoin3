@@ -81,12 +81,6 @@ pub enum DepositError {
     ReceiptMissingNonce { hash: B256 },
     #[error("deposit receipt for {hash}: malformed field `{field}`")]
     ReceiptField { hash: B256, field: &'static str },
-    #[error("deposit transaction {hash}: RPC nonce {transaction_nonce} differs from receipt nonce {receipt_nonce}")]
-    NonceMismatch {
-        hash: B256,
-        transaction_nonce: u64,
-        receipt_nonce: u64,
-    },
     #[error("deposit receipt for {hash}: cumulative gas {cumulative} is less than the previous receipt's {previous}")]
     DecreasingCumulativeGas {
         hash: B256,
@@ -181,9 +175,9 @@ pub fn deposit_from_unknown(
         .get_deserialized("input")
         .and_then(Result::ok)
         .ok_or(field("input"))?;
-    // RPC transaction nonces are metadata, absent on some historical providers. Only
-    // Canyon receipts authenticate this field. Before Canyon use zero regardless of
-    // either RPC object's metadata so all providers produce the same leaf.
+    // The RPC transaction nonce is metadata and never part of the leaf: only Canyon receipts
+    // authenticate it, so use theirs. op-geth copies the receipt's nonce into the transaction
+    // but reports 0 when its receipt lookup fails, so a difference is logged, not fatal.
     let nonce = canonical_nonce(receipt, hash)?;
     if receipt.deposit_receipt_version.is_some() {
         let rpc_nonce = fields
@@ -191,15 +185,13 @@ pub fn deposit_from_unknown(
             .transpose()
             .map_err(|_| field("nonce"))?
             .flatten();
-        if let Some(rpc_nonce) = rpc_nonce {
-            let transaction_nonce = rpc_nonce.to();
-            if transaction_nonce != nonce {
-                return Err(DepositError::NonceMismatch {
-                    hash,
-                    transaction_nonce,
-                    receipt_nonce: nonce,
-                });
-            }
+        if let Some(rpc_nonce) = rpc_nonce.map(|n| n.to::<u64>()).filter(|n| *n != nonce) {
+            tracing::warn!(
+                %hash,
+                rpc_nonce,
+                receipt_nonce = nonce,
+                "deposit RPC nonce differs from the receipt's depositNonce; using the receipt's"
+            );
         }
     }
 

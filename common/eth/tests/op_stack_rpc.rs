@@ -115,7 +115,12 @@ async fn bad_primary_deposit_and_receipt_payloads_use_the_healthy_fallback() {
         let (mut bad_block, mut bad_receipts) = (block.clone(), receipts.clone());
         match case {
             0 => bad_receipts[1]["type"] = json!("0x0"),
-            1 => bad_block["transactions"][0]["nonce"] = json!("0x0"),
+            1 => {
+                bad_block["transactions"][1]
+                    .as_object_mut()
+                    .unwrap()
+                    .remove("maxFeePerGas");
+            }
             2 => bad_block["transactions"][0]["value"] = json!("0x1"),
             _ => bad_receipts[0]["depositReceiptVersion"] = json!("invalid"),
         }

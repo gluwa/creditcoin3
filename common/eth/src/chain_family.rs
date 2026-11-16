@@ -7,7 +7,7 @@
 //! `transactionsRoot` / `receiptsRoot`, and how the attestor turns each (tx, receipt) pair into a
 //! Merkle leaf.
 //!
-//! - [`ChainFamily::Ethereum`]: L1 and L1-shaped chains (Sepolia, Anvil, Polygon PoS). Only
+//! - [`ChainFamily::Ethereum`]: L1 and L1-shaped chains (Sepolia, Anvil). Only
 //!   transaction types `0x0`–`0x4` appear.
 //! - [`ChainFamily::OpStack`]: OP-Stack rollups (Base, OP Mainnet and their Sepolia testnets).
 //!   Every block opens with a type `0x7e` **deposit** transaction carrying the L1 attributes, and
