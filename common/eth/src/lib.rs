@@ -5,7 +5,7 @@ use alloy::{
         Block as ConsensusBlock, ReceiptEnvelope, Transaction as ConsensusTransaction, TxEnvelope,
         Typed2718,
     },
-    eips::eip2718::Decodable2718,
+    eips::eip2718::{Decodable2718, Encodable2718},
     hex::ToHexExt,
     network::{Ethereum, EthereumWallet},
     primitives::{keccak256, BlockHash, Bytes, TxHash},
@@ -103,6 +103,26 @@ pub enum Error {
         index: usize,
         claimed: Address,
         recovered: Address,
+    },
+    #[error(
+        "Receipt {index} in block {number} reports {reported} gas used per the RPC but its \
+         cumulative gas implies {derived}"
+    )]
+    GasUsedMismatch {
+        number: u64,
+        index: usize,
+        reported: u64,
+        derived: u64,
+    },
+    #[error(
+        "Transaction {index} in block {number} has hash {reported:?} per the RPC but its \
+         encoding hashes to {derived:?}"
+    )]
+    TransactionHashMismatch {
+        number: u64,
+        index: usize,
+        reported: TxHash,
+        derived: TxHash,
     },
     #[error(
         "Receipts for block {number} carry block hash {receipts:?} but the fetched block is {block:?} \
@@ -238,6 +258,8 @@ impl Error {
                 | Error::NotFullTransactionsFetched(_)
                 | Error::ReceiptsBlockMismatch { .. }
                 | Error::SenderMismatch { .. }
+                | Error::GasUsedMismatch { .. }
+                | Error::TransactionHashMismatch { .. }
         )
     }
 
@@ -292,7 +314,9 @@ impl Error {
             | Error::TransactionsReceiptsMismatch(n)
             | Error::NotFullTransactionsFetched(n)
             | Error::ReceiptsBlockMismatch { number: n, .. }
-            | Error::SenderMismatch { number: n, .. } => Some(*n),
+            | Error::SenderMismatch { number: n, .. }
+            | Error::GasUsedMismatch { number: n, .. }
+            | Error::TransactionHashMismatch { number: n, .. } => Some(*n),
             _ => None,
         }
     }
@@ -524,6 +548,8 @@ impl OrderedBlock {
             }
         }
 
+        verify_reported_fields(expected_number, &txs, &receipts)?;
+
         let items = txs
             .into_iter()
             .zip(receipts.into_iter())
@@ -603,6 +629,45 @@ fn header_hash_from_raw_block(raw: &[u8]) -> Result<BlockHash, alloy::rlp::Error
         .get(..total)
         .ok_or(alloy::rlp::Error::InputTooShort)?;
     Ok(keccak256(bytes))
+}
+
+/// Check the per-transaction values the RPC reports next to data the header roots commit to, but
+/// that the roots themselves do not cover: each receipt's `gas_used` (the receipts root commits
+/// to the cumulative counter only) and each transaction's hash (the transactions root re-encodes
+/// the envelope and never reads the stored hash). Both feed what is attested or looked up, and
+/// both are re-derived on the raw-RLP path. Cheap: a subtraction and one keccak per transaction.
+///
+/// `txs` and `receipts` must be sorted by transaction index and of equal length.
+fn verify_reported_fields(
+    number: u64,
+    txs: &[Transaction],
+    receipts: &[TransactionReceipt],
+) -> Result<(), Error> {
+    let mut previous_cumulative = 0u64;
+    for (index, (tx, rx)) in txs.iter().zip(receipts).enumerate() {
+        let envelope = tx.inner.inner();
+        let derived_hash = keccak256(envelope.encoded_2718());
+        if derived_hash != *envelope.tx_hash() {
+            return Err(Error::TransactionHashMismatch {
+                number,
+                index,
+                reported: *envelope.tx_hash(),
+                derived: derived_hash,
+            });
+        }
+        let cumulative = rx.inner.cumulative_gas_used();
+        let derived_gas = cumulative.saturating_sub(previous_cumulative);
+        previous_cumulative = cumulative;
+        if rx.gas_used != derived_gas {
+            return Err(Error::GasUsedMismatch {
+                number,
+                index,
+                reported: rx.gas_used,
+                derived: derived_gas,
+            });
+        }
+    }
+    Ok(())
 }
 
 /// Check that the `from` the RPC reported for each transaction is the address its signature
@@ -3133,6 +3198,59 @@ mod raw_rlp_tests {
 
         // Raw-RLP payloads carry no `from` to trust, so the check is not run for them.
         build(BlockFetchMode::RawRlp, tampered, &receipts, number).unwrap();
+    }
+
+    #[test]
+    fn reported_gas_used_and_tx_hash_must_match_the_block() {
+        let (number, rpc_block, receipts) = json_fixture();
+        build(BlockFetchMode::Json, rpc_block.clone(), &receipts, number).unwrap();
+
+        // The receipts root commits to the cumulative counter only, so a changed per-receipt
+        // `gas_used` passes every root check and has to be caught on its own.
+        let mut forged_receipts = receipts.clone();
+        forged_receipts[1].gas_used += 1;
+        let err = build(
+            BlockFetchMode::Json,
+            rpc_block.clone(),
+            &forged_receipts,
+            number,
+        )
+        .unwrap_err();
+        assert!(matches!(
+            err,
+            Error::GasUsedMismatch { number: n, index: 1, reported, derived }
+                if n == number && reported == derived + 1
+        ));
+        assert!(err.inconsistent_block_payload_for_fallback());
+        assert_eq!(err.inconsistent_block_number_hint(), Some(number));
+
+        // Likewise the transactions root never reads the hash stored with the transaction.
+        let mut tx = rpc_block
+            .transactions
+            .clone()
+            .into_transactions()
+            .next()
+            .unwrap();
+        let genuine = *tx.inner.inner().tx_hash();
+        let forged = B256::repeat_byte(0xbb);
+        let TxEnvelope::Legacy(signed) = tx.inner.inner().clone() else {
+            panic!("the first fixture transaction is legacy");
+        };
+        let signer = tx.inner.signer();
+        let (legacy, signature, _) = signed.into_parts();
+        tx.inner = Recovered::new_unchecked(
+            TxEnvelope::Legacy(Signed::new_unchecked(legacy, signature, forged)),
+            signer,
+        );
+        let tampered = with_transaction(&rpc_block, 0, tx);
+        let err = build(BlockFetchMode::Json, tampered, &receipts, number).unwrap_err();
+        assert!(matches!(
+            err,
+            Error::TransactionHashMismatch { number: n, index: 0, reported, derived }
+                if n == number && reported == forged && derived == genuine
+        ));
+        assert!(err.inconsistent_block_payload_for_fallback());
+        assert_eq!(err.inconsistent_block_number_hint(), Some(number));
     }
 
     #[test]
