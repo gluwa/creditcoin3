@@ -95,6 +95,16 @@ pub enum Error {
     #[error("Not full transactions fetched for block {0}")]
     NotFullTransactionsFetched(u64),
     #[error(
+        "Sender of transaction {index} in block {number} is {claimed:?} per the RPC but \
+         {recovered:?} per its signature"
+    )]
+    SenderMismatch {
+        number: u64,
+        index: usize,
+        claimed: Address,
+        recovered: Address,
+    },
+    #[error(
         "Receipts for block {number} carry block hash {receipts:?} but the fetched block is {block:?} \
          (the two RPC calls were answered from different sides of a reorg)"
     )]
@@ -223,6 +233,7 @@ impl Error {
                 | Error::TransactionsReceiptsMismatch(_)
                 | Error::NotFullTransactionsFetched(_)
                 | Error::ReceiptsBlockMismatch { .. }
+                | Error::SenderMismatch { .. }
         )
     }
 
@@ -276,7 +287,8 @@ impl Error {
             Error::BlockHeaderRootsMismatch(n)
             | Error::TransactionsReceiptsMismatch(n)
             | Error::NotFullTransactionsFetched(n)
-            | Error::ReceiptsBlockMismatch { number: n, .. } => Some(*n),
+            | Error::ReceiptsBlockMismatch { number: n, .. }
+            | Error::SenderMismatch { number: n, .. } => Some(*n),
             _ => None,
         }
     }
@@ -587,6 +599,41 @@ fn header_hash_from_raw_block(raw: &[u8]) -> Result<BlockHash, alloy::rlp::Error
         .get(..total)
         .ok_or(alloy::rlp::Error::InputTooShort)?;
     Ok(keccak256(bytes))
+}
+
+/// Check that the `from` the RPC reported for each transaction is the address its signature
+/// recovers to.
+///
+/// The transactions-root check re-encodes only the signed envelope, so it cannot vouch for the
+/// sender, yet the leaf encoding commits to it. Without this, a provider could change `from` and
+/// still pass every header check. The raw-RLP path has no `from` to trust and recovers it itself
+/// in [`rpc_block_from_raw`].
+///
+/// CPU-bound (one ECDSA recovery per transaction); callers on the async runtime should run it on
+/// the blocking pool.
+fn verify_json_senders(number: u64, block: &Block) -> Result<(), Error> {
+    let Some(txs) = block.transactions.as_transactions() else {
+        return Ok(());
+    };
+    for (index, tx) in txs.iter().enumerate() {
+        // Unchecked recovery for the same reason as in `rpc_block_from_raw`: blocks are
+        // already canonical, and the EIP-2 low-s rule would reject old pre-Homestead signatures.
+        let recovered = tx
+            .inner
+            .inner()
+            .recover_signer_unchecked()
+            .map_err(|e| Error::SenderRecovery(number, index, e.to_string()))?;
+        let claimed = tx.inner.signer();
+        if recovered != claimed {
+            return Err(Error::SenderMismatch {
+                number,
+                index,
+                claimed,
+                recovered,
+            });
+        }
+    }
+    Ok(())
 }
 
 /// Rebuild the rpc-shaped [`Block`] and [`TransactionReceipt`]s from the RLP a node returns for
@@ -1539,6 +1586,11 @@ impl Client {
                 .ok_or(Error::FailedToGetReceipts(number))
         };
         let (block, receipts) = tokio::try_join!(block_fut, receipts_fut)?;
+        let block = tokio::task::spawn_blocking(move || {
+            verify_json_senders(number, &block).map(|()| block)
+        })
+        .await
+        .map_err(|e| Error::ClientError(anyhow::anyhow!("sender check task failed: {e}")))??;
         Ok((block, receipts))
     }
 
@@ -2985,6 +3037,33 @@ mod raw_rlp_tests {
             simple_merkle_tree(&via_raw).root(),
             simple_merkle_tree(&via_json).root()
         );
+    }
+
+    #[test]
+    fn json_sender_check_accepts_genuine_senders_and_rejects_forged_ones() {
+        let (_, block, receipts) = fixture();
+        let number = block.header.number;
+        let (raw_block, raw_receipts) = raw(&block, &receipts);
+        let (rpc_block, _) = rpc_block_from_raw(number, &raw_block, &raw_receipts).unwrap();
+        verify_json_senders(number, &rpc_block).unwrap();
+
+        let forged = Address::repeat_byte(0xaa);
+        let mut txs: Vec<Transaction> =
+            rpc_block.transactions.clone().into_transactions().collect();
+        let genuine = txs[1].inner.signer();
+        txs[1].inner = Recovered::new_unchecked(txs[1].inner.inner().clone(), forged);
+        let tampered = Block {
+            transactions: BlockTransactions::Full(txs),
+            ..rpc_block
+        };
+        let err = verify_json_senders(number, &tampered).unwrap_err();
+        assert!(matches!(
+            err,
+            Error::SenderMismatch { number: n, index: 1, claimed, recovered }
+                if n == number && claimed == forged && recovered == genuine
+        ));
+        assert!(err.inconsistent_block_payload_for_fallback());
+        assert_eq!(err.inconsistent_block_number_hint(), Some(number));
     }
 
     #[test]
