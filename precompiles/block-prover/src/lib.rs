@@ -70,6 +70,8 @@ mod test_helpers;
 #[cfg(test)]
 mod tests;
 #[cfg(test)]
+mod tests_decode_bounds;
+#[cfg(test)]
 mod tests_full_coverage;
 #[cfg(test)]
 mod tests_gas_security;
