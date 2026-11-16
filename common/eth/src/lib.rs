@@ -360,7 +360,9 @@ impl Error {
             | Error::TransactionsReceiptsMismatch(n)
             | Error::NotFullTransactionsFetched(n)
             | Error::ReceiptsBlockMismatch { number: n, .. } => Some(*n),
-            Error::ReceiptTypeMismatch { block, .. } | Error::Deposit { block, .. } => Some(*block),
+            Error::ReceiptTypeMismatch { block, .. }
+            | Error::MalformedTransaction { block, .. }
+            | Error::Deposit { block, .. } => Some(*block),
             _ => None,
         }
     }
@@ -2928,6 +2930,15 @@ mod error_classifier_tests {
             Error::NotFullTransactionsFetched(7).inconsistent_block_number_hint(),
             Some(7)
         );
+        let malformed = Error::MalformedTransaction {
+            block: 7,
+            index: 1,
+            hash: Default::default(),
+            ty: 2,
+            reason: "missing field `maxFeePerGas`".into(),
+        };
+        assert!(malformed.inconsistent_block_payload_for_fallback());
+        assert_eq!(malformed.inconsistent_block_number_hint(), Some(7));
         // Symmetry with `inconsistent_block_payload_for_fallback`: "not found"
         // variants are not classified as inconsistent, and therefore must not
         // surface a block-number hint via this accessor.
