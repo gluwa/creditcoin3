@@ -1453,6 +1453,17 @@ impl Client {
                             }
                         }
                     }
+                    Err(e) if e.inconsistent_block_payload_for_fallback() => {
+                        // Raised by the fetch itself (e.g. a JSON sender that does not match
+                        // its signature), so it never reaches the validation arm above.
+                        tracing::warn!(
+                            provider = %label,
+                            block_number = number,
+                            error = %e,
+                            "block from this RPC peer failed a consistency check; trying next endpoint"
+                        );
+                        payload_inconsistent_errs.push((label, e));
+                    }
                     Err(e) if e.is_unrecoverable() => {
                         tracing::warn!(
                             provider = %label,
