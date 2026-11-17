@@ -45,6 +45,7 @@ async fn new_fetch_client(cfg: &Config, deadline: Duration) -> Result<eth::Clien
         &cfg.rpc_fallback_urls,
         deadline,
         cfg.eth_rps,
+        cfg.eth_chain_family,
     )
     .await?
     .with_fetch_mode(cfg.fetch_mode))
@@ -165,6 +166,7 @@ async fn main() -> Result<()> {
         &cfg.rpc_fallback_urls,
         rpc_timeout,
         cfg.eth_rps,
+        cfg.eth_chain_family,
     )
     .await?;
     let http_client = dial(
@@ -172,6 +174,7 @@ async fn main() -> Result<()> {
         &cfg.rpc_fallback_urls,
         rpc_timeout,
         cfg.eth_rps,
+        cfg.eth_chain_family,
     )
     .await?;
     if ws_client.chain_id() != http_client.chain_id() {
@@ -921,8 +924,12 @@ async fn dial(
     fallback_urls: &[String],
     deadline: Duration,
     rps: Option<std::num::NonZeroU32>,
+    family: Option<eth::ChainFamily>,
 ) -> Result<eth::Client> {
-    let client = dial_unpaced(url, fallback_urls, deadline).await?;
+    // Every dial applies the family, so a dial path added later cannot forget it.
+    let client = dial_unpaced(url, fallback_urls, deadline)
+        .await?
+        .with_chain_family_override(family);
     // Pace before anything clones the client: clones share the pacer they were made from.
     Ok(match rps {
         Some(rps) => client.with_rate_limit(rps),

@@ -161,9 +161,22 @@ pub async fn fetch_continuity_proof(
     chain_key: u64,
     height: u64,
 ) -> Result<Vec<Block>> {
+    fetch_continuity_proof_with_chain_family(cc3_rpc_url, eth_rpc_url, chain_key, height, None)
+        .await
+}
+
+/// Fetch a single-query continuity proof with an explicit source family when needed.
+pub async fn fetch_continuity_proof_with_chain_family(
+    cc3_rpc_url: &str,
+    eth_rpc_url: &str,
+    chain_key: u64,
+    height: u64,
+    family: Option<eth::ChainFamily>,
+) -> Result<Vec<Block>> {
     let config = ContinuityConfig::builder()
         .cc3_rpc_url(cc3_rpc_url)
         .eth_rpc_url(eth_rpc_url)
+        .eth_chain_family(family)
         .chain_key(chain_key)
         .fetch_intervals()
         .await?;
@@ -189,9 +202,28 @@ pub async fn fetch_continuity_proof_batch(
     chain_key: u64,
     query_heights: &[u64],
 ) -> Result<Vec<Block>> {
+    fetch_continuity_proof_batch_with_chain_family(
+        cc3_rpc_url,
+        eth_rpc_url,
+        chain_key,
+        query_heights,
+        None,
+    )
+    .await
+}
+
+/// Fetch a batch continuity proof using the same source family as its transaction leaves.
+pub async fn fetch_continuity_proof_batch_with_chain_family(
+    cc3_rpc_url: &str,
+    eth_rpc_url: &str,
+    chain_key: u64,
+    query_heights: &[u64],
+    family: Option<eth::ChainFamily>,
+) -> Result<Vec<Block>> {
     let config = ContinuityConfig::builder()
         .cc3_rpc_url(cc3_rpc_url)
         .eth_rpc_url(eth_rpc_url)
+        .eth_chain_family(family)
         .chain_key(chain_key)
         .fetch_intervals()
         .await?;

@@ -30,6 +30,10 @@ struct Config {
     #[arg(long, env = "FETCH_MODE", default_value = "json")]
     fetch_mode: BlockFetchMode,
 
+    /// Source execution family. Optional; defaults to `ethereum`. Set `op-stack` for Base / OP.
+    #[arg(long, env = "ETH_CHAIN_FAMILY")]
+    eth_chain_family: Option<eth::ChainFamily>,
+
     /// File of block numbers (one per line; `#` comments allowed).
     #[arg(long, default_value = "data/bsc-early-blocks.txt")]
     blocks_file: PathBuf,
@@ -329,6 +333,7 @@ async fn main() -> Result<()> {
     let eth = Client::new(&cfg.rpc_http, None)
         .await
         .map_err(|_| anyhow!("failed to connect independent RPC"))?
+        .with_chain_family_override(cfg.eth_chain_family)
         .with_fetch_mode(cfg.fetch_mode);
 
     tracing::info!(
@@ -336,6 +341,7 @@ async fn main() -> Result<()> {
         archiver = %redact_url(&cfg.archiver_url),
         rpc = %redact_url(&cfg.rpc_http),
         fetch_mode = %cfg.fetch_mode,
+        family = %eth.chain_family(),
         min_interval_ms = cfg.min_interval_ms,
         "comparing roots"
     );
@@ -467,6 +473,17 @@ async fn main() -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn chain_family_is_optional_and_parsed() {
+        let base = ["compare_roots", "--rpc-http", "http://localhost:8545"];
+        assert_eq!(Config::try_parse_from(base).unwrap().eth_chain_family, None);
+        let args = base.into_iter().chain(["--eth-chain-family", "op-stack"]);
+        assert_eq!(
+            Config::try_parse_from(args).unwrap().eth_chain_family,
+            Some(eth::ChainFamily::OpStack)
+        );
+    }
 
     #[tokio::test]
     async fn throttle_spaces_calls_across_tasks() {

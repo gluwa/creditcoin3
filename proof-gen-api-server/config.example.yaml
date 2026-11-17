@@ -14,6 +14,10 @@ bind_port: 3100
 chains:
   - chain_key: 2
     eth_rpc_url: "http://localhost:8545"
+    # Optional: ethereum (default) or op-stack. Chain IDs never select the family.
+    # Set op-stack explicitly for every OP-Stack chain, including Base and OP Mainnet.
+    # Set this consistently with the attestor and archiver for custom OP-Stack networks.
+    # eth_chain_family: op-stack
     # archiver_url: "http://localhost:8080"  # optional per chain
     # block_confirmation_depth is deprecated and ignored. Whether a height can be served is
     # decided against the attested set on Creditcoin (the attestors' maturity decision), never
