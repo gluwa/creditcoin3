@@ -654,19 +654,22 @@ fn verify_transaction_hashes(number: u64, txs: &[Transaction]) -> Result<(), Err
 /// Overwrite each receipt's `gas_used` with the difference of consecutive cumulative gas values.
 /// The receipts root commits to the cumulative counter only, so the RPC's `gas_used` is
 /// unauthenticated, while the leaf commits to it; the raw-RLP path derives it the same way, so
-/// both fetch modes yield identical leaves. `receipts` must be sorted by transaction index.
+/// both fetch modes yield identical leaves. Pre-Byzantium Ethereum mainnet skips the receipts-root
+/// check, so the counter is not proven there; the derived value stays consistent with it.
+/// `receipts` must be sorted by transaction index.
 fn canonicalize_gas_used(number: u64, receipts: &mut [TransactionReceipt]) -> Result<(), Error> {
     let mut previous = 0u64;
     for (index, rx) in receipts.iter_mut().enumerate() {
         let cumulative = rx.inner.cumulative_gas_used();
-        let derived = cumulative
-            .checked_sub(previous)
-            .ok_or(Error::DecreasingCumulativeGas {
-                number,
-                index,
-                previous,
-                cumulative,
-            })?;
+        let derived =
+            cumulative
+                .checked_sub(previous)
+                .ok_or_else(|| Error::DecreasingCumulativeGas {
+                    number,
+                    index,
+                    previous,
+                    cumulative,
+                })?;
         if rx.gas_used != derived {
             tracing::debug!(
                 block_number = number,
@@ -3252,25 +3255,21 @@ mod raw_rlp_tests {
         let (number, rpc_block, receipts) = json_fixture();
         build(BlockFetchMode::Json, rpc_block.clone(), &receipts, number).unwrap();
 
-        // The transactions root never reads the hash stored with the transaction.
-        let mut tx = rpc_block
+        // The transactions root never reads the hash stored with the transaction. Forge it in the
+        // JSON, which is how a provider would, so the real deserialization path is exercised.
+        let genuine = *rpc_block
             .transactions
             .clone()
             .into_transactions()
             .next()
-            .unwrap();
-        let genuine = *tx.inner.inner().tx_hash();
+            .unwrap()
+            .inner
+            .inner()
+            .tx_hash();
         let forged = B256::repeat_byte(0xbb);
-        let TxEnvelope::Legacy(signed) = tx.inner.inner().clone() else {
-            panic!("the first fixture transaction is legacy");
-        };
-        let signer = tx.inner.signer();
-        let (legacy, signature, _) = signed.into_parts();
-        tx.inner = Recovered::new_unchecked(
-            TxEnvelope::Legacy(Signed::new_unchecked(legacy, signature, forged)),
-            signer,
-        );
-        let tampered = with_transaction(&rpc_block, 0, tx);
+        let mut json = serde_json::to_value(&rpc_block).unwrap();
+        json["transactions"][0]["hash"] = serde_json::json!(forged);
+        let tampered: Block = serde_json::from_value(json).unwrap();
         let err = build(BlockFetchMode::Json, tampered, &receipts, number).unwrap_err();
         assert!(matches!(
             err,
