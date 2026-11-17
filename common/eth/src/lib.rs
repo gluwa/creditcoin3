@@ -857,7 +857,9 @@ fn header_hash_from_raw_block(raw: &[u8]) -> Result<BlockHash, alloy::rlp::Error
 /// every receipt, as the raw-RLP path does, makes both fetch modes yield the same leaves. For
 /// deposits this also preserves pre-Regolith accounting: system deposits contribute zero, while
 /// user deposits contribute their entire gas limit. Do not infer the fork from unauthenticated
-/// `depositNonce` metadata. `items` must be in transaction order.
+/// `depositNonce` metadata. Pre-Byzantium Ethereum mainnet skips the receipts-root check, so the
+/// counter is not proven there; the derived value stays consistent with it. `items` must be in
+/// transaction order.
 fn canonicalize_gas_used(number: u64, items: &mut [TxRx]) -> Result<(), Error> {
     let mut previous = 0u64;
     for (index, item) in items.iter_mut().enumerate() {
@@ -869,22 +871,24 @@ fn canonicalize_gas_used(number: u64, items: &mut [TxRx]) -> Result<(), Error> {
                 Some(tx.hash),
             ),
         };
-        *gas_used = cumulative.checked_sub(previous).ok_or(match deposit_hash {
-            Some(hash) => Error::Deposit {
-                block: number,
-                source: op_stack::DepositError::DecreasingCumulativeGas {
-                    hash,
+        *gas_used = cumulative
+            .checked_sub(previous)
+            .ok_or_else(|| match deposit_hash {
+                Some(hash) => Error::Deposit {
+                    block: number,
+                    source: op_stack::DepositError::DecreasingCumulativeGas {
+                        hash,
+                        previous,
+                        cumulative,
+                    },
+                },
+                None => Error::DecreasingCumulativeGas {
+                    number,
+                    index,
                     previous,
                     cumulative,
                 },
-            },
-            None => Error::DecreasingCumulativeGas {
-                number,
-                index,
-                previous,
-                cumulative,
-            },
-        })?;
+            })?;
         previous = cumulative;
     }
     Ok(())
