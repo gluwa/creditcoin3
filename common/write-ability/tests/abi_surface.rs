@@ -199,26 +199,11 @@ fn mirrored_abi_surface_matches_compiled_contracts() {
         "threshold()",
         IVoteValidator::thresholdCall::SELECTOR,
     );
-    for (sig, selector) in [
-        (
-            "minAttestorCount()",
-            IVoteValidator::minAttestorCountCall::SELECTOR,
-        ),
-        (
-            "thresholdNumerator()",
-            IVoteValidator::thresholdNumeratorCall::SELECTOR,
-        ),
-        (
-            "thresholdAddition()",
-            IVoteValidator::thresholdAdditionCall::SELECTOR,
-        ),
-        (
-            "THRESHOLD_DENOMINATOR()",
-            IVoteValidator::THRESHOLD_DENOMINATORCall::SELECTOR,
-        ),
-    ] {
-        assert_function_mirrored(&validator, sig, selector);
-    }
+    assert_function_mirrored(
+        &validator,
+        "calculateRequiredVotes(uint256)",
+        IVoteValidator::calculateRequiredVotesCall::SELECTOR,
+    );
     assert_function_mirrored(
         &validator,
         "attestorSetUpdateNonce()",

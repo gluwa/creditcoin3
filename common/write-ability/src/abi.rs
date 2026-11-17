@@ -158,13 +158,10 @@ sol! {
         /// transactions that are guaranteed to revert.
         function threshold() external view returns (uint256);
 
-        /// Threshold parameters: `threshold(n) = max(n * thresholdNumerator / THRESHOLD_DENOMINATOR
-        /// + thresholdAddition, minAttestorCount)`. Deployment-configurable, so callers that need
-        /// the threshold for a *hypothetical* set size must read them rather than assume 2N/3 + 1.
-        function minAttestorCount() external view returns (uint256);
-        function thresholdNumerator() external view returns (uint256);
-        function thresholdAddition() external view returns (uint256);
-        function THRESHOLD_DENOMINATOR() external view returns (uint256);
+        /// Unique signatures the validator requires for a set of `totalAttestors`. The threshold
+        /// parameters are owner-adjustable, so callers that need the quorum for a hypothetical set
+        /// size ask the contract instead of mirroring its formula.
+        function calculateRequiredVotes(uint256 totalAttestors) external view returns (uint256);
 
         /// Monotonic nonce bound into the attestor-set-update digest (replay/rollback protection).
         /// Attestors read it to sign the current update; it increments on each successful update.
