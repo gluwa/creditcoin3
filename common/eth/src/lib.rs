@@ -112,6 +112,26 @@ pub enum Error {
         recovered: Address,
     },
     #[error(
+        "Transaction {index} in block {number} has hash {reported:?} per the RPC but its \
+         encoding hashes to {derived:?}"
+    )]
+    TransactionHashMismatch {
+        number: u64,
+        index: usize,
+        reported: TxHash,
+        derived: TxHash,
+    },
+    #[error(
+        "Receipt {index} in block {number} has cumulative gas {cumulative} below the previous \
+         receipt's {previous}"
+    )]
+    DecreasingCumulativeGas {
+        number: u64,
+        index: usize,
+        previous: u64,
+        cumulative: u64,
+    },
+    #[error(
         "Block {block} contains a type {ty:#x} transaction which the `{family}` chain family does \
          not support (hint: OP-Stack chains such as Base need the `op-stack` chain family)"
     )]
@@ -269,6 +289,8 @@ impl Error {
                 | Error::Deposit { .. }
                 | Error::ReceiptsBlockMismatch { .. }
                 | Error::SenderMismatch { .. }
+                | Error::TransactionHashMismatch { .. }
+                | Error::DecreasingCumulativeGas { .. }
         )
     }
 
@@ -323,7 +345,9 @@ impl Error {
             | Error::TransactionsReceiptsMismatch(n)
             | Error::NotFullTransactionsFetched(n)
             | Error::ReceiptsBlockMismatch { number: n, .. }
-            | Error::SenderMismatch { number: n, .. } => Some(*n),
+            | Error::SenderMismatch { number: n, .. }
+            | Error::TransactionHashMismatch { number: n, .. }
+            | Error::DecreasingCumulativeGas { number: n, .. } => Some(*n),
             Error::ReceiptTypeMismatch { block, .. } | Error::Deposit { block, .. } => Some(*block),
             _ => None,
         }
@@ -671,32 +695,9 @@ impl OrderedBlock {
             }
         }
 
-        // RPC `gasUsed` is not part of receiptsRoot. Deposits must use the difference
-        // between consecutive authenticated cumulative gas values before building a leaf.
-        // This also preserves pre-Regolith accounting: system deposits contribute zero,
-        // while user deposits contribute their entire gas limit. Do not infer the fork
-        // from unauthenticated `depositNonce` metadata.
-        let mut previous_cumulative_gas_used = 0;
-        for item in &mut items {
-            let cumulative_gas_used = match item {
-                TxRx::Ethereum { rx, .. } => rx.inner.cumulative_gas_used(),
-                TxRx::OpDeposit { tx, rx, .. } => {
-                    let cumulative = rx.inner.cumulative_gas_used();
-                    rx.gas_used = cumulative.checked_sub(previous_cumulative_gas_used).ok_or(
-                        Error::Deposit {
-                            block: expected_number,
-                            source: op_stack::DepositError::DecreasingCumulativeGas {
-                                hash: tx.hash,
-                                previous: previous_cumulative_gas_used,
-                                cumulative,
-                            },
-                        },
-                    )?;
-                    cumulative
-                }
-            };
-            previous_cumulative_gas_used = cumulative_gas_used;
-        }
+        verify_eth_tx_hashes(expected_number, &items)?;
+
+        canonicalize_gas_used(expected_number, &mut items)?;
 
         Ok(Self {
             chain_id,
@@ -849,6 +850,67 @@ fn header_hash_from_raw_block(raw: &[u8]) -> Result<BlockHash, alloy::rlp::Error
         .get(..total)
         .ok_or(alloy::rlp::Error::InputTooShort)?;
     Ok(keccak256(bytes))
+}
+
+/// Overwrite every receipt's `gas_used` with the difference of consecutive cumulative gas values.
+/// RPC `gasUsed` is not part of the receipts root, but the leaf commits to it. Deriving it for
+/// every receipt, as the raw-RLP path does, makes both fetch modes yield the same leaves. For
+/// deposits this also preserves pre-Regolith accounting: system deposits contribute zero, while
+/// user deposits contribute their entire gas limit. Do not infer the fork from unauthenticated
+/// `depositNonce` metadata. `items` must be in transaction order.
+fn canonicalize_gas_used(number: u64, items: &mut [TxRx]) -> Result<(), Error> {
+    let mut previous = 0u64;
+    for (index, item) in items.iter_mut().enumerate() {
+        let (cumulative, gas_used, deposit_hash) = match item {
+            TxRx::Ethereum { rx, .. } => (rx.inner.cumulative_gas_used(), &mut rx.gas_used, None),
+            TxRx::OpDeposit { tx, rx, .. } => (
+                rx.inner.cumulative_gas_used(),
+                &mut rx.gas_used,
+                Some(tx.hash),
+            ),
+        };
+        *gas_used = cumulative.checked_sub(previous).ok_or(match deposit_hash {
+            Some(hash) => Error::Deposit {
+                block: number,
+                source: op_stack::DepositError::DecreasingCumulativeGas {
+                    hash,
+                    previous,
+                    cumulative,
+                },
+            },
+            None => Error::DecreasingCumulativeGas {
+                number,
+                index,
+                previous,
+                cumulative,
+            },
+        })?;
+        previous = cumulative;
+    }
+    Ok(())
+}
+
+/// Check that each Ethereum-typed transaction's reported hash is the keccak of its encoding. The
+/// transactions root re-encodes the envelope and never reads the stored hash, yet the hash feeds
+/// what is attested and looked up; the raw-RLP path derives it. OP deposits are checked through
+/// their hash when parsed. One keccak per transaction.
+fn verify_eth_tx_hashes(number: u64, items: &[TxRx]) -> Result<(), Error> {
+    for (index, item) in items.iter().enumerate() {
+        let Some(tx) = item.eth_tx() else {
+            continue;
+        };
+        let envelope = tx.inner.inner();
+        let derived = keccak256(envelope.encoded_2718());
+        if derived != *envelope.tx_hash() {
+            return Err(Error::TransactionHashMismatch {
+                number,
+                index,
+                reported: *envelope.tx_hash(),
+                derived,
+            });
+        }
+    }
+    Ok(())
 }
 
 /// Check that the `from` the RPC reported for each Ethereum-typed transaction is the address its
@@ -3199,6 +3261,84 @@ mod chain_family_block_tests {
 
         // Raw-RLP payloads carry no `from` to trust, so the check is not run for them.
         build(BlockFetchMode::RawRlp, tampered).unwrap();
+    }
+
+    #[test]
+    fn json_gas_used_is_derived_from_the_cumulative_counters() {
+        let (block, receipts) = fixture();
+        let build_with = |receipts: Vec<AnyTransactionReceipt>| {
+            OrderedBlock::try_from_fetched_block(
+                chain_family::BASE_SEPOLIA_CHAIN_ID,
+                ChainFamily::OpStack,
+                block.clone(),
+                receipts,
+                BLOCK_NUMBER,
+                EncodingVersion::V1,
+            )
+            .unwrap()
+        };
+        let genuine = build_with(receipts.clone());
+
+        // The receipts root commits to the cumulative counter only, so a changed per-receipt
+        // `gas_used` passes every root check. It is overwritten for deposits and Ethereum-typed
+        // receipts alike, so the leaves match those of an honest provider.
+        let mut forged = receipts;
+        forged[0].inner.gas_used += 1;
+        forged[1].inner.gas_used += 1;
+        let canonical = build_with(forged);
+        assert_eq!(
+            simple_merkle_tree(&canonical).root(),
+            simple_merkle_tree(&genuine).root()
+        );
+
+        // Cumulative gas can only grow; a decrease is not a valid block.
+        let mut items = genuine.items().to_vec();
+        let TxRx::Ethereum { rx, .. } = &mut items[2] else {
+            panic!("item 2 is an Ethereum transaction");
+        };
+        let (ReceiptEnvelope::Legacy(r)
+        | ReceiptEnvelope::Eip2930(r)
+        | ReceiptEnvelope::Eip1559(r)
+        | ReceiptEnvelope::Eip4844(r)
+        | ReceiptEnvelope::Eip7702(r)) = &mut rx.inner;
+        r.receipt.cumulative_gas_used = 1;
+        let err = canonicalize_gas_used(BLOCK_NUMBER, &mut items).unwrap_err();
+        assert!(
+            matches!(
+                err,
+                Error::DecreasingCumulativeGas {
+                    number: BLOCK_NUMBER,
+                    index: 2,
+                    cumulative: 1,
+                    ..
+                }
+            ),
+            "{err}"
+        );
+        assert!(err.inconsistent_block_payload_for_fallback());
+        assert_eq!(err.inconsistent_block_number_hint(), Some(BLOCK_NUMBER));
+    }
+
+    #[test]
+    fn reported_tx_hash_must_match_the_block() {
+        let (block, _) = fixture();
+        build(BlockFetchMode::Json, block).unwrap();
+
+        // The transactions root never reads the hash stored with the transaction.
+        let forged = TxHash::repeat_byte(0xbb);
+        let tampered =
+            block_with(|json| json["transactions"][1]["hash"] = serde_json::json!(forged));
+        let err = build(BlockFetchMode::Json, tampered).unwrap_err();
+        assert!(
+            matches!(
+                err,
+                Error::TransactionHashMismatch { number: BLOCK_NUMBER, index: 1, reported, .. }
+                    if reported == forged
+            ),
+            "{err}"
+        );
+        assert!(err.inconsistent_block_payload_for_fallback());
+        assert_eq!(err.inconsistent_block_number_hint(), Some(BLOCK_NUMBER));
     }
 
     #[test]
