@@ -105,14 +105,14 @@ pub enum Error {
         recovered: Address,
     },
     #[error(
-        "Receipt {index} in block {number} reports {reported} gas used per the RPC but its \
-         cumulative gas implies {derived}"
+        "Receipt {index} in block {number} has cumulative gas {cumulative} below the previous \
+         receipt's {previous}"
     )]
-    GasUsedMismatch {
+    DecreasingCumulativeGas {
         number: u64,
         index: usize,
-        reported: u64,
-        derived: u64,
+        previous: u64,
+        cumulative: u64,
     },
     #[error(
         "Transaction {index} in block {number} has hash {reported:?} per the RPC but its \
@@ -258,7 +258,7 @@ impl Error {
                 | Error::NotFullTransactionsFetched(_)
                 | Error::ReceiptsBlockMismatch { .. }
                 | Error::SenderMismatch { .. }
-                | Error::GasUsedMismatch { .. }
+                | Error::DecreasingCumulativeGas { .. }
                 | Error::TransactionHashMismatch { .. }
         )
     }
@@ -315,7 +315,7 @@ impl Error {
             | Error::NotFullTransactionsFetched(n)
             | Error::ReceiptsBlockMismatch { number: n, .. }
             | Error::SenderMismatch { number: n, .. }
-            | Error::GasUsedMismatch { number: n, .. }
+            | Error::DecreasingCumulativeGas { number: n, .. }
             | Error::TransactionHashMismatch { number: n, .. } => Some(*n),
             _ => None,
         }
@@ -548,7 +548,8 @@ impl OrderedBlock {
             }
         }
 
-        verify_reported_fields(expected_number, &txs, &receipts)?;
+        verify_transaction_hashes(expected_number, &txs)?;
+        canonicalize_gas_used(expected_number, &mut receipts)?;
 
         let items = txs
             .into_iter()
@@ -631,41 +632,52 @@ fn header_hash_from_raw_block(raw: &[u8]) -> Result<BlockHash, alloy::rlp::Error
     Ok(keccak256(bytes))
 }
 
-/// Check the per-transaction values the RPC reports next to data the header roots commit to, but
-/// that the roots themselves do not cover: each receipt's `gas_used` (the receipts root commits
-/// to the cumulative counter only) and each transaction's hash (the transactions root re-encodes
-/// the envelope and never reads the stored hash). Both feed what is attested or looked up, and
-/// both are re-derived on the raw-RLP path. Cheap: a subtraction and one keccak per transaction.
-///
-/// `txs` and `receipts` must be sorted by transaction index and of equal length.
-fn verify_reported_fields(
-    number: u64,
-    txs: &[Transaction],
-    receipts: &[TransactionReceipt],
-) -> Result<(), Error> {
-    let mut previous_cumulative = 0u64;
-    for (index, (tx, rx)) in txs.iter().zip(receipts).enumerate() {
+/// Check that each transaction's reported hash is the keccak of its encoding. The transactions
+/// root re-encodes the envelope and never reads the stored hash, yet the hash feeds what is
+/// attested and looked up; the raw-RLP path derives it. One keccak per transaction.
+fn verify_transaction_hashes(number: u64, txs: &[Transaction]) -> Result<(), Error> {
+    for (index, tx) in txs.iter().enumerate() {
         let envelope = tx.inner.inner();
-        let derived_hash = keccak256(envelope.encoded_2718());
-        if derived_hash != *envelope.tx_hash() {
+        let derived = keccak256(envelope.encoded_2718());
+        if derived != *envelope.tx_hash() {
             return Err(Error::TransactionHashMismatch {
                 number,
                 index,
                 reported: *envelope.tx_hash(),
-                derived: derived_hash,
+                derived,
             });
         }
+    }
+    Ok(())
+}
+
+/// Overwrite each receipt's `gas_used` with the difference of consecutive cumulative gas values.
+/// The receipts root commits to the cumulative counter only, so the RPC's `gas_used` is
+/// unauthenticated, while the leaf commits to it; the raw-RLP path derives it the same way, so
+/// both fetch modes yield identical leaves. `receipts` must be sorted by transaction index.
+fn canonicalize_gas_used(number: u64, receipts: &mut [TransactionReceipt]) -> Result<(), Error> {
+    let mut previous = 0u64;
+    for (index, rx) in receipts.iter_mut().enumerate() {
         let cumulative = rx.inner.cumulative_gas_used();
-        let derived_gas = cumulative.saturating_sub(previous_cumulative);
-        previous_cumulative = cumulative;
-        if rx.gas_used != derived_gas {
-            return Err(Error::GasUsedMismatch {
+        let derived = cumulative
+            .checked_sub(previous)
+            .ok_or(Error::DecreasingCumulativeGas {
                 number,
                 index,
-                reported: rx.gas_used,
-                derived: derived_gas,
-            });
+                previous,
+                cumulative,
+            })?;
+        if rx.gas_used != derived {
+            tracing::debug!(
+                block_number = number,
+                index,
+                reported = rx.gas_used,
+                derived,
+                "RPC gas_used differs from the cumulative gas delta, using the delta"
+            );
+            rx.gas_used = derived;
         }
+        previous = cumulative;
     }
     Ok(())
 }
@@ -3201,30 +3213,46 @@ mod raw_rlp_tests {
     }
 
     #[test]
-    fn reported_gas_used_and_tx_hash_must_match_the_block() {
+    fn json_gas_used_is_derived_from_the_cumulative_counters() {
         let (number, rpc_block, receipts) = json_fixture();
-        build(BlockFetchMode::Json, rpc_block.clone(), &receipts, number).unwrap();
+        let genuine = build(BlockFetchMode::Json, rpc_block.clone(), &receipts, number).unwrap();
 
         // The receipts root commits to the cumulative counter only, so a changed per-receipt
-        // `gas_used` passes every root check and has to be caught on its own.
+        // `gas_used` passes every root check. It is overwritten, so the leaves, and with them the
+        // root, are the same as for an honest provider (and as in raw-RLP mode).
         let mut forged_receipts = receipts.clone();
         forged_receipts[1].gas_used += 1;
-        let err = build(
-            BlockFetchMode::Json,
-            rpc_block.clone(),
-            &forged_receipts,
-            number,
-        )
-        .unwrap_err();
+        forged_receipts[0].gas_used = 0;
+        let canonical = build(BlockFetchMode::Json, rpc_block, &forged_receipts, number).unwrap();
+        assert_eq!(
+            simple_merkle_tree(&canonical).root(),
+            simple_merkle_tree(&genuine).root()
+        );
+
+        // Cumulative gas can only grow; a decrease is not a valid block.
+        let mut decreasing = receipts;
+        let (ReceiptEnvelope::Legacy(r)
+        | ReceiptEnvelope::Eip2930(r)
+        | ReceiptEnvelope::Eip1559(r)
+        | ReceiptEnvelope::Eip4844(r)
+        | ReceiptEnvelope::Eip7702(r)) = &mut decreasing[1].inner;
+        r.receipt.cumulative_gas_used = 1;
+        let err = canonicalize_gas_used(number, &mut decreasing).unwrap_err();
         assert!(matches!(
             err,
-            Error::GasUsedMismatch { number: n, index: 1, reported, derived }
-                if n == number && reported == derived + 1
+            Error::DecreasingCumulativeGas { number: n, index: 1, previous: 21_000, cumulative: 1 }
+                if n == number
         ));
         assert!(err.inconsistent_block_payload_for_fallback());
         assert_eq!(err.inconsistent_block_number_hint(), Some(number));
+    }
 
-        // Likewise the transactions root never reads the hash stored with the transaction.
+    #[test]
+    fn reported_tx_hash_must_match_the_block() {
+        let (number, rpc_block, receipts) = json_fixture();
+        build(BlockFetchMode::Json, rpc_block.clone(), &receipts, number).unwrap();
+
+        // The transactions root never reads the hash stored with the transaction.
         let mut tx = rpc_block
             .transactions
             .clone()
