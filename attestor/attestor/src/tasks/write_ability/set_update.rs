@@ -66,9 +66,10 @@ pub struct Deferral {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Gate {
     Defer(Deferral),
-    /// `weaker_validator`: the validator's full-committee quorum is below Creditcoin's.
+    /// `weaker_validator`: Creditcoin's committee quorum, when the validator's full-committee
+    /// quorum is below it.
     Pass {
-        weaker_validator: bool,
+        weaker_validator: Option<U256>,
     },
 }
 
@@ -87,7 +88,7 @@ pub fn gate(registered: usize, active: usize, quorums: &Quorums) -> Gate {
     let required = committee.min(quorums.active);
     if quorums.registered >= required && quorums.registered <= U256::from(registered) {
         Gate::Pass {
-            weaker_validator: quorums.active < committee,
+            weaker_validator: (quorums.active < committee).then_some(committee),
         }
     } else {
         Gate::Defer(Deferral {
@@ -241,13 +242,9 @@ async fn propose_once(
     };
     let weaker_validator = match gate(candidate.len(), active_count, &quorums) {
         Gate::Defer(deferral) => return Ok(Cycle::Deferred(deferral)),
-        Gate::Pass { weaker_validator } => weaker_validator.then(|| {
-            let active = u32::try_from(active_count).unwrap_or(u32::MAX);
-            (
-                quorums.active,
-                U256::from(attestor_primitives::calculate_threshold(active)),
-            )
-        }),
+        Gate::Pass { weaker_validator } => {
+            weaker_validator.map(|committee| (quorums.active, committee))
+        }
     };
 
     let nonce = contract
@@ -489,7 +486,7 @@ mod tests {
         assert_eq!(
             gate(10, 10, &weak.quorums(10, 10)),
             Gate::Pass {
-                weaker_validator: true
+                weaker_validator: Some(U256::from(7u64))
             }
         );
         assert!(!weak.passes(9, 10)); // quorum 5 < 6
