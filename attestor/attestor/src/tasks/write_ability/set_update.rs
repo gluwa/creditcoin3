@@ -38,6 +38,11 @@ use super::signing::MessageSigner;
 /// how long a diverged set goes un-proposed.
 const SET_UPDATE_POLL_SECS: u64 = 60;
 
+/// Pin validator reads this many blocks behind head, so a load-balanced RPC backend that is a
+/// block behind does not fail the calls with "header not found". A vote signed against a nonce an
+/// update has just bumped is rejected on-chain, so the lag is safe.
+const READ_LAG_BLOCKS: u64 = 2;
+
 /// Re-warn about an unchanged deferral at most this often.
 const DEFER_WARN_EVERY: Duration = Duration::from_secs(600);
 
@@ -72,8 +77,9 @@ pub enum Gate {
 /// validator configured weaker than Creditcoin must still be able to rotate), and that quorum must
 /// be reachable by the subset itself. The guarantee is on the signature count, not the set size: a
 /// binding `minAttestorCount` can admit a smaller subset, but it then needs at least `required`
-/// signers, all elected attestors. Deliberately strict: with 2/3+1 at most one elected attestor can
-/// stay unregistered, otherwise the set stays as is (see [`Notices`]).
+/// signers, all elected attestors. Deliberately strict: with 2/3+1 an elected attestor may stay
+/// unregistered only when `active % 3 == 1` (and then just one); for other committee sizes every
+/// elected attestor must register, otherwise the set stays as is (see [`Notices`]).
 #[must_use]
 pub fn gate(registered: usize, active: usize, quorums: &Quorums) -> Gate {
     let committee_active = u32::try_from(active).unwrap_or(u32::MAX);
@@ -203,12 +209,11 @@ async fn propose_once(
         .await
         .map_err(|e| anyhow::anyhow!("connect destination chain RPC: {e}"))?;
     let contract = IVoteValidator::new(validator, &provider);
-    let block = BlockId::number(
-        provider
-            .get_block_number()
-            .await
-            .context("read destination block number")?,
-    );
+    let head = provider
+        .get_block_number()
+        .await
+        .context("read destination block number")?;
+    let block = BlockId::number(head.saturating_sub(READ_LAG_BLOCKS));
 
     let current = contract
         .attestors()
@@ -455,7 +460,22 @@ mod tests {
         // 67 of 100 registered would give quorum 45 against the committee's 67.
         assert!(!c.passes(67, 100));
         assert!(c.passes(99, 100));
-        assert!(!c.passes(98, 100)); // at most one elected attestor may stay unregistered
+        assert!(!c.passes(98, 100));
+        assert!(!c.passes(11, 12)); // 12 % 3 == 0: every elected attestor must register
+    }
+
+    #[test]
+    fn default_config_tolerates_one_unregistered_attestor_only_when_active_is_1_mod_3() {
+        for active in 3..=60usize {
+            let c = TWO_THIRDS;
+            assert!(c.passes(active, active), "active={active}");
+            assert_eq!(
+                c.passes(active - 1, active),
+                active % 3 == 1,
+                "active={active}"
+            );
+            assert!(!c.passes(active - 2, active), "active={active}");
+        }
     }
 
     #[test]
