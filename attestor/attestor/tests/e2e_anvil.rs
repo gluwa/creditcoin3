@@ -169,6 +169,7 @@ async fn outbox_publish_indexed_signed_and_reaches_quorum() {
     )
     .await
     .unwrap()
+    .verified()
     .expect("removed Outbox's historical message must remain recoverable");
     assert_eq!(recovered.message_id, message_id);
 

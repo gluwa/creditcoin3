@@ -1353,10 +1353,13 @@ fn produce_vote(
     }
 }
 
-/// Honor a reobservation request (liveness recovery): rate-limit per `message_id`, independently
-/// re-verify the message against our own RPC, skip if we've already seen local quorum for it, then
-/// re-sign + re-gossip exactly as if we'd just indexed it. Errors and unverifiable requests are
-/// logged and dropped — never fatal.
+/// Honor a reobservation request (liveness recovery): rate-limit, independently re-verify the
+/// message against our own RPC, then re-sign + re-gossip exactly as if we'd just indexed it. Errors
+/// and unverifiable requests are logged and dropped — never fatal.
+///
+/// Cooldowns follow the verdict (CSUB-2138): a verified request cools down its `message_id`; one we
+/// could prove bogus cools down only its exact `(message_id, tx_hash, block_height)`; an unfinalized
+/// block or an RPC error says nothing about the request, so it starts no cooldown at all.
 #[allow(clippy::too_many_arguments)]
 async fn handle_reobservation<P: alloy::providers::Provider>(
     provider: &P,
@@ -1370,28 +1373,27 @@ async fn handle_reobservation<P: alloy::providers::Provider>(
     limiter: &mut reobservation::ReobsRateLimiter,
     request: ReobservationRequest,
 ) {
-    let message_id = alloy::primitives::B256::from(request.message_id);
     if request.chain_key != chain_key {
         return; // not ours (topic is per-chain, but be defensive)
     }
+    let key = reobservation::ReobsKey::from(&request);
+    let message_id = key.message_id;
     let now = Instant::now();
-    if !limiter.allow(message_id, now) {
+    if !limiter.allow(&key, now) {
         tracing::debug!(%message_id, "⏳ reobservation request within cooldown — ignoring");
         return;
     }
 
-    // Record the cooldown *after* verifying, and only apply the full cooldown to a verified
-    // request. An unauthenticated forged/garbage request gets the short failure cooldown so it can't
-    // burn this message's 30s window and starve the genuine relayer request (S2).
     let indexed = match reobservation::reobserve(provider, resolved, confirmation_depth, &request)
         .await
     {
-        Ok(Some(indexed)) => {
-            limiter.record(message_id, now, true);
+        Ok(reobservation::ReobsOutcome::Verified(indexed)) => {
+            limiter.record_verified(message_id, now);
             indexed
         }
-        Ok(None) => {
-            limiter.record(message_id, now, false);
+        Ok(reobservation::ReobsOutcome::NotFinalized) => return,
+        Ok(reobservation::ReobsOutcome::Unverifiable) => {
+            limiter.record_failed(key, now);
             tracing::warn!(
                 %message_id,
                 block = request.block_height,
@@ -1400,7 +1402,6 @@ async fn handle_reobservation<P: alloy::providers::Provider>(
             return;
         }
         Err(err) => {
-            limiter.record(message_id, now, false);
             tracing::warn!(%message_id, %err, "reobservation re-fetch failed — ignoring");
             return;
         }

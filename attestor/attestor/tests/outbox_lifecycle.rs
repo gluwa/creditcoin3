@@ -289,7 +289,8 @@ async fn historical_reobservation_survives_removal_and_registry_replacement() {
         };
         let found = reobservation::reobserve(&provider, &route(), 3, &request)
             .await
-            .unwrap();
+            .unwrap()
+            .verified();
         assert_eq!(found.is_some(), expected);
         if let Some(found) = found {
             assert_eq!(found.outbox, A);
