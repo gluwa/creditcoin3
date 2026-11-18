@@ -58,8 +58,8 @@ use fp_evm::weight_per_gas;
 use fp_rpc::TransactionStatus;
 use pallet_ethereum::{Call::transact, PostLogContent, Transaction as EthereumTransaction};
 use pallet_evm::{
-    Account as EVMAccount, AddressMapping as _, EnsureAddressTruncated, FeeCalculator,
-    FrameSystemAccountProvider, GasWeightMapping, HashedAddressMapping, Runner,
+    Account as EVMAccount, AddressMapping as _, FeeCalculator, FrameSystemAccountProvider,
+    GasWeightMapping, HashedAddressMapping, Runner,
 };
 use pallet_session::historical as session_historical;
 
@@ -79,6 +79,9 @@ mod precompiles;
 pub use precompiles::{used_addresses, GluwaPrecompiles};
 
 mod migrations;
+
+mod signer_checks;
+pub use signer_checks::{CheckSignerKey, EnsureAddressTruncatedNonZero};
 
 /// Type of block number.
 pub type BlockNumber = u32;
@@ -441,9 +444,9 @@ impl pallet_evm_chain_id::Config for Runtime {}
 /// Block author as seen by the EVM (COINBASE, block beneficiary, priority-fee recipient).
 ///
 /// The BABE author index is resolved to the validator's stash, and the stash's first 20 bytes are
-/// used as the address. That is the address `EnsureAddressTruncated` lets the stash withdraw from
-/// with `pallet_evm::withdraw`, so priority fees and value sent to COINBASE stay with the
-/// validator. It does not depend on session keys, so it is unchanged across key rotation.
+/// used as the address. That is the address `EnsureAddressTruncatedNonZero` lets the stash
+/// withdraw from with `pallet_evm::withdraw`, so priority fees and value sent to COINBASE stay
+/// with the validator. It does not depend on session keys, so it is unchanged across key rotation.
 pub struct FindAuthorTruncated<F>(PhantomData<F>);
 impl<F: FindAuthor<u32>> FindAuthor<H160> for FindAuthorTruncated<F> {
     fn find_author<'a, I>(digests: I) -> Option<H160>
@@ -510,8 +513,8 @@ impl pallet_evm::Config for Runtime {
     type GasWeightMapping = pallet_evm::FixedGasWeightMapping<Self>;
     type WeightPerGas = WeightPerGas;
     type BlockHashMapping = pallet_ethereum::EthereumBlockHashMapping<Self>;
-    type CallOrigin = EnsureAddressTruncated;
-    type WithdrawOrigin = EnsureAddressTruncated;
+    type CallOrigin = EnsureAddressTruncatedNonZero;
+    type WithdrawOrigin = EnsureAddressTruncatedNonZero;
     type AddressMapping = AddressMapping;
     type Currency = Balances;
     type PrecompilesType = GluwaPrecompiles<Self>;
@@ -1249,6 +1252,7 @@ pub type BlockId = generic::BlockId<Block>;
 /// The SignedExtension to the basic transaction logic.
 pub type SignedExtra = (
     frame_system::CheckNonZeroSender<Runtime>,
+    CheckSignerKey<Runtime>,
     frame_system::CheckSpecVersion<Runtime>,
     frame_system::CheckTxVersion<Runtime>,
     frame_system::CheckGenesis<Runtime>,
@@ -2214,7 +2218,10 @@ mod tests {
             AddressMapping, Balances, Runtime, RuntimeEvent, RuntimeOrigin, System,
             BABE_GENESIS_EPOCH_CONFIG, EVM,
         };
-        use frame_support::{traits::fungible::Inspect, WeakBoundedVec};
+        use frame_support::{
+            traits::fungible::{Inspect, Mutate},
+            WeakBoundedVec,
+        };
         use pallet_evm::{AddressMapping as _, Runner as _};
         use parity_scale_codec::Encode;
         use sp_consensus_babe::{
@@ -2222,7 +2229,7 @@ mod tests {
             AuthorityId, BABE_ENGINE_ID,
         };
         use sp_core::{sr25519, H160, U256};
-        use sp_runtime::{AccountId32, BuildStorage, DigestItem};
+        use sp_runtime::{AccountId32, BuildStorage, DigestItem, DispatchError};
 
         const GWEI: u128 = 1_000_000_000;
         const INITIAL: u128 = 10 * 1_000_000_000_000_000_000;
@@ -2245,7 +2252,7 @@ mod tests {
             AuthorityId::from(sr25519::Public::from_raw([seed; 32]))
         }
 
-        /// The stash's truncated EVM address, which `EnsureAddressTruncated` lets it withdraw from.
+        /// The stash's truncated EVM address, which `EnsureAddressTruncatedNonZero` lets it withdraw from.
         fn stash_evm_address() -> H160 {
             H160::from_slice(&AsRef::<[u8; 32]>::as_ref(&stash())[0..20])
         }
@@ -2409,6 +2416,56 @@ mod tests {
                     EVM::withdraw(RuntimeOrigin::signed(other), stash_evm_address(), tips).is_err()
                 );
                 assert_eq!(coinbase_balance(), tips);
+            });
+        }
+
+        /// An account whose first 20 bytes are zero, so `EnsureAddressTruncated` alone would let it
+        /// act as EVM address `0x0`.
+        fn zero_prefixed() -> AccountId32 {
+            let mut id = [0u8; 32];
+            id[31] = 0x80;
+            AccountId32::new(id)
+        }
+
+        #[test]
+        fn zero_address_cannot_be_withdrawn_from() {
+            new_test_ext().execute_with(|| {
+                let zero_account = AddressMapping::into_account_id(H160::zero());
+                <Balances as Mutate<_>>::set_balance(&zero_account, GWEI);
+
+                let result =
+                    EVM::withdraw(RuntimeOrigin::signed(zero_prefixed()), H160::zero(), GWEI);
+
+                assert!(result.is_err());
+                assert_eq!(Balances::balance(&zero_account), GWEI);
+                assert_eq!(Balances::balance(&zero_prefixed()), 0);
+            });
+        }
+
+        #[test]
+        fn zero_address_cannot_call() {
+            new_test_ext().execute_with(|| {
+                let call = |origin: AccountId32, source: H160| {
+                    EVM::call(
+                        RuntimeOrigin::signed(origin),
+                        source,
+                        H160::repeat_byte(0xBB),
+                        vec![],
+                        U256::zero(),
+                        TRANSFER_GAS,
+                        U256::from(base_fee()),
+                        None,
+                        None,
+                        vec![],
+                        vec![],
+                    )
+                };
+
+                let refused = call(zero_prefixed(), H160::zero()).unwrap_err();
+                assert_eq!(refused.error, DispatchError::BadOrigin);
+                // Control: a matching non-zero origin gets past the origin check.
+                let control = call(stash(), stash_evm_address());
+                assert!(!matches!(control, Err(e) if e.error == DispatchError::BadOrigin));
             });
         }
     }
