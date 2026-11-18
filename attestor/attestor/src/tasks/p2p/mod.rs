@@ -27,6 +27,7 @@ use write_ability::protocol::{
 
 use crate::error::Error;
 use crate::shared::Shared;
+use crate::tasks::write_ability::reobservation::{CooldownMap, ReobsKey, REOBS_FAILURE_INTERVAL};
 use crate::tasks::write_ability::{ingest, pending};
 use crate::vote::{verify_vote, VerifyResult};
 
@@ -527,6 +528,10 @@ const REOBS_GLOBAL_REFILL_PER_SEC: f64 = 5.0;
 const REOBS_PER_PEER_CAPACITY: f64 = 5.0;
 const REOBS_PER_PEER_REFILL_PER_SEC: f64 = 1.0;
 const REOBS_MAX_TRACKED_PEERS: usize = 1024;
+/// An exact request tuple seen within this window is a replay: dropped without charging any
+/// admission budget (CSUB-2138). A genuine retry inside it would only hit the worker's cooldown.
+const REOBS_DEDUP_WINDOW: std::time::Duration = REOBS_FAILURE_INTERVAL;
+const REOBS_MAX_RECENT: usize = 1024;
 
 /// Monotonic-clock token bucket. Not thread-safe; the swarm loop owns it single-threaded.
 #[derive(Clone, Copy)]
@@ -575,6 +580,9 @@ struct ReobsAdmission {
     global: TokenBucket,
     per_peer: std::collections::HashMap<libp2p::PeerId, TokenBucket>,
     order: std::collections::VecDeque<libp2p::PeerId>,
+    /// Recently admitted request tuples. Replaying one is free to drop, so a flood of identical
+    /// forged requests (even from many peers) costs the shared global budget a single token.
+    recent: CooldownMap<ReobsKey>,
 }
 
 impl ReobsAdmission {
@@ -583,10 +591,15 @@ impl ReobsAdmission {
             global: TokenBucket::new(REOBS_GLOBAL_CAPACITY, REOBS_GLOBAL_REFILL_PER_SEC, now),
             per_peer: std::collections::HashMap::new(),
             order: std::collections::VecDeque::new(),
+            recent: CooldownMap::new(REOBS_MAX_RECENT),
         }
     }
 
-    fn admit(&mut self, source: libp2p::PeerId, now: Instant) -> bool {
+    fn admit(&mut self, key: &ReobsKey, source: libp2p::PeerId, now: Instant) -> bool {
+        // A replay is dropped before it can charge the per-peer or global bucket.
+        if !self.recent.allow(key, now) {
+            return false;
+        }
         if !self.per_peer.contains_key(&source) {
             while self.per_peer.len() >= REOBS_MAX_TRACKED_PEERS {
                 let Some(old) = self.order.pop_front() else {
@@ -608,6 +621,7 @@ impl ReobsAdmission {
         if peer.has_token() && self.global.has_token() {
             peer.take();
             self.global.take();
+            self.recent.record(*key, now, REOBS_DEDUP_WINDOW);
             true
         } else {
             false
@@ -1314,12 +1328,8 @@ fn handle_reobservation_request(
     let Some(state) = &shared.message_votes else {
         return MessageAcceptance::Ignore;
     };
-    // Rate-limit before doing (or propagating) any work: an over-limit reobservation flood is
-    // dropped with `Ignore` so it is not amplified across the mesh (audit P1-4).
-    if !admission.admit(source, Instant::now()) {
-        tracing::debug!(%source, "🚦 reobservation rate limit exceeded — dropping, not propagating");
-        return MessageAcceptance::Ignore;
-    }
+    // Decode first (four fixed fields, no I/O) so replays and wrong-chain frames can be dropped
+    // without charging admission budget — a replayed forged tuple must not drain the global bucket.
     let request = match ReobservationRequest::decode_bytes(bytes) {
         Ok(r) => r,
         Err(err) => {
@@ -1329,6 +1339,12 @@ fn handle_reobservation_request(
         }
     };
     if request.chain_key != shared.chain_key {
+        return MessageAcceptance::Ignore;
+    }
+    // Rate-limit before doing (or propagating) any work: an over-limit or replayed reobservation
+    // is dropped with `Ignore` so it is not amplified across the mesh (audit P1-4).
+    if !admission.admit(&ReobsKey::from(&request), source, Instant::now()) {
+        tracing::debug!(%source, "🚦 reobservation rate limit exceeded or replayed — dropping, not propagating");
         return MessageAcceptance::Ignore;
     }
     match state.reobs_tx.try_send(request) {
@@ -1658,7 +1674,7 @@ mod tests {
 
     use super::{
         deny_decision, drain_pending_votes, is_bufferable, note_attestor_peer, PendingVotes,
-        ReobsAdmission, REOBS_PER_PEER_CAPACITY,
+        ReobsAdmission, ReobsKey, REOBS_DEDUP_WINDOW, REOBS_PER_PEER_CAPACITY,
     };
     use attestor_primitives::AttestorId;
     use std::time::{Duration, Instant};
@@ -1670,14 +1686,51 @@ mod tests {
         let p = libp2p::PeerId::random();
         // Per-peer capacity is exhausted, then denied at the same instant…
         for i in 0..REOBS_PER_PEER_CAPACITY as usize {
-            assert!(a.admit(p, t0), "request {i} within per-peer capacity");
+            assert!(
+                a.admit(&rkey(i as u8), p, t0),
+                "request {i} within per-peer capacity"
+            );
         }
-        assert!(!a.admit(p, t0), "over per-peer capacity");
+        assert!(!a.admit(&rkey(100), p, t0), "over per-peer capacity");
         // …a different peer has its own bucket (shares only the global allowance)…
         let q = libp2p::PeerId::random();
-        assert!(a.admit(q, t0));
+        assert!(a.admit(&rkey(101), q, t0));
         // …and the per-peer bucket refills over time (1 token/sec).
-        assert!(a.admit(p, t0 + Duration::from_secs(1)));
+        assert!(a.admit(&rkey(102), p, t0 + Duration::from_secs(1)));
+    }
+
+    fn rkey(n: u8) -> ReobsKey {
+        ReobsKey {
+            message_id: alloy::primitives::B256::from([n; 32]),
+            tx_hash: alloy::primitives::B256::from([n; 32]),
+            block_height: u64::from(n),
+        }
+    }
+
+    #[test]
+    fn reobs_admission_replays_cost_no_budget() {
+        // CSUB-2138: the same forged tuple replayed from many peers is admitted once, and the
+        // replays charge neither their per-peer bucket nor the shared global bucket.
+        let t0 = Instant::now();
+        let mut a = ReobsAdmission::new(t0);
+        let forged = rkey(1);
+        assert!(a.admit(&forged, libp2p::PeerId::random(), t0));
+        for _ in 0..100 {
+            assert!(!a.admit(&forged, libp2p::PeerId::random(), t0));
+        }
+        // Global capacity (20) is intact: 19 more distinct requests from distinct peers fit.
+        for n in 2..=20u8 {
+            assert!(
+                a.admit(&rkey(n), libp2p::PeerId::random(), t0),
+                "request {n}"
+            );
+        }
+        assert!(
+            !a.admit(&rkey(21), libp2p::PeerId::random(), t0),
+            "global now empty"
+        );
+        // After the dedup window the same tuple is admissible again (a genuine retry).
+        assert!(a.admit(&forged, libp2p::PeerId::random(), t0 + REOBS_DEDUP_WINDOW));
     }
 
     fn att(n: u8) -> AttestorId {

@@ -15,13 +15,16 @@
 //! the same [`MessageVote`] we would have produced originally.
 //!
 //! The worst a forged or spammed request can do is make us perform a bounded `eth_getLogs` — bounded
-//! because [`ReobsRateLimiter`] drops repeat requests for the same `message_id` inside a cooldown.
+//! because [`ReobsRateLimiter`] drops repeat requests inside a cooldown. Only a *verified* request
+//! cools down its `message_id`; a failed one cools down just its own `(message_id, tx_hash,
+//! block_height)`, so a forged request can never lock out the genuine one (CSUB-2138).
 //!
 //! [`listener`]: super::listener
 //! [`MessageVote`]: write_ability::envelope::MessageVote
 //! [`ReobservationRequest`]: write_ability::envelope::ReobservationRequest
 
 use std::collections::{HashMap, VecDeque};
+use std::hash::Hash;
 use std::time::{Duration, Instant};
 
 use alloy::primitives::B256;
@@ -40,12 +43,12 @@ use super::resolver::{self, ResolvedRoute};
 /// far longer than this, so legitimate relayer retries are unaffected while we avoid re-signing the
 /// same message every few seconds.
 pub const REOBS_MIN_INTERVAL: Duration = Duration::from_secs(30);
-/// Cooldown after a *failed / unverifiable* request (forged block, wrong Outbox, decode miss). Much
-/// shorter than the success interval: it exists only to bound the `eth_getLogs` an adversary can
-/// induce by spamming garbage — it must NOT lock out the genuine relayer request for a full window
-/// (see S2). A spammer targeting a stalled `message_id` can now only delay recovery by seconds, not
-/// hold it below quorum indefinitely.
+/// Cooldown after a *failed / unverifiable* request (forged block, wrong Outbox, decode miss). It
+/// only bounds the `eth_getLogs` an adversary can induce by replaying the same garbage, and is keyed
+/// by the full request tuple ([`ReobsKey`]) so it cannot lock out a different, genuine request for
+/// the same `message_id`.
 pub const REOBS_FAILURE_INTERVAL: Duration = Duration::from_secs(3);
+/// Capacity of each of the two cooldown maps (verified by `message_id`, failed by [`ReobsKey`]).
 pub const REOBS_MAX_TRACKED_IDS: usize = 10_000;
 
 /// Per-request wall-clock deadline for the tip + `eth_getLogs` re-fetch. A black-holed RPC must not
@@ -53,79 +56,57 @@ pub const REOBS_MAX_TRACKED_IDS: usize = 10_000;
 /// re-requests on its own cadence). Matches the listener's `RPC_TIMEOUT`.
 pub const REOBS_RPC_TIMEOUT: Duration = Duration::from_secs(30);
 
-/// Per-`message_id` cooldown tracker for reobservation requests. Synchronous and clock-injected so
-/// it unit-tests without a network or real time.
-///
-/// The cooldown is applied *after* a request is honored (via [`record`](Self::record)), not at the
-/// admission check ([`allow`](Self::allow)) — because requests are unauthenticated. If the check
-/// itself recorded the full cooldown, a spammer replaying a forged request for a stalled
-/// `message_id` would burn that message's window on every replay and starve the one genuine relayer
-/// request that carries the correct block. Deferring the record — and using only a short cooldown on
-/// failure — keeps the genuine request admissible within seconds.
-#[derive(Default)]
-pub struct ReobsRateLimiter {
-    /// Per-`message_id` instant at which another request may next be honored (`now + cooldown`).
-    next_allowed: HashMap<B256, Instant>,
-    order: VecDeque<B256>,
-    success_interval: Duration,
-    failure_interval: Duration,
+/// Identity of an unauthenticated request: every field an attacker controls. A failure cooldown is
+/// keyed by all of it, so forging one field never blocks a request that differs in another.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct ReobsKey {
+    pub message_id: B256,
+    pub tx_hash: B256,
+    pub block_height: u64,
+}
+
+impl From<&ReobservationRequest> for ReobsKey {
+    fn from(request: &ReobservationRequest) -> Self {
+        Self {
+            message_id: B256::from(request.message_id),
+            tx_hash: B256::from(request.tx_hash),
+            block_height: request.block_height,
+        }
+    }
+}
+
+/// Bounded `key -> instant at which it may next be honored` map with oldest-first eviction.
+pub(crate) struct CooldownMap<K> {
+    next_allowed: HashMap<K, Instant>,
+    order: VecDeque<K>,
     max_tracked: usize,
 }
 
-impl ReobsRateLimiter {
-    #[must_use]
-    pub fn new(success_interval: Duration) -> Self {
+impl<K: Copy + Eq + Hash> CooldownMap<K> {
+    pub(crate) fn new(max_tracked: usize) -> Self {
         Self {
             next_allowed: HashMap::new(),
             order: VecDeque::new(),
-            success_interval,
-            failure_interval: REOBS_FAILURE_INTERVAL,
-            max_tracked: REOBS_MAX_TRACKED_IDS,
-        }
-    }
-
-    #[must_use]
-    pub fn with_capacity(success_interval: Duration, max_tracked: usize) -> Self {
-        Self {
-            next_allowed: HashMap::new(),
-            order: VecDeque::new(),
-            success_interval,
-            failure_interval: REOBS_FAILURE_INTERVAL,
             max_tracked: max_tracked.max(1),
         }
     }
 
-    /// Whether a request for `message_id` may be honored at `now`. Pure check — does **not** record
-    /// the cooldown (the caller does that via [`record`](Self::record) once the request has actually
-    /// been verified). `true` when the id has never been seen or its cooldown has elapsed.
-    #[must_use]
-    pub fn allow(&self, message_id: B256, now: Instant) -> bool {
-        self.next_allowed
-            .get(&message_id)
-            .is_none_or(|&next| now >= next)
+    pub(crate) fn allow(&self, key: &K, now: Instant) -> bool {
+        self.next_allowed.get(key).is_none_or(|&next| now >= next)
     }
 
-    /// Record that a request for `message_id` was honored at `now`, applying the success cooldown
-    /// ([`REOBS_MIN_INTERVAL`]) when `verified` (a real `MessagePublished` was re-signed) or the
-    /// short failure cooldown ([`REOBS_FAILURE_INTERVAL`]) otherwise. Opportunistically forgets
-    /// entries whose cooldown has already elapsed so the map stays bounded.
-    pub fn record(&mut self, message_id: B256, now: Instant, verified: bool) {
-        let cooldown = if verified {
-            self.success_interval
-        } else {
-            self.failure_interval
-        };
-        if !self.next_allowed.contains_key(&message_id) {
-            self.order.push_back(message_id);
+    pub(crate) fn record(&mut self, key: K, now: Instant, cooldown: Duration) {
+        if !self.next_allowed.contains_key(&key) {
+            self.order.push_back(key);
         }
-        self.next_allowed.insert(message_id, now + cooldown);
+        self.next_allowed.insert(key, now + cooldown);
         self.prune(now);
     }
 
     fn prune(&mut self, now: Instant) {
-        // Drop ids whose cooldown has elapsed (their `next_allowed` is now in the past).
+        // Drop keys whose cooldown has elapsed (their `next_allowed` is now in the past).
         self.next_allowed.retain(|_, &mut next| next > now);
-        self.order.retain(|id| self.next_allowed.contains_key(id));
+        self.order.retain(|key| self.next_allowed.contains_key(key));
         while self.next_allowed.len() > self.max_tracked {
             let Some(oldest) = self.order.pop_front() else {
                 break;
@@ -135,22 +116,103 @@ impl ReobsRateLimiter {
     }
 }
 
+/// Cooldown tracker for reobservation requests. Synchronous and clock-injected so it unit-tests
+/// without a network or real time.
+///
+/// Requests are unauthenticated, so the two outcomes are tracked in **separate** maps:
+/// * `verified` — keyed by `message_id`. Only a request that matched a real `MessagePublished` can
+///   write here, so an attacker cannot use it to block a message.
+/// * `failed` — keyed by the whole [`ReobsKey`]. A forged request (wrong tx/block for a real
+///   `message_id`) cools down only itself; the genuine request has a different key and stays
+///   admissible. Flooding it with random keys can only evict other failure entries, never a
+///   `verified` one.
+///
+/// The cooldown is applied *after* a request is verified (via [`record_verified`] /
+/// [`record_failed`]), not at the admission check ([`allow`]).
+///
+/// [`record_verified`]: Self::record_verified
+/// [`record_failed`]: Self::record_failed
+/// [`allow`]: Self::allow
+pub struct ReobsRateLimiter {
+    verified: CooldownMap<B256>,
+    failed: CooldownMap<ReobsKey>,
+    success_interval: Duration,
+    failure_interval: Duration,
+}
+
+impl ReobsRateLimiter {
+    #[must_use]
+    pub fn new(success_interval: Duration) -> Self {
+        Self::with_capacity(success_interval, REOBS_MAX_TRACKED_IDS)
+    }
+
+    #[must_use]
+    pub fn with_capacity(success_interval: Duration, max_tracked: usize) -> Self {
+        Self {
+            verified: CooldownMap::new(max_tracked),
+            failed: CooldownMap::new(max_tracked),
+            success_interval,
+            failure_interval: REOBS_FAILURE_INTERVAL,
+        }
+    }
+
+    /// Whether `key` may be honored at `now`: its `message_id` must not be in the success cooldown
+    /// and the exact request must not be in the failure cooldown. Pure check — does **not** record.
+    #[must_use]
+    pub fn allow(&self, key: &ReobsKey, now: Instant) -> bool {
+        self.verified.allow(&key.message_id, now) && self.failed.allow(key, now)
+    }
+
+    /// A real `MessagePublished` was re-signed for `message_id`: apply the success cooldown.
+    pub fn record_verified(&mut self, message_id: B256, now: Instant) {
+        self.verified.record(message_id, now, self.success_interval);
+    }
+
+    /// `key` named something we could not verify: apply the short failure cooldown to that exact
+    /// request only.
+    pub fn record_failed(&mut self, key: ReobsKey, now: Instant) {
+        self.failed.record(key, now, self.failure_interval);
+    }
+}
+
 /// Whether the requested block has deterministic source-chain finality. Missing finality never
 /// authorizes a vote, regardless of the block's distance from the tip.
 fn reobs_final_enough(finalized: Option<u64>, block_height: u64) -> bool {
     finalized.is_some_and(|height| block_height <= height)
 }
 
-/// Re-fetch and re-verify the message against its historical Discovery authorization, returning the
-/// [`IndexedMessage`] to re-sign — or `Ok(None)` when the request does not correspond to a genuine
-/// `MessagePublished` we can confirm (forged / wrong block / wrong Outbox / `message_id` mismatch).
-/// `Ok(None)` is deliberately not an error: an unverifiable request is simply ignored.
+/// Result of independently re-verifying a [`ReobservationRequest`].
+#[derive(Debug)]
+pub enum ReobsOutcome {
+    /// A genuine, authorized `MessagePublished`: re-sign this.
+    Verified(IndexedMessage),
+    /// The requested block is above our finalized head. Says nothing about the request's validity
+    /// (it may be genuine and just ahead of us), so it must not start any cooldown.
+    NotFinalized,
+    /// Forged / wrong block / wrong Outbox / `message_id` mismatch. Deliberately not an error: an
+    /// unverifiable request is simply ignored.
+    Unverifiable,
+}
+
+impl ReobsOutcome {
+    /// The message to re-sign, if the request verified.
+    #[must_use]
+    pub fn verified(self) -> Option<IndexedMessage> {
+        match self {
+            Self::Verified(indexed) => Some(indexed),
+            Self::NotFinalized | Self::Unverifiable => None,
+        }
+    }
+}
+
+/// Re-fetch and re-verify the message against its historical Discovery authorization. `Err` means
+/// we could not reach a verdict (RPC failure); it must not start a cooldown either.
 pub async fn reobserve<P: Provider>(
     provider: &P,
     resolved: &ResolvedRoute,
     _confirmation_depth: u64,
     request: &ReobservationRequest,
-) -> Result<Option<IndexedMessage>> {
+) -> Result<ReobsOutcome> {
     let requested_id = B256::from(request.message_id);
 
     // An unauthenticated pull request must meet the same finality requirement as the listener.
@@ -170,7 +232,7 @@ pub async fn reobserve<P: Provider>(
             ?finalized,
             "🔎 reobservation request targets a not-yet-finalized block — ignoring"
         );
-        return Ok(None);
+        return Ok(ReobsOutcome::NotFinalized);
     }
 
     // Bound the candidate scan by block and message ID, then authenticate the actual emitting
@@ -184,11 +246,11 @@ pub async fn reobserve<P: Provider>(
     .await?;
 
     if logs.is_empty() {
-        return Ok(None);
+        return Ok(ReobsOutcome::Unverifiable);
     }
     let Some(discovery) = resolver::discovery_at(provider, resolved, request.block_height).await?
     else {
-        return Ok(None);
+        return Ok(ReobsOutcome::Unverifiable);
     };
     let requested_tx = B256::from(request.tx_hash);
     for log in logs {
@@ -219,14 +281,14 @@ pub async fn reobserve<P: Provider>(
         // `messageId` is already cryptographically bound to emitter/outbox/sequence/payload by
         // `OutboxTypes.computeMessageId` at emission time (asc-contracts #54) — nothing left to
         // recompute; vote on `messageId` itself, same as the listener's fast path.
-        return Ok(Some(IndexedMessage {
+        return Ok(ReobsOutcome::Verified(IndexedMessage {
             message_id: decoded.data.messageId,
             outbox,
             destination_chain_key: resolved.destination_chain_key,
         }));
     }
 
-    Ok(None)
+    Ok(ReobsOutcome::Unverifiable)
 }
 
 #[cfg(test)]
@@ -278,10 +340,10 @@ mod tests {
             assert!(reobserve(&provider, &resolved, 3, &request).await.is_err());
         }
         rpc.set_finalized(100);
-        assert!(reobserve(&provider, &resolved, 3, &request)
-            .await
-            .unwrap()
-            .is_none());
+        assert!(matches!(
+            reobserve(&provider, &resolved, 3, &request).await.unwrap(),
+            ReobsOutcome::NotFinalized
+        ));
         assert!(rpc
             .state
             .lock()
@@ -291,94 +353,114 @@ mod tests {
 
         // Only a recovered finalized head covering the requested block permits a log fetch.
         rpc.set_finalized(105);
-        assert!(reobserve(&provider, &resolved, 3, &request)
-            .await
-            .unwrap()
-            .is_none());
+        assert!(matches!(
+            reobserve(&provider, &resolved, 3, &request).await.unwrap(),
+            ReobsOutcome::Unverifiable
+        ));
         let scan = rpc.state.lock().requests.last().unwrap().clone();
         assert_eq!(scan["method"], "eth_getLogs");
         assert_eq!(scan["params"][0]["fromBlock"], "0x69");
         assert_eq!(scan["params"][0]["toBlock"], "0x69");
     }
 
+    fn key(id_byte: u8, tx_byte: u8, height: u64) -> ReobsKey {
+        ReobsKey {
+            message_id: id(id_byte),
+            tx_hash: id(tx_byte),
+            block_height: height,
+        }
+    }
+
     #[test]
     fn first_request_is_allowed() {
         let rl = ReobsRateLimiter::new(REOBS_MIN_INTERVAL);
-        assert!(rl.allow(id(1), Instant::now()));
+        assert!(rl.allow(&key(1, 1, 10), Instant::now()));
     }
 
     #[test]
     fn allow_is_pure_and_does_not_record() {
-        // Repeated `allow` without a `record` never denies — the admission check must not itself
-        // impose a cooldown (that is what lets a forged request starve the genuine one; see S2).
+        // Repeated `allow` without a record never denies — the admission check must not itself
+        // impose a cooldown.
         let rl = ReobsRateLimiter::new(Duration::from_secs(30));
         let t0 = Instant::now();
-        assert!(rl.allow(id(1), t0));
-        assert!(rl.allow(id(1), t0 + Duration::from_secs(1)));
-        assert!(rl.allow(id(1), t0 + Duration::from_secs(2)));
+        for secs in 0..3 {
+            assert!(rl.allow(&key(1, 1, 10), t0 + Duration::from_secs(secs)));
+        }
     }
 
     #[test]
-    fn verified_request_uses_full_cooldown() {
+    fn verified_request_uses_full_cooldown_per_message_id() {
         let mut rl = ReobsRateLimiter::new(Duration::from_secs(30));
         let t0 = Instant::now();
-        assert!(rl.allow(id(1), t0));
-        rl.record(id(1), t0, true);
-        assert!(!rl.allow(id(1), t0 + Duration::from_secs(5)));
-        assert!(rl.allow(id(1), t0 + Duration::from_secs(31)));
-        // A different message_id is independent.
-        assert!(rl.allow(id(2), t0 + Duration::from_secs(5)));
+        rl.record_verified(id(1), t0);
+        // Any tuple for the verified message_id is cooling down...
+        assert!(!rl.allow(&key(1, 1, 10), t0 + Duration::from_secs(5)));
+        assert!(!rl.allow(&key(1, 9, 99), t0 + Duration::from_secs(5)));
+        assert!(rl.allow(&key(1, 1, 10), t0 + Duration::from_secs(31)));
+        // ...a different message_id is independent.
+        assert!(rl.allow(&key(2, 1, 10), t0 + Duration::from_secs(5)));
     }
 
     #[test]
-    fn failed_request_uses_short_cooldown() {
-        // A forged/unverifiable request only imposes the short failure cooldown, so the genuine
-        // relayer request for the same id is admissible again within seconds — it can no longer be
-        // held below quorum by a spammer replaying garbage inside a 30s window.
+    fn failed_request_cools_down_only_its_own_tuple() {
+        // CSUB-2138: a forged request naming a real message_id with a bogus tx/block must not keep
+        // the genuine request (same message_id, different tuple) out.
         let mut rl = ReobsRateLimiter::new(Duration::from_secs(30));
         let t0 = Instant::now();
-        assert!(rl.allow(id(1), t0));
-        rl.record(id(1), t0, false);
+        let forged = key(1, 9, 999);
+        let genuine = key(1, 1, 10);
+        rl.record_failed(forged, t0);
+        assert!(!rl.allow(
+            &forged,
+            t0 + REOBS_FAILURE_INTERVAL - Duration::from_millis(1)
+        ));
+        assert!(rl.allow(&forged, t0 + REOBS_FAILURE_INTERVAL));
         assert!(
-            !rl.allow(
-                id(1),
-                t0 + REOBS_FAILURE_INTERVAL - Duration::from_millis(1)
-            ),
-            "still cooling down within the (short) failure interval"
+            rl.allow(&genuine, t0),
+            "the genuine tuple is admissible immediately, however often the forged one repeats"
         );
-        assert!(
-            rl.allow(id(1), t0 + REOBS_FAILURE_INTERVAL),
-            "admissible again after only the short failure cooldown — not the full 30s"
-        );
+        // Differing in any single field is a different request.
+        assert!(rl.allow(&key(1, 9, 1000), t0));
+        assert!(rl.allow(&key(1, 8, 999), t0));
+    }
+
+    #[test]
+    fn failed_flood_cannot_evict_verified_entries() {
+        // Distinct failure keys fill (and churn) only the failure map, so the 30s re-sign bound for
+        // a verified message survives a flood of random forged tuples.
+        let mut rl = ReobsRateLimiter::with_capacity(Duration::from_secs(30), 2);
+        let t0 = Instant::now();
+        rl.record_verified(id(1), t0);
+        for height in 0..50 {
+            rl.record_failed(key(2, 2, height), t0);
+        }
+        assert!(!rl.allow(&key(1, 1, 10), t0 + Duration::from_secs(5)));
+        assert!(rl.failed.next_allowed.len() <= 2);
     }
 
     #[test]
     fn stale_entries_are_pruned() {
         let mut rl = ReobsRateLimiter::new(Duration::from_secs(10));
         let t0 = Instant::now();
-        rl.record(id(1), t0, true);
-        // A later record for a different id prunes id(1) (its 10s cooldown has elapsed).
-        rl.record(id(2), t0 + Duration::from_secs(20), true);
-        assert_eq!(
-            rl.next_allowed.len(),
-            1,
-            "stale entry should have been pruned"
-        );
+        rl.record_verified(id(1), t0);
+        rl.record_failed(key(3, 3, 3), t0);
+        // Later records prune entries whose cooldown has elapsed.
+        rl.record_verified(id(2), t0 + Duration::from_secs(20));
+        rl.record_failed(key(4, 4, 4), t0 + Duration::from_secs(20));
+        assert_eq!(rl.verified.next_allowed.len(), 1);
+        assert_eq!(rl.failed.next_allowed.len(), 1);
     }
 
     #[test]
     fn capacity_evicts_oldest_distinct_ids() {
         let mut rl = ReobsRateLimiter::with_capacity(Duration::from_secs(30), 2);
         let now = Instant::now();
-        rl.record(id(1), now, true);
-        rl.record(id(2), now, true);
-        rl.record(id(3), now, true);
+        rl.record_verified(id(1), now);
+        rl.record_verified(id(2), now);
+        rl.record_verified(id(3), now);
 
-        assert!(
-            !rl.next_allowed.contains_key(&id(1)),
-            "oldest id should be evicted"
-        );
-        assert!(rl.next_allowed.contains_key(&id(2)));
-        assert!(rl.next_allowed.contains_key(&id(3)));
+        assert!(!rl.verified.next_allowed.contains_key(&id(1)));
+        assert!(rl.verified.next_allowed.contains_key(&id(2)));
+        assert!(rl.verified.next_allowed.contains_key(&id(3)));
     }
 }
