@@ -28,7 +28,7 @@ use write_ability::protocol::{
 use crate::error::Error;
 use crate::shared::Shared;
 use crate::tasks::write_ability::reobservation::{
-    CooldownMap, QueuePush, ReobsKey, REOBS_FAILURE_INTERVAL,
+    CooldownMap, QueuePush, ReobsKey, ReobsQueue, REOBS_FAILURE_INTERVAL,
 };
 use crate::tasks::write_ability::{ingest, pending};
 use crate::vote::{verify_vote, VerifyResult};
@@ -623,11 +623,18 @@ impl ReobsAdmission {
         if peer.has_token() && self.global.has_token() {
             peer.take();
             self.global.take();
-            self.recent.record(*key, now, REOBS_DEDUP_WINDOW);
             true
         } else {
             false
         }
+    }
+
+    /// Remember `key` as seen, so identical copies inside [`REOBS_DEDUP_WINDOW`] are dropped for
+    /// free. Called only once the request is held in the queue: a request the queue rejected was
+    /// never handled, so its tuple must not block the same (possibly genuine) request arriving via
+    /// another neighbour.
+    fn mark_seen(&mut self, key: &ReobsKey, now: Instant) {
+        self.recent.record(*key, now, REOBS_DEDUP_WINDOW);
     }
 }
 
@@ -1344,15 +1351,39 @@ fn handle_reobservation_request(
     if request.chain_key != shared.chain_key {
         return MessageAcceptance::Ignore;
     }
-    // Rate-limit before doing (or propagating) any work: an over-limit or replayed reobservation
-    // is dropped with `Ignore` so it is not amplified across the mesh (audit P1-4).
-    if !admission.admit(&ReobsKey::from(&request), source, Instant::now()) {
+    intake_reobservation(
+        admission,
+        &state.reobs_queue,
+        source,
+        request,
+        Instant::now(),
+    )
+}
+
+/// Admission then queueing for one decoded request. Rate-limit before doing (or propagating) any
+/// work: an over-limit or replayed reobservation is dropped with `Ignore` so it is not amplified
+/// across the mesh (audit P1-4). The replay filter is only updated once the request is held in the
+/// queue (`Queued` or `Duplicate`), so a copy the queue turned away cannot shadow the genuine one.
+fn intake_reobservation(
+    admission: &mut ReobsAdmission,
+    queue: &ReobsQueue,
+    source: libp2p::PeerId,
+    request: ReobservationRequest,
+    now: Instant,
+) -> libp2p::gossipsub::MessageAcceptance {
+    use libp2p::gossipsub::MessageAcceptance;
+    let key = ReobsKey::from(&request);
+    if !admission.admit(&key, source, now) {
         tracing::debug!(%source, "🚦 reobservation rate limit exceeded or replayed — dropping, not propagating");
         return MessageAcceptance::Ignore;
     }
-    let push = state.reobs_queue.push(source, request);
-    if push == QueuePush::Full {
-        tracing::warn!("reobservation queue full — dropping and not propagating");
+    let push = queue.push(source, request);
+    match push {
+        QueuePush::Queued | QueuePush::Duplicate => admission.mark_seen(&key, now),
+        QueuePush::Full => {
+            tracing::warn!("reobservation queue full — dropping and not propagating");
+        }
+        QueuePush::PeerFull => {}
     }
     reobs_push_acceptance(push)
 }
@@ -1724,6 +1755,7 @@ mod tests {
         let mut a = ReobsAdmission::new(t0);
         let forged = rkey(1);
         assert!(a.admit(&forged, libp2p::PeerId::random(), t0));
+        a.mark_seen(&forged, t0);
         for _ in 0..100 {
             assert!(!a.admit(&forged, libp2p::PeerId::random(), t0));
         }
@@ -1740,6 +1772,50 @@ mod tests {
         );
         // After the dedup window the same tuple is admissible again (a genuine retry).
         assert!(a.admit(&forged, libp2p::PeerId::random(), t0 + REOBS_DEDUP_WINDOW));
+    }
+
+    fn wire_request(n: u8) -> write_ability::envelope::ReobservationRequest {
+        write_ability::envelope::ReobservationRequest {
+            chain_key: 1,
+            message_id: [n; 32],
+            tx_hash: [n; 32],
+            block_height: u64::from(n),
+        }
+    }
+
+    #[test]
+    fn a_copy_the_queue_rejects_does_not_shadow_the_genuine_request() {
+        use super::{intake_reobservation, QueuePush};
+        use libp2p::gossipsub::MessageAcceptance;
+        // The queue lets each peer hold one request, and the attacker's peer already holds one.
+        let t0 = Instant::now();
+        let mut admission = ReobsAdmission::new(t0);
+        let queue = crate::tasks::write_ability::reobservation::ReobsQueue::new(10, 1);
+        let (attacker, honest) = (libp2p::PeerId::random(), libp2p::PeerId::random());
+        assert_eq!(queue.push(attacker, wire_request(100)), QueuePush::Queued);
+
+        // A copy of the genuine request arrives first via the congested peer: rejected, not
+        // propagated, and not remembered.
+        assert!(matches!(
+            intake_reobservation(&mut admission, &queue, attacker, wire_request(1), t0),
+            MessageAcceptance::Ignore
+        ));
+        // The genuine request via another neighbour, inside the replay window, is still handled.
+        assert!(matches!(
+            intake_reobservation(&mut admission, &queue, honest, wire_request(1), t0),
+            MessageAcceptance::Accept
+        ));
+        // Once it is queued, further identical copies are dropped for free as replays.
+        assert!(matches!(
+            intake_reobservation(
+                &mut admission,
+                &queue,
+                libp2p::PeerId::random(),
+                wire_request(1),
+                t0
+            ),
+            MessageAcceptance::Ignore
+        ));
     }
 
     #[test]
