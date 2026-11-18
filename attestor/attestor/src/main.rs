@@ -77,7 +77,7 @@ struct ConfigFileP2P {
 #[derive(Debug, Default, serde::Deserialize)]
 struct ConfigFileEth {
     url: Option<url::Url>,
-    /// `ethereum`, `op-stack` or `frontier`. Optional; defaults to `ethereum` for every chain ID.
+    /// `ethereum` or `op-stack`. Optional; defaults to `ethereum` for every chain ID.
     chain_family: Option<eth::ChainFamily>,
     rps: Option<std::num::NonZeroU32>,
     max_concurrency: Option<std::num::NonZeroUsize>,
@@ -266,14 +266,12 @@ impl Config {
             )
             .arg(
                 clap::arg!(--"eth-chain-family" <FAMILY>)
-                    .help("Source chain family: `ethereum`, `op-stack` or `frontier`")
+                    .help("Source chain family: `ethereum` or `op-stack`")
                     .long_help(
                         "Source chain family: `ethereum` (L1 and L1-shaped chains) or \
                         `op-stack` (Base, OP Mainnet and other OP-Stack rollups, which carry \
-                        0x7e deposit transactions) or `frontier` (Substrate/Frontier EVM chains, \
-                        whose empty blocks may carry non-standard header roots). Optional; \
-                        defaults to ethereum for every chain id. Set op-stack explicitly for \
-                        all OP-Stack chains.",
+                        0x7e deposit transactions). Optional; defaults to ethereum for every \
+                        chain id. Set op-stack explicitly for all OP-Stack chains.",
                     )
                     .env("ATTESTOR_ETH_CHAIN_FAMILY")
                     .required(false)

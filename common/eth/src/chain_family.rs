@@ -12,9 +12,6 @@
 //! - [`ChainFamily::OpStack`]: OP-Stack rollups (Base, OP Mainnet and their Sepolia testnets).
 //!   Every block opens with a type `0x7e` **deposit** transaction carrying the L1 attributes, and
 //!   deposit receipts carry extra RLP fields. See [`crate::op_stack`].
-//! - [`ChainFamily::Frontier`]: Substrate/Frontier EVM chains (local and dev networks). Read like
-//!   [`ChainFamily::Ethereum`], except that an empty block may carry header roots that are not the
-//!   standard empty-trie root. See [`ChainFamily::tolerates_nonstandard_empty_roots`].
 //!
 //! The family is an **off-chain** setting: it changes how an attestor *reads* a block, not what
 //! it attests to. Two attestors that disagree on the family for a chain would compute different
@@ -36,9 +33,6 @@ pub enum ChainFamily {
     Ethereum,
     /// OP-Stack rollup: Ethereum types plus the `0x7e` deposit transaction.
     OpStack,
-    /// Substrate/Frontier EVM chain: Ethereum types, and the one family allowed to report header
-    /// roots other than the empty-trie root for an empty block.
-    Frontier,
 }
 
 /// OP Mainnet.
@@ -54,16 +48,9 @@ impl ChainFamily {
     /// Whether this family admits the given EIP-2718 transaction type byte.
     pub fn supports_tx_type(self, ty: u8) -> bool {
         match self {
-            Self::Ethereum | Self::Frontier => ty <= 4,
+            Self::Ethereum => ty <= 4,
             Self::OpStack => ty <= 4 || ty == crate::op_stack::DEPOSIT_TX_TYPE,
         }
-    }
-
-    /// Whether an empty block may carry header `transactionsRoot` / `receiptsRoot` values other
-    /// than the empty-trie root. Only [`ChainFamily::Frontier`] does; every other family must
-    /// report the empty-trie root, so a header of a non-empty block cannot pass as empty.
-    pub const fn tolerates_nonstandard_empty_roots(self) -> bool {
-        matches!(self, Self::Frontier)
     }
 
     /// Canonical CLI / config spelling.
@@ -71,7 +58,6 @@ impl ChainFamily {
         match self {
             Self::Ethereum => "ethereum",
             Self::OpStack => "op-stack",
-            Self::Frontier => "frontier",
         }
     }
 }
@@ -84,7 +70,7 @@ impl fmt::Display for ChainFamily {
 
 /// Error returned when a chain-family string is not recognised.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
-#[error("unknown chain family `{0}` (expected `ethereum`, `op-stack` or `frontier`)")]
+#[error("unknown chain family `{0}` (expected `ethereum` or `op-stack`)")]
 pub struct ParseChainFamilyError(pub String);
 
 impl FromStr for ChainFamily {
@@ -96,7 +82,6 @@ impl FromStr for ChainFamily {
         match s.trim().to_ascii_lowercase().as_str() {
             "ethereum" | "eth" | "l1" => Ok(Self::Ethereum),
             "op-stack" | "opstack" | "op_stack" | "optimism" | "op" | "base" => Ok(Self::OpStack),
-            "frontier" => Ok(Self::Frontier),
             other => Err(ParseChainFamilyError(other.to_owned())),
         }
     }
@@ -120,17 +105,6 @@ mod tests {
         assert!(!ChainFamily::Ethereum.supports_tx_type(0x7e));
         assert!(ChainFamily::OpStack.supports_tx_type(0x7e));
         assert!(!ChainFamily::OpStack.supports_tx_type(0x6a));
-        for ty in 0u8..=4 {
-            assert!(ChainFamily::Frontier.supports_tx_type(ty));
-        }
-        assert!(!ChainFamily::Frontier.supports_tx_type(0x7e));
-    }
-
-    #[test]
-    fn only_frontier_tolerates_nonstandard_empty_roots() {
-        assert!(!ChainFamily::Ethereum.tolerates_nonstandard_empty_roots());
-        assert!(!ChainFamily::OpStack.tolerates_nonstandard_empty_roots());
-        assert!(ChainFamily::Frontier.tolerates_nonstandard_empty_roots());
     }
 
     #[test]
@@ -148,16 +122,8 @@ mod tests {
             ChainFamily::OpStack
         );
         assert_eq!("base".parse::<ChainFamily>().unwrap(), ChainFamily::OpStack);
-        assert_eq!(
-            "Frontier".parse::<ChainFamily>().unwrap(),
-            ChainFamily::Frontier
-        );
         assert!("nitro".parse::<ChainFamily>().is_err());
-        for family in [
-            ChainFamily::Ethereum,
-            ChainFamily::OpStack,
-            ChainFamily::Frontier,
-        ] {
+        for family in [ChainFamily::Ethereum, ChainFamily::OpStack] {
             assert_eq!(family.to_string().parse::<ChainFamily>().unwrap(), family);
         }
     }

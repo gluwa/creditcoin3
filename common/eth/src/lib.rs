@@ -615,18 +615,15 @@ impl OrderedBlock {
             });
         }
 
-        // An empty body needs a header that says it is empty, or a family that declares
-        // non-standard empty roots (Frontier). Else a non-empty block's header passes as empty.
+        // An empty body needs a header that says it is empty, else a non-empty block's header
+        // with its transactions dropped would pass as empty.
         if block.transactions.is_empty() && receipts.is_empty() {
-            let header_says_empty = block.header.transactions_root == EMPTY_ROOT_HASH
-                && block.header.receipts_root == EMPTY_ROOT_HASH;
-            if !header_says_empty && !family.tolerates_nonstandard_empty_roots() {
+            if block.header.transactions_root != EMPTY_ROOT_HASH
+                || block.header.receipts_root != EMPTY_ROOT_HASH
+            {
                 return Err(Error::BlockHeaderRootsMismatch(expected_number));
             }
-            trace!(
-                block_number = expected_number,
-                "Accepting empty block without a further header root check"
-            );
+            trace!(block_number = expected_number, "Accepting empty block");
             return Ok(Self {
                 chain_id,
                 number: expected_number,
@@ -3881,18 +3878,6 @@ mod raw_rlp_tests {
         )
         .expect_err("a truncated raw block must not pass as empty");
         assert!(matches!(err, Error::BlockHeaderRootsMismatch(n) if n == number));
-
-        // A family that declares non-standard empty roots keeps the old behaviour.
-        let accepted = OrderedBlock::try_from_fetched_block(
-            CHAIN_ID,
-            ChainFamily::Frontier,
-            rpc_block.into(),
-            vec![],
-            number,
-            EncodingVersion::V1,
-        )
-        .unwrap();
-        assert!(accepted.items().is_empty());
     }
 
     #[test]

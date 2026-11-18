@@ -197,19 +197,3 @@ fn an_empty_body_under_a_non_empty_header_is_rejected() {
         }
     }
 }
-
-#[test]
-fn the_frontier_family_still_accepts_an_empty_body_with_non_standard_roots() {
-    // Substrate/Frontier dev chains may report roots other than the empty-trie root for an empty
-    // block. Only a family that declares this gets the exception.
-    let ordered = OrderedBlock::try_from_fetched_block(
-        1,
-        ChainFamily::Frontier,
-        truncated_block(ZERO32, ZERO32),
-        vec![],
-        7,
-        EncodingVersion::V1,
-    )
-    .expect("the frontier family tolerates non-standard empty-block roots");
-    assert!(ordered.items().is_empty());
-}
