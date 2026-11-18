@@ -19,6 +19,7 @@ import type {
     Creditcoin3RuntimeRuntime,
     Creditcoin3RuntimeRuntimeFreezeReason,
     Creditcoin3RuntimeRuntimeHoldReason,
+    Creditcoin3RuntimeSignerChecksCheckSignerKey,
     EthbloomBloom,
     EthereumBlock,
     EthereumHeader,
@@ -276,6 +277,7 @@ declare module '@polkadot/types/types/registry' {
         Creditcoin3RuntimeRuntime: Creditcoin3RuntimeRuntime;
         Creditcoin3RuntimeRuntimeFreezeReason: Creditcoin3RuntimeRuntimeFreezeReason;
         Creditcoin3RuntimeRuntimeHoldReason: Creditcoin3RuntimeRuntimeHoldReason;
+        Creditcoin3RuntimeSignerChecksCheckSignerKey: Creditcoin3RuntimeSignerChecksCheckSignerKey;
         EthbloomBloom: EthbloomBloom;
         EthereumBlock: EthereumBlock;
         EthereumHeader: EthereumHeader;

@@ -4434,42 +4434,45 @@ declare module '@polkadot/types/lookup' {
     /** @name FrameSystemExtensionsCheckNonZeroSender (466) */
     type FrameSystemExtensionsCheckNonZeroSender = Null;
 
-    /** @name FrameSystemExtensionsCheckSpecVersion (467) */
+    /** @name Creditcoin3RuntimeSignerChecksCheckSignerKey (467) */
+    type Creditcoin3RuntimeSignerChecksCheckSignerKey = Null;
+
+    /** @name FrameSystemExtensionsCheckSpecVersion (468) */
     type FrameSystemExtensionsCheckSpecVersion = Null;
 
-    /** @name FrameSystemExtensionsCheckTxVersion (468) */
+    /** @name FrameSystemExtensionsCheckTxVersion (469) */
     type FrameSystemExtensionsCheckTxVersion = Null;
 
-    /** @name FrameSystemExtensionsCheckGenesis (469) */
+    /** @name FrameSystemExtensionsCheckGenesis (470) */
     type FrameSystemExtensionsCheckGenesis = Null;
 
-    /** @name FrameSystemExtensionsCheckNonce (472) */
+    /** @name FrameSystemExtensionsCheckNonce (473) */
     interface FrameSystemExtensionsCheckNonce extends Compact<u32> {}
 
-    /** @name FrameSystemExtensionsCheckWeight (473) */
+    /** @name FrameSystemExtensionsCheckWeight (474) */
     type FrameSystemExtensionsCheckWeight = Null;
 
-    /** @name PalletTransactionPaymentChargeTransactionPayment (474) */
+    /** @name PalletTransactionPaymentChargeTransactionPayment (475) */
     interface PalletTransactionPaymentChargeTransactionPayment extends Compact<u128> {}
 
-    /** @name FrameMetadataHashExtensionCheckMetadataHash (475) */
+    /** @name FrameMetadataHashExtensionCheckMetadataHash (476) */
     interface FrameMetadataHashExtensionCheckMetadataHash extends Struct {
         readonly mode: FrameMetadataHashExtensionMode;
     }
 
-    /** @name FrameMetadataHashExtensionMode (476) */
+    /** @name FrameMetadataHashExtensionMode (477) */
     interface FrameMetadataHashExtensionMode extends Enum {
         readonly isDisabled: boolean;
         readonly isEnabled: boolean;
         readonly type: 'Disabled' | 'Enabled';
     }
 
-    /** @name PalletAttestationExtensionsPrevalidateAttestationCommit (477) */
+    /** @name PalletAttestationExtensionsPrevalidateAttestationCommit (478) */
     type PalletAttestationExtensionsPrevalidateAttestationCommit = Null;
 
-    /** @name FrameSystemExtensionsWeightReclaim (478) */
+    /** @name FrameSystemExtensionsWeightReclaim (479) */
     type FrameSystemExtensionsWeightReclaim = Null;
 
-    /** @name Creditcoin3RuntimeRuntime (480) */
+    /** @name Creditcoin3RuntimeRuntime (481) */
     type Creditcoin3RuntimeRuntime = Null;
 } // declare module
