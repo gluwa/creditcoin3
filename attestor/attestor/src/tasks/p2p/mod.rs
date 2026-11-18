@@ -597,8 +597,14 @@ impl ReobsAdmission {
         }
     }
 
-    fn admit(&mut self, key: &ReobsKey, source: libp2p::PeerId, now: Instant) -> bool {
-        // A replay is dropped before it can charge the per-peer or global bucket.
+    /// Whether `key` from `source` may be tried at `now`: not a replay, and both the per-peer and
+    /// global buckets hold a token. Charges nothing: a request the queue then turns away must cost
+    /// no budget, or identical rejected copies would drain the shared bucket. Call [`commit`] once
+    /// the request is actually queued.
+    ///
+    /// [`commit`]: Self::commit
+    fn check(&mut self, key: &ReobsKey, source: libp2p::PeerId, now: Instant) -> bool {
+        // A replay is dropped before it can touch the per-peer or global bucket.
         if !self.recent.allow(key, now) {
             return false;
         }
@@ -615,26 +621,40 @@ impl ReobsAdmission {
             );
             self.order.push_back(source);
         }
-        // unwrap: just ensured the entry exists. Refill both, then consume from each only if BOTH
-        // have a token — so a global-pressure denial doesn't burn this peer's per-peer token.
+        // unwrap: just ensured the entry exists. Refill both so the check sees current balances.
         let peer = self.per_peer.get_mut(&source).unwrap();
         peer.refill(now);
         self.global.refill(now);
-        if peer.has_token() && self.global.has_token() {
+        peer.has_token() && self.global.has_token()
+    }
+
+    /// The request is now held in the queue: charge the per-peer and global buckets and remember
+    /// `key`. Only the buckets are charged here, never on a rejection, so a request the queue turned
+    /// away costs nothing and cannot block the same (possibly genuine) request arriving via another
+    /// neighbour.
+    fn commit(&mut self, key: &ReobsKey, source: libp2p::PeerId, now: Instant) {
+        if let Some(peer) = self.per_peer.get_mut(&source) {
             peer.take();
-            self.global.take();
-            true
-        } else {
-            false
         }
+        self.global.take();
+        self.mark_seen(key, now);
     }
 
     /// Remember `key` as seen, so identical copies inside [`REOBS_DEDUP_WINDOW`] are dropped for
-    /// free. Called only once the request is held in the queue: a request the queue rejected was
-    /// never handled, so its tuple must not block the same (possibly genuine) request arriving via
-    /// another neighbour.
+    /// free.
     fn mark_seen(&mut self, key: &ReobsKey, now: Instant) {
         self.recent.record(*key, now, REOBS_DEDUP_WINDOW);
+    }
+
+    /// Check and, if allowed, commit in one step: the semantics the admission tests were written
+    /// against, for a request the queue always accepts.
+    #[cfg(test)]
+    fn admit(&mut self, key: &ReobsKey, source: libp2p::PeerId, now: Instant) -> bool {
+        if !self.check(key, source, now) {
+            return false;
+        }
+        self.commit(key, source, now);
+        true
     }
 }
 
@@ -1362,8 +1382,9 @@ fn handle_reobservation_request(
 
 /// Admission then queueing for one decoded request. Rate-limit before doing (or propagating) any
 /// work: an over-limit or replayed reobservation is dropped with `Ignore` so it is not amplified
-/// across the mesh (audit P1-4). The replay filter is only updated once the request is held in the
-/// queue (`Queued` or `Duplicate`), so a copy the queue turned away cannot shadow the genuine one.
+/// across the mesh (audit P1-4). Budget and the replay filter are only charged once the request is
+/// held in the queue, so a copy the queue turned away costs nothing and cannot shadow the genuine
+/// one or drain the shared bucket.
 fn intake_reobservation(
     admission: &mut ReobsAdmission,
     queue: &ReobsQueue,
@@ -1373,13 +1394,15 @@ fn intake_reobservation(
 ) -> libp2p::gossipsub::MessageAcceptance {
     use libp2p::gossipsub::MessageAcceptance;
     let key = ReobsKey::from(&request);
-    if !admission.admit(&key, source, now) {
+    if !admission.check(&key, source, now) {
         tracing::debug!(%source, "🚦 reobservation rate limit exceeded or replayed — dropping, not propagating");
         return MessageAcceptance::Ignore;
     }
     let push = queue.push(source, request);
     match push {
-        QueuePush::Queued | QueuePush::Duplicate => admission.mark_seen(&key, now),
+        QueuePush::Queued => admission.commit(&key, source, now),
+        // Already queued by an earlier copy: nothing new was admitted, so no charge.
+        QueuePush::Duplicate => admission.mark_seen(&key, now),
         QueuePush::Full => {
             tracing::warn!("reobservation queue full — dropping and not propagating");
         }
@@ -1755,7 +1778,6 @@ mod tests {
         let mut a = ReobsAdmission::new(t0);
         let forged = rkey(1);
         assert!(a.admit(&forged, libp2p::PeerId::random(), t0));
-        a.mark_seen(&forged, t0);
         for _ in 0..100 {
             assert!(!a.admit(&forged, libp2p::PeerId::random(), t0));
         }
@@ -1816,6 +1838,65 @@ mod tests {
             ),
             MessageAcceptance::Ignore
         ));
+    }
+
+    #[test]
+    fn rejected_copies_cost_no_admission_budget() {
+        use super::{intake_reobservation, QueuePush, REOBS_GLOBAL_CAPACITY};
+        use libp2p::gossipsub::MessageAcceptance;
+        let t0 = Instant::now();
+        let mut admission = ReobsAdmission::new(t0);
+        // A one-slot queue that is already full, so every new request is turned away.
+        let queue = crate::tasks::write_ability::reobservation::ReobsQueue::new(1, 1);
+        assert_eq!(
+            queue.push(libp2p::PeerId::random(), wire_request(100)),
+            QueuePush::Queued
+        );
+        let attacker = libp2p::PeerId::random();
+        for i in 0..100 {
+            let sender = if i % 2 == 0 {
+                attacker
+            } else {
+                libp2p::PeerId::random()
+            };
+            assert!(matches!(
+                intake_reobservation(&mut admission, &queue, sender, wire_request(1), t0),
+                MessageAcceptance::Ignore
+            ));
+        }
+        // Neither the shared bucket nor the repeat sender's own bucket was charged...
+        assert!(admission.global.tokens >= REOBS_GLOBAL_CAPACITY);
+        assert!(admission.per_peer[&attacker].tokens >= REOBS_PER_PEER_CAPACITY);
+        // ...and the tuple was not remembered, so it is not blocked as a replay either.
+        assert!(admission.check(&rkey(1), libp2p::PeerId::random(), t0));
+    }
+
+    #[test]
+    fn a_queued_request_is_charged_once_and_its_copies_are_dropped_free() {
+        use super::{intake_reobservation, REOBS_GLOBAL_CAPACITY};
+        use libp2p::gossipsub::MessageAcceptance;
+        let t0 = Instant::now();
+        let mut admission = ReobsAdmission::new(t0);
+        let queue = crate::tasks::write_ability::reobservation::ReobsQueue::new(10, 10);
+        let first = libp2p::PeerId::random();
+        assert!(matches!(
+            intake_reobservation(&mut admission, &queue, first, wire_request(1), t0),
+            MessageAcceptance::Accept
+        ));
+        assert_eq!(admission.global.tokens, REOBS_GLOBAL_CAPACITY - 1.0);
+        for _ in 0..50 {
+            assert!(matches!(
+                intake_reobservation(
+                    &mut admission,
+                    &queue,
+                    libp2p::PeerId::random(),
+                    wire_request(1),
+                    t0
+                ),
+                MessageAcceptance::Ignore
+            ));
+        }
+        assert_eq!(admission.global.tokens, REOBS_GLOBAL_CAPACITY - 1.0);
     }
 
     #[test]
