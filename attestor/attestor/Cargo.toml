@@ -90,4 +90,5 @@ zeroize = { workspace = true }
 # the `anvil` binary from foundry installed).
 alloy-node-bindings = "~1.6"
 parking_lot = { workspace = true }
+proptest = { workspace = true }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }

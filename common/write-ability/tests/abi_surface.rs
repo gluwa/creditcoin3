@@ -201,6 +201,11 @@ fn mirrored_abi_surface_matches_compiled_contracts() {
     );
     assert_function_mirrored(
         &validator,
+        "calculateRequiredVotes(uint256)",
+        IVoteValidator::calculateRequiredVotesCall::SELECTOR,
+    );
+    assert_function_mirrored(
+        &validator,
         "attestorSetUpdateNonce()",
         IVoteValidator::attestorSetUpdateNonceCall::SELECTOR,
     );

@@ -158,6 +158,11 @@ sol! {
         /// transactions that are guaranteed to revert.
         function threshold() external view returns (uint256);
 
+        /// Unique signatures the validator requires for a set of `totalAttestors`. The threshold
+        /// parameters are owner-adjustable, so callers that need the quorum for a hypothetical set
+        /// size ask the contract instead of mirroring its formula.
+        function calculateRequiredVotes(uint256 totalAttestors) external view returns (uint256);
+
         /// Monotonic nonce bound into the attestor-set-update digest (replay/rollback protection).
         /// Attestors read it to sign the current update; it increments on each successful update.
         function attestorSetUpdateNonce() external view returns (uint256);
