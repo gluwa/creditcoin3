@@ -298,6 +298,118 @@ async fn historical_reobservation_survives_removal_and_registry_replacement() {
     }
 }
 
+fn request_for(id: u8, tx: u8, block: u64) -> ReobservationRequest {
+    ReobservationRequest {
+        chain_key: 7,
+        message_id: [id; 32],
+        tx_hash: [tx; 32],
+        block_height: block,
+    }
+}
+
+fn methods(calls: &[Value], method: &str) -> Vec<Value> {
+    calls
+        .iter()
+        .filter(|c| c["method"] == method)
+        .cloned()
+        .collect()
+}
+
+/// Reobserve message 3 at block 119 when its transaction carries `rogue` extra logs from `ROGUE`
+/// ahead of the genuine one from `A`.
+async fn stuffed_reobservation(rogue: usize) -> (reobservation::ReobsOutcome, Vec<Value>) {
+    let mut logs = vec![message(ROGUE, 119, 3); rogue];
+    logs.push(message(A, 119, 3));
+    let rpc = Rpc::new(logs).await;
+    let provider = ProviderBuilder::new().connect_http(rpc.url.clone());
+    let outcome = reobservation::reobserve(&provider, &route(), 3, &request_for(3, 3, 119))
+        .await
+        .unwrap();
+    let calls = rpc.state.lock().unwrap().calls.clone();
+    (outcome, calls)
+}
+
+#[tokio::test]
+async fn reobservation_looks_up_each_emitter_once_and_reads_no_receipt() {
+    let (outcome, calls) = stuffed_reobservation(10).await;
+    assert_eq!(
+        outcome
+            .verified()
+            .expect("genuine log must still verify")
+            .outbox,
+        A
+    );
+    assert!(
+        methods(&calls, "eth_getTransactionReceipt").is_empty(),
+        "the filtered log query answers on its own; no receipt is read"
+    );
+    // One registry lookup + one membership check per distinct emitter (ROGUE, A), not per log.
+    let memberships = calls
+        .iter()
+        .filter(|c| c["method"] == "eth_call" && c["params"][0]["to"] == json!(REGISTRY))
+        .count();
+    assert_eq!(memberships, 2);
+}
+
+#[tokio::test]
+async fn log_stuffed_reobservation_is_rejected_before_any_history_call() {
+    let (outcome, calls) = stuffed_reobservation(reobservation::REOBS_MAX_CANDIDATE_LOGS).await;
+    assert!(matches!(outcome, reobservation::ReobsOutcome::Unverifiable));
+    assert!(
+        methods(&calls, "eth_call").is_empty(),
+        "a stuffed transaction must cost no historical eth_call"
+    );
+}
+
+#[tokio::test]
+async fn reobservation_of_an_unknown_message_id_costs_one_filtered_query() {
+    let rpc = Rpc::new(vec![message(A, 119, 3)]).await;
+    let provider = ProviderBuilder::new().connect_http(rpc.url.clone());
+    // A random id for a real transaction: the block holds no such message.
+    let outcome = reobservation::reobserve(&provider, &route(), 3, &request_for(77, 3, 119))
+        .await
+        .unwrap();
+    assert!(matches!(outcome, reobservation::ReobsOutcome::Unverifiable));
+    let calls = rpc.state.lock().unwrap().calls.clone();
+    let queries = methods(&calls, "eth_getLogs");
+    assert_eq!(queries.len(), 1);
+    assert_eq!(
+        queries[0]["params"][0]["topics"][1],
+        json!(B256::repeat_byte(77))
+    );
+    assert!(methods(&calls, "eth_getTransactionReceipt").is_empty());
+    assert!(methods(&calls, "eth_call").is_empty());
+}
+
+#[tokio::test]
+async fn reobservation_log_limit_reads_only_the_named_receipt() {
+    // Two logs carry message 3 in this block (the genuine one and a spoof in another transaction),
+    // plus an unrelated transaction. The provider caps results at one, so the filtered query fails.
+    let mut spoof = message(ROGUE, 119, 3);
+    spoof.transaction_hash = Some(B256::repeat_byte(50));
+    let rpc = Rpc::new(vec![message(A, 119, 3), spoof, message(B, 119, 9)]).await;
+    rpc.state.lock().unwrap().log_cap = Some(1);
+    let provider = ProviderBuilder::new().connect_http(rpc.url.clone());
+    let outcome = reobservation::reobserve(&provider, &route(), 3, &request_for(3, 3, 119))
+        .await
+        .unwrap();
+    assert_eq!(
+        outcome
+            .verified()
+            .expect("genuine message must verify")
+            .outbox,
+        A
+    );
+    let calls = rpc.state.lock().unwrap().calls.clone();
+    let receipts = methods(&calls, "eth_getTransactionReceipt");
+    assert_eq!(
+        receipts.len(),
+        1,
+        "never one receipt per transaction in the block"
+    );
+    assert_eq!(receipts[0]["params"][0], json!(B256::repeat_byte(3)));
+}
+
 #[tokio::test]
 async fn out_of_range_or_removed_logs_do_not_advance_cursor() {
     for mut log in [message(A, 99, 1), message(A, 141, 1), message(A, 119, 1)] {

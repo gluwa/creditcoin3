@@ -504,15 +504,22 @@ impl std::fmt::Display for LogRangeTooLarge {
 }
 impl std::error::Error for LogRangeTooLarge {}
 
-/// Fetch one bounded candidate range. The caller shrinks a capped multi-block range and drains
-/// each successful prefix before continuing. A single block uses receipts, avoiding a permanent
-/// stall on unauthorized spam while keeping the fallback bounded to one source block.
-pub(super) async fn fetch_message_logs<P: Provider>(
+/// Result of one filtered `MessagePublished` query: the logs, or the provider's own signal that the
+/// range holds more than it will return.
+pub(super) enum LogQuery {
+    Logs(Vec<Log>),
+    LimitExceeded,
+}
+
+/// One `eth_getLogs` for `MessagePublished` over `[from_block, to_block]`, optionally narrowed to a
+/// `message_id`. A provider log-limit error is reported as [`LogQuery::LimitExceeded`] and the caller
+/// decides what to do; this function never falls back to anything more expensive.
+pub(super) async fn query_message_logs<P: Provider>(
     provider: &P,
     from_block: u64,
     to_block: u64,
     message_id: Option<B256>,
-) -> Result<Vec<Log>> {
+) -> Result<LogQuery> {
     let mut filter = Filter::new()
         .event_signature(IOutbox::MessagePublished::SIGNATURE_HASH)
         .from_block(from_block)
@@ -524,14 +531,27 @@ pub(super) async fn fetch_message_logs<P: Provider>(
         .await
         .context("eth_getLogs timed out")?
     {
-        Ok(found) => Ok(found),
-        Err(err) if log_limit_error(&err.to_string()) && from_block < to_block => {
-            Err(LogRangeTooLarge.into())
-        }
-        Err(err) if log_limit_error(&err.to_string()) => {
+        Ok(found) => Ok(LogQuery::Logs(found)),
+        Err(err) if log_limit_error(&err.to_string()) => Ok(LogQuery::LimitExceeded),
+        Err(err) => Err(err).context("eth_getLogs failed"),
+    }
+}
+
+/// Fetch one bounded candidate range. The caller shrinks a capped multi-block range and drains
+/// each successful prefix before continuing. A single block uses receipts, avoiding a permanent
+/// stall on unauthorized spam while keeping the fallback bounded to one source block.
+pub(super) async fn fetch_message_logs<P: Provider>(
+    provider: &P,
+    from_block: u64,
+    to_block: u64,
+    message_id: Option<B256>,
+) -> Result<Vec<Log>> {
+    match query_message_logs(provider, from_block, to_block, message_id).await? {
+        LogQuery::Logs(found) => Ok(found),
+        LogQuery::LimitExceeded if from_block < to_block => Err(LogRangeTooLarge.into()),
+        LogQuery::LimitExceeded => {
             message_logs_from_receipts(provider, from_block, message_id).await
         }
-        Err(err) => Err(err).context("eth_getLogs failed"),
     }
 }
 
@@ -727,6 +747,7 @@ pub(super) mod test_rpc {
                     // The old fallback would fetch this high tip and then scan unfinalized logs.
                     "eth_blockNumber" => json!({"result": "0x2710"}),
                     "eth_getLogs" => json!({"result": []}),
+                    "eth_getTransactionReceipt" => json!({"result": null}),
                     method => panic!("unexpected method {method}"),
                 };
                 response["jsonrpc"] = json!("2.0");

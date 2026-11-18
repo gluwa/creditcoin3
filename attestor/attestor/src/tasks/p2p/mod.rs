@@ -27,7 +27,9 @@ use write_ability::protocol::{
 
 use crate::error::Error;
 use crate::shared::Shared;
-use crate::tasks::write_ability::reobservation::{CooldownMap, ReobsKey, REOBS_FAILURE_INTERVAL};
+use crate::tasks::write_ability::reobservation::{
+    CooldownMap, QueuePush, ReobsKey, REOBS_FAILURE_INTERVAL,
+};
 use crate::tasks::write_ability::{ingest, pending};
 use crate::vote::{verify_vote, VerifyResult};
 
@@ -1310,9 +1312,10 @@ fn handle_message_vote(shared: &Arc<Shared>, bytes: &[u8]) -> libp2p::gossipsub:
 }
 
 /// Decode a reobservation request and hand it to the write-ability task to verify + re-sign. The
-/// swarm loop must stay responsive, so we only decode + forward here (no RPC / signing). We Accept
-/// any well-formed request so it keeps propagating to other attestors — each re-verifies it
-/// independently — even if our own forward buffer is momentarily full.
+/// swarm loop must stay responsive, so we only decode + queue here (no RPC / signing). We Accept a
+/// well-formed request only once it is queued, so it keeps propagating to other attestors — each
+/// re-verifies it independently. A request we could not queue (duplicate, peer over its share, queue
+/// full) is `Ignore`d: not propagated, so a flood is not amplified across the mesh.
 ///
 /// Because this `Accept` precedes verification and [`ReobservationRequest`] is unsigned, the
 /// reobservation topic is registered in `penalty_only_topics` (see the topic split in [`run`]) so
@@ -1347,13 +1350,19 @@ fn handle_reobservation_request(
         tracing::debug!(%source, "🚦 reobservation rate limit exceeded or replayed — dropping, not propagating");
         return MessageAcceptance::Ignore;
     }
-    match state.reobs_tx.try_send(request) {
-        Ok(()) => MessageAcceptance::Accept,
-        Err(mpsc::error::TrySendError::Full(_)) => {
-            tracing::warn!("reobservation queue full — dropping locally but still propagating");
-            MessageAcceptance::Accept
-        }
-        Err(mpsc::error::TrySendError::Closed(_)) => MessageAcceptance::Ignore,
+    let push = state.reobs_queue.push(source, request);
+    if push == QueuePush::Full {
+        tracing::warn!("reobservation queue full — dropping and not propagating");
+    }
+    reobs_push_acceptance(push)
+}
+
+/// Gossipsub verdict for a queue outcome: only a request we actually queued keeps propagating.
+fn reobs_push_acceptance(push: QueuePush) -> libp2p::gossipsub::MessageAcceptance {
+    use libp2p::gossipsub::MessageAcceptance;
+    match push {
+        QueuePush::Queued => MessageAcceptance::Accept,
+        QueuePush::Duplicate | QueuePush::PeerFull | QueuePush::Full => MessageAcceptance::Ignore,
     }
 }
 
@@ -1731,6 +1740,22 @@ mod tests {
         );
         // After the dedup window the same tuple is admissible again (a genuine retry).
         assert!(a.admit(&forged, libp2p::PeerId::random(), t0 + REOBS_DEDUP_WINDOW));
+    }
+
+    #[test]
+    fn only_a_queued_reobservation_request_keeps_propagating() {
+        use super::{reobs_push_acceptance, QueuePush};
+        use libp2p::gossipsub::MessageAcceptance;
+        assert!(matches!(
+            reobs_push_acceptance(QueuePush::Queued),
+            MessageAcceptance::Accept
+        ));
+        for dropped in [QueuePush::Duplicate, QueuePush::PeerFull, QueuePush::Full] {
+            assert!(
+                matches!(reobs_push_acceptance(dropped), MessageAcceptance::Ignore),
+                "{dropped:?} must not be propagated"
+            );
+        }
     }
 
     fn att(n: u8) -> AttestorId {
