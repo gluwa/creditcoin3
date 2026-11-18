@@ -1,5 +1,6 @@
 use alloy::{
     consensus::{
+        constants::EMPTY_ROOT_HASH,
         proofs::ordered_trie_root_with_encoder,
         transaction::{Recovered, SignerRecoverable},
         Block as ConsensusBlock, ReceiptEnvelope, Transaction as ConsensusTransaction, TxEnvelope,
@@ -614,15 +615,15 @@ impl OrderedBlock {
             });
         }
 
-        // Empty blocks: many execution clients (incl. Substrate/Frontier dev chains) expose header
-        // tx/receipt roots that do not match standard trie recomputation for an empty body, while the
-        // fetched body and receipts are still consistent (both empty). There is no cross-fetch payload
-        // to mis-associate, so we skip the header root check in this case.
+        // An empty body needs a header that says it is empty, else a non-empty block's header
+        // with its transactions dropped would pass as empty.
         if block.transactions.is_empty() && receipts.is_empty() {
-            trace!(
-                block_number = expected_number,
-                "Skipping header root check for empty block"
-            );
+            if block.header.transactions_root != EMPTY_ROOT_HASH
+                || block.header.receipts_root != EMPTY_ROOT_HASH
+            {
+                return Err(Error::BlockHeaderRootsMismatch(expected_number));
+            }
+            trace!(block_number = expected_number, "Accepting empty block");
             return Ok(Self {
                 chain_id,
                 number: expected_number,
@@ -3854,6 +3855,53 @@ mod raw_rlp_tests {
             rpc_block_from_raw(number, &raw_block, &bad),
             Err(Error::RawReceiptDecode(_, 1, _))
         ));
+    }
+
+    #[test]
+    fn raw_path_rejects_an_empty_body_under_a_non_empty_header() {
+        // The header of the fixture block commits to two transactions; drop them and their receipts.
+        let (_, mut block, _) = fixture();
+        let number = block.header.number;
+        block.body.transactions.clear();
+        let (raw_block, raw_receipts) = raw(&block, &[]);
+        let (rpc_block, rpc_receipts) =
+            rpc_block_from_raw(number, &raw_block, &raw_receipts).unwrap();
+        assert!(rpc_receipts.is_empty());
+
+        let err = OrderedBlock::try_from_fetched_block(
+            CHAIN_ID,
+            ChainFamily::Ethereum,
+            rpc_block.clone().into(),
+            vec![],
+            number,
+            EncodingVersion::V1,
+        )
+        .expect_err("a truncated raw block must not pass as empty");
+        assert!(matches!(err, Error::BlockHeaderRootsMismatch(n) if n == number));
+    }
+
+    #[test]
+    fn raw_path_accepts_a_genuinely_empty_block() {
+        let (_, mut block, _) = fixture();
+        let number = block.header.number;
+        block.body.transactions.clear();
+        block.header.transactions_root = EMPTY_ROOT_HASH;
+        block.header.receipts_root = EMPTY_ROOT_HASH;
+        let (raw_block, raw_receipts) = raw(&block, &[]);
+        let (rpc_block, rpc_receipts) =
+            rpc_block_from_raw(number, &raw_block, &raw_receipts).unwrap();
+        assert!(rpc_receipts.is_empty());
+
+        let ordered = OrderedBlock::try_from_fetched_block(
+            CHAIN_ID,
+            ChainFamily::Ethereum,
+            rpc_block.into(),
+            vec![],
+            number,
+            EncodingVersion::V1,
+        )
+        .unwrap();
+        assert!(ordered.items().is_empty());
     }
 
     #[test]

@@ -1,5 +1,6 @@
 //! In JSON fetch mode a provider that reports a transaction sender its signature does not
-//! recover to is discarded, and the fetch is served by the next endpoint instead.
+//! recover to, or that drops the body of a non-empty block, is discarded, and the fetch is served
+//! by the next endpoint instead.
 use alloy::{
     consensus::{
         proofs::{calculate_receipt_root, calculate_transaction_root},
@@ -179,6 +180,25 @@ async fn a_provider_reporting_a_wrong_sender_is_skipped_for_the_next_endpoint() 
         panic!("expected an Ethereum transaction");
     };
     assert_eq!(tx.inner.signer(), sender);
+    assert_eq!(primary.block_reads.load(Ordering::SeqCst), 1);
+    assert_eq!(fallback.block_reads.load(Ordering::SeqCst), 1);
+}
+
+#[tokio::test]
+async fn a_provider_dropping_a_block_body_is_skipped_for_the_next_endpoint() {
+    let (block, receipts, _) = json_block();
+    let mut truncated = block.clone();
+    truncated["transactions"] = json!([]);
+
+    let primary = Mock::start(truncated, json!([]));
+    let fallback = Mock::start(block, receipts);
+    let client = Client::new_with_fallbacks(&primary.url, &[fallback.url.clone()], None)
+        .await
+        .unwrap();
+
+    let fetched = client.get_block(NUMBER, EncodingVersion::V1).await.unwrap();
+
+    assert_eq!(fetched.items().len(), 1);
     assert_eq!(primary.block_reads.load(Ordering::SeqCst), 1);
     assert_eq!(fallback.block_reads.load(Ordering::SeqCst), 1);
 }
