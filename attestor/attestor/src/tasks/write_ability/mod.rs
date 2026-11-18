@@ -106,9 +106,10 @@ pub struct MessageVoteState {
     /// set-update topic. Set by [`build_state`]; drained by the p2p task.
     pub set_update_publish_tx: mpsc::Sender<SetUpdateVote>,
     /// Incoming reobservation requests the p2p task decoded off the reobservation topic, handed to
-    /// the write-ability task to verify + re-sign. `try_send` from the swarm loop (best effort:
-    /// shedding a request under a full buffer just means that stall recovers on the next request).
-    pub reobs_tx: mpsc::Sender<ReobservationRequest>,
+    /// the reobservation worker to verify + re-sign. Pushed (never awaited) from the swarm loop: the
+    /// queue dedups identical requests, caps each relaying peer's share, and reports when it is full
+    /// so the p2p task can decline to propagate what we could not queue.
+    pub reobs_queue: Arc<reobservation::ReobsQueue>,
     /// The `bytes32` write-ability chain key this attestor is authorized to sign for, and used to
     /// resolve the Outbox via `historical OutboxDiscovery membership`. Sourced from the on-chain `WriteAbilityConfigs`
     /// entry when one is registered for this `chain_key`; derived locally (right-padded `u64`)
@@ -142,7 +143,6 @@ pub async fn build_state(
     Option<(
         Arc<MessageVoteState>,
         mpsc::Receiver<pending::PendingVote>,
-        mpsc::Receiver<ReobservationRequest>,
         mpsc::Receiver<SetUpdateVote>,
     )>,
     Error,
@@ -192,7 +192,6 @@ pub async fn build_state(
     let aggregator =
         aggregator::VoteAggregator::new(threshold, cfg.max_tracked_messages, cfg.vote_ttl);
     let (publish_tx, publish_rx) = mpsc::channel(common::constants::CAPACITY_CHANNEL);
-    let (reobs_tx, reobs_rx) = mpsc::channel(common::constants::CAPACITY_CHANNEL);
     let (set_update_publish_tx, set_update_publish_rx) =
         mpsc::channel(common::constants::CAPACITY_CHANNEL);
     let state = Arc::new(MessageVoteState {
@@ -201,7 +200,7 @@ pub async fn build_state(
         publish_tx,
         pending,
         set_update_publish_tx,
-        reobs_tx,
+        reobs_queue: Arc::new(reobservation::ReobsQueue::default()),
         destination_chain_key: RwLock::new(None),
         vote_domain: RwLock::new(None),
     });
@@ -210,7 +209,7 @@ pub async fn build_state(
         threshold,
         "🧑‍🤝‍🧑 message-vote quorum configured"
     );
-    Ok(Some((state, publish_rx, reobs_rx, set_update_publish_rx)))
+    Ok(Some((state, publish_rx, set_update_publish_rx)))
 }
 
 /// Register this attestor's write-ability EVM message-vote address on-chain (audit P2-8),
@@ -428,12 +427,11 @@ async fn connect_l1_provider(rpc: &str) -> anyhow::Result<impl Provider + Clone 
 
 /// Entry point spawned from `lib.rs`. Drives the Outbox listener and produces signed votes; the
 /// swarm itself is owned by the p2p task. `seed` is the 32-byte secret the EVM key derives from.
-/// `reobs_rx` carries reobservation requests the p2p task decoded off the reobservation topic.
+/// Reobservation requests arrive through `shared.message_votes.reobs_queue`.
 pub async fn run(
     shared: Arc<Shared>,
     cfg: Config,
     seed: Zeroizing<[u8; 32]>,
-    reobs_rx: mpsc::Receiver<ReobservationRequest>,
     cc3: Arc<cc_client::Client>,
 ) -> Result<(), Error> {
     let Some(state) = shared.message_votes.clone() else {
@@ -772,7 +770,7 @@ pub async fn run(
 
     // Reobservation runs in its OWN task, NOT inline in this loop (audit P1-4): its tip + eth_getLogs
     // RPCs (deadline-bounded, serial) must not be able to stall vote production / message ingestion
-    // if the shared provider black-holes. The bounded `reobs_rx` channel already drops excess, so a
+    // if the shared provider black-holes. The bounded, deduping `reobs_queue` already drops excess, so a
     // flood is bounded to serial, deadline-capped work here.
     let mut reobs_worker = {
         let provider = l1_provider_rx.clone();
@@ -788,7 +786,6 @@ pub async fn run(
             signer,
             our_address,
             confirmation_depth,
-            reobs_rx,
         ))
     };
 
@@ -1192,10 +1189,10 @@ fn rotation_action(
 }
 
 /// Reobservation responder, run as its own task (audit P1-4). Consumes verified-on-request pull
-/// requests off `reobs_rx`, re-fetches + re-signs one at a time under a wall-clock deadline, so a
-/// slow/black-holed RPC can never stall the main write-ability loop (vote production + ingestion).
-/// The bounded `reobs_rx` channel drops excess at the p2p ingest, so a flood is naturally bounded to
-/// serial, deadline-capped work here.
+/// requests off the shared `reobs_queue`, re-fetches + re-signs one at a time under a wall-clock
+/// deadline, so a slow/black-holed RPC can never stall the main write-ability loop (vote production +
+/// ingestion). The bounded, deduping queue drops excess at the p2p ingest, so a flood is naturally
+/// bounded to serial, deadline-capped work here.
 #[allow(clippy::too_many_arguments)]
 async fn run_reobservation_worker<P: alloy::providers::Provider + Clone>(
     provider_rx: watch::Receiver<P>,
@@ -1205,19 +1202,24 @@ async fn run_reobservation_worker<P: alloy::providers::Provider + Clone>(
     signer: signing::MessageSigner,
     our_address: Address,
     confirmation_depth: u64,
-    mut reobs_rx: mpsc::Receiver<ReobservationRequest>,
 ) {
-    // Per-`message_id` cooldown so a spammed/forged request can't make us re-scan the chain in a loop.
+    // Cooldowns so a spammed/forged request can't make us re-verify in a loop. The worker owns the
+    // limiter (not the per-request future) so a request cut off by the deadline is still charged.
     let mut limiter = reobservation::ReobsRateLimiter::new(reobservation::REOBS_MIN_INTERVAL);
+    let queue = state.reobs_queue.clone();
     let chain_key = shared.chain_key;
     loop {
         tokio::select! {
             () = shared.token.cancelled() => return,
-            maybe = reobs_rx.recv() => {
-                let Some(request) = maybe else {
-                    tracing::debug!("reobservation channel closed — worker exiting");
-                    return;
-                };
+            request = queue.pop() => {
+                if request.chain_key != chain_key {
+                    continue; // not ours (topic is per-chain, but be defensive)
+                }
+                let key = reobservation::ReobsKey::from(&request);
+                if !limiter.allow(&key, Instant::now()) {
+                    tracing::debug!(message_id = %key.message_id, "⏳ reobservation request within cooldown — ignoring");
+                    continue;
+                }
                 // `borrow_and_update`, not `borrow`: this snapshot must also mark the value seen.
                 // With a plain `borrow` a rotation that landed before this request was picked up
                 // leaves the receiver still flagged as changed, so the `changed()` branch below
@@ -1232,7 +1234,7 @@ async fn run_reobservation_worker<P: alloy::providers::Provider + Clone>(
                 let provider = provider_rx.borrow().clone();
                 let handle = handle_reobservation(
                     &provider, &resolved, &state, &shared.metrics, &signer, our_address, chain_key,
-                    confirmation_depth, &mut limiter, request,
+                    confirmation_depth, request,
                 );
                 // Routing is snapshotted above. Abandon in-flight work if its signing domain
                 // changes; default changes and removals do not change this route or cancel recovery.
@@ -1248,14 +1250,11 @@ async fn run_reobservation_worker<P: alloy::providers::Provider + Clone>(
                             "abandoning an in-flight reobservation — the Outbox rotated mid-request"
                         );
                     }
-                    outcome = tokio::time::timeout(reobservation::REOBS_RPC_TIMEOUT, handle) => {
-                        if outcome.is_err() {
-                            tracing::warn!(
-                                "reobservation re-fetch exceeded {:?} — RPC unresponsive; dropping this request",
-                                reobservation::REOBS_RPC_TIMEOUT
-                            );
-                        }
-                    }
+                    // Cooldowns are charged from completion, not dequeue, so a slow request still
+                    // gets its full interval; a deadline hit is charged as a failed request.
+                    () = reobservation::settle_request(
+                        &mut limiter, key, reobservation::REOBS_RPC_TIMEOUT, handle,
+                    ) => {}
                 }
             }
         }
@@ -1353,13 +1352,14 @@ fn produce_vote(
     }
 }
 
-/// Honor a reobservation request (liveness recovery): rate-limit, independently re-verify the
-/// message against our own RPC, then re-sign + re-gossip exactly as if we'd just indexed it. Errors
-/// and unverifiable requests are logged and dropped — never fatal.
+/// Honor a reobservation request (liveness recovery): independently re-verify the message against
+/// our own RPC, then re-sign + re-gossip exactly as if we'd just indexed it. Errors and unverifiable
+/// requests are logged and dropped — never fatal.
 ///
-/// Cooldowns follow the verdict (CSUB-2138): a verified request cools down its `message_id`; one we
-/// could prove bogus cools down only its exact `(message_id, tx_hash, block_height)`; an unfinalized
-/// block or an RPC error says nothing about the request, so it starts no cooldown at all.
+/// The returned [`reobservation::Settle`] says which cooldown the request earns (CSUB-2138): a
+/// verified request cools down its `message_id`; one we could prove bogus cools down only its exact
+/// `(message_id, tx_hash, block_height)`; an unfinalized block or an RPC error says nothing about the
+/// request, so it starts no cooldown at all.
 #[allow(clippy::too_many_arguments)]
 async fn handle_reobservation<P: alloy::providers::Provider>(
     provider: &P,
@@ -1370,44 +1370,29 @@ async fn handle_reobservation<P: alloy::providers::Provider>(
     our_address: Address,
     chain_key: u64,
     confirmation_depth: u64,
-    limiter: &mut reobservation::ReobsRateLimiter,
     request: ReobservationRequest,
-) {
-    if request.chain_key != chain_key {
-        return; // not ours (topic is per-chain, but be defensive)
-    }
-    let key = reobservation::ReobsKey::from(&request);
-    let message_id = key.message_id;
-    let now = Instant::now();
-    if !limiter.allow(&key, now) {
-        tracing::debug!(%message_id, "⏳ reobservation request within cooldown — ignoring");
-        return;
-    }
-
+) -> reobservation::Settle {
+    let message_id = alloy::primitives::B256::from(request.message_id);
     let indexed = match reobservation::reobserve(provider, resolved, confirmation_depth, &request)
         .await
     {
-        Ok(reobservation::ReobsOutcome::Verified(indexed)) => {
-            limiter.record_verified(message_id, now);
-            indexed
-        }
-        Ok(reobservation::ReobsOutcome::NotFinalized) => return,
+        Ok(reobservation::ReobsOutcome::Verified(indexed)) => indexed,
+        Ok(reobservation::ReobsOutcome::NotFinalized) => return reobservation::Settle::Unjudged,
         Ok(reobservation::ReobsOutcome::Unverifiable) => {
-            limiter.record_failed(key, now);
             tracing::warn!(
                 %message_id,
                 block = request.block_height,
                 "🔎 reobservation request did not match a verifiable MessagePublished — ignoring"
             );
-            return;
+            return reobservation::Settle::Failed;
         }
         Err(err) => {
             tracing::warn!(%message_id, %err, "reobservation re-fetch failed — ignoring");
-            return;
+            return reobservation::Settle::Unjudged;
         }
     };
 
-    // Re-sign unconditionally (the per-`message_id` cooldown above is the bound). We must NOT skip
+    // Re-sign unconditionally (the per-`message_id` cooldown is the bound). We must NOT skip
     // just because our *own* aggregator already saw local quorum: the requester is the relayer, and
     // the whole reason it asked is that it is missing votes the attestor mesh may have settled among
     // itself. Re-gossiping is idempotent at the relayer (it dedups), so the worst case is harmless.
@@ -1416,6 +1401,7 @@ async fn handle_reobservation<P: alloy::providers::Provider>(
         "♻️ re-signing reobserved message"
     );
     produce_vote(state, metrics, signer, our_address, chain_key, indexed);
+    reobservation::Settle::Verified
 }
 
 #[cfg(test)]
@@ -1538,7 +1524,7 @@ mod tests {
                 publish_tx,
                 pending: pending::Store::new(&std::env::temp_dir(), 7),
                 set_update_publish_tx: mpsc::channel(8).0,
-                reobs_tx: mpsc::channel(8).0,
+                reobs_queue: Default::default(),
                 destination_chain_key: RwLock::new(None),
                 vote_domain: RwLock::new(Some(test_vote_domain())),
             },

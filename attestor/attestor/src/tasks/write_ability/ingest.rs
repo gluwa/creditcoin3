@@ -150,7 +150,7 @@ mod tests {
             publish_tx: tx,
             pending: super::super::pending::Store::new(&std::env::temp_dir(), CHAIN_KEY),
             set_update_publish_tx: tokio::sync::mpsc::channel(8).0,
-            reobs_tx: tokio::sync::mpsc::channel(8).0,
+            reobs_queue: Default::default(),
             destination_chain_key: RwLock::new(Some(
                 write_ability::protocol::chain_key_to_bytes32(CHAIN_KEY),
             )),

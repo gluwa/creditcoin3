@@ -31,7 +31,8 @@ require restoration of the full state directory, or removal after configuring a 
 rather than starting at the current head. Each chunk caches Discovery/membership reads by block
 and emitting address. Failed or unavailable historical reads
 leave the current chunk pending for retry. Reobservation uses the same historical authority and a
-single-block, message-ID-filtered query, so removal cannot strand messages awaiting quorum.
+single-block, message-ID-filtered query, so removal cannot strand messages awaiting quorum. If the
+provider's log limit is hit it reads only the named transaction's receipt, never the block's.
 
 The Creditcoin EVM RPC must retain historical state for the configured scan/recovery range and
 support historical `eth_call`, including the chain-info precompile. Pruned state causes signing to

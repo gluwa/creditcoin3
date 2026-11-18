@@ -192,7 +192,7 @@ async fn outbox_publish_indexed_signed_and_reaches_quorum() {
             chain_key,
         ),
         set_update_publish_tx: tokio::sync::mpsc::channel(8).0,
-        reobs_tx: tokio::sync::mpsc::channel(8).0,
+        reobs_queue: Default::default(),
         destination_chain_key: parking_lot::RwLock::new(Some(ck_b32)),
         vote_domain: parking_lot::RwLock::new(Some(vote_domain)),
     };
