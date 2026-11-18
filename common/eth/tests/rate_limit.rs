@@ -17,13 +17,15 @@ use std::{
 };
 
 const ZERO32: &str = "0x0000000000000000000000000000000000000000000000000000000000000000";
+/// Root of an empty trie: what an empty block's `transactionsRoot` and `receiptsRoot` must be.
+const EMPTY_ROOT: &str = "0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421";
 
-/// An empty block: no transactions, so the fetch skips the header-root check.
+/// An empty block: no transactions, and header roots that say so.
 fn empty_block(number: u64) -> Value {
     json!({
         "hash": format!("0x{number:064x}"), "parentHash": ZERO32, "sha3Uncles": ZERO32,
         "miner": "0x0000000000000000000000000000000000000000",
-        "stateRoot": ZERO32, "transactionsRoot": ZERO32, "receiptsRoot": ZERO32,
+        "stateRoot": ZERO32, "transactionsRoot": EMPTY_ROOT, "receiptsRoot": EMPTY_ROOT,
         "logsBloom": format!("0x{}", "00".repeat(256)),
         "difficulty": "0x0", "number": format!("{number:#x}"), "gasLimit": "0x1c9c380",
         "gasUsed": "0x0", "timestamp": "0x64", "extraData": "0x", "mixHash": ZERO32,

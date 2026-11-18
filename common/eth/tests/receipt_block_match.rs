@@ -4,8 +4,8 @@
 //! `get_block` and `get_block_receipts` are two separate height-keyed calls, and a provider URL is
 //! commonly a load balancer over many nodes, so the pair can be answered by peers on opposite
 //! sides of a reorg. These tests pin the hash comparison that catches it, including the two cases
-//! it must *not* reject: receipts that omit the optional `blockHash`, and the empty-block path
-//! that skips the header-root check entirely.
+//! it must *not* reject: receipts that omit the optional `blockHash`, and a genuinely empty block.
+//! They also pin that an empty body is only accepted when the header's roots say it is empty.
 
 use alloy::network::{AnyRpcBlock, AnyTransactionReceipt};
 use attestcoin_abi_encoding::common::EncodingVersion;
@@ -13,6 +13,8 @@ use eth::{ChainFamily, Error, OrderedBlock};
 use serde_json::{json, Value};
 
 const ZERO32: &str = "0x0000000000000000000000000000000000000000000000000000000000000000";
+/// Root of an empty trie: what an empty block's `transactionsRoot` and `receiptsRoot` must be.
+const EMPTY_ROOT: &str = "0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421";
 const BLOCK_HASH: &str = "0x1111111111111111111111111111111111111111111111111111111111111111";
 const OTHER_HASH: &str = "0x2222222222222222222222222222222222222222222222222222222222222222";
 const TX_HASH: &str = "0x3333333333333333333333333333333333333333333333333333333333333333";
@@ -30,9 +32,11 @@ fn block_json(hash: &str, number: u64, with_tx: bool) -> Value {
     } else {
         json!([])
     };
+    // A block without transactions reports the empty-trie roots, as a real node does.
+    let root = if with_tx { ZERO32 } else { EMPTY_ROOT };
     json!({
         "hash": hash, "parentHash": ZERO32, "sha3Uncles": ZERO32, "miner": ADDR,
-        "stateRoot": ZERO32, "transactionsRoot": ZERO32, "receiptsRoot": ZERO32,
+        "stateRoot": ZERO32, "transactionsRoot": root, "receiptsRoot": root,
         "logsBloom": format!("0x{}", "00".repeat(256)),
         "difficulty": "0x0", "number": format!("{number:#x}"), "gasLimit": "0x1c9c380",
         "gasUsed": "0x5208", "timestamp": "0x64", "extraData": "0x", "mixHash": ZERO32,
@@ -147,9 +151,8 @@ fn receipts_without_a_block_hash_are_not_rejected() {
 }
 
 #[test]
-fn empty_blocks_still_skip_the_root_check() {
-    // The empty-block carve-out is load-bearing for Substrate and Frontier dev chains. There are
-    // no receipts to compare, so the new check must leave it untouched.
+fn genuinely_empty_blocks_are_accepted() {
+    // The header's roots are the empty-trie root and there are no receipts to compare.
     let ordered = OrderedBlock::try_from_fetched_block(
         1,
         ChainFamily::Ethereum,
@@ -158,7 +161,55 @@ fn empty_blocks_still_skip_the_root_check() {
         7,
         EncodingVersion::V1,
     )
-    .expect("an empty block with no receipts stays acceptable");
+    .expect("an empty block with empty-trie roots is acceptable");
     assert_eq!(ordered.number(), 7);
+    assert!(ordered.items().is_empty());
+}
+
+/// The header of a non-empty block with its transactions removed: the roots still commit to a body.
+fn truncated_block(transactions_root: &str, receipts_root: &str) -> AnyRpcBlock {
+    let mut json = block_json(BLOCK_HASH, 7, false);
+    json["transactionsRoot"] = json!(transactions_root);
+    json["receiptsRoot"] = json!(receipts_root);
+    serde_json::from_value(json).expect("block fixture")
+}
+
+#[test]
+fn an_empty_body_under_a_non_empty_header_is_rejected() {
+    // Either root alone is enough to show the header commits to a body that was dropped.
+    for (tx_root, rx_root) in [(ZERO32, ZERO32), (ZERO32, EMPTY_ROOT), (EMPTY_ROOT, ZERO32)] {
+        for family in [ChainFamily::Ethereum, ChainFamily::OpStack] {
+            let err = OrderedBlock::try_from_fetched_block(
+                1,
+                family,
+                truncated_block(tx_root, rx_root),
+                vec![],
+                7,
+                EncodingVersion::V1,
+            )
+            .expect_err("a truncated block must not pass as empty");
+            assert!(
+                matches!(err, Error::BlockHeaderRootsMismatch(7)),
+                "{family}: expected BlockHeaderRootsMismatch, got {err:?}"
+            );
+            // It must reach the fallback walk so the next provider is consulted.
+            assert!(err.inconsistent_block_payload_for_fallback());
+        }
+    }
+}
+
+#[test]
+fn the_frontier_family_still_accepts_an_empty_body_with_non_standard_roots() {
+    // Substrate/Frontier dev chains may report roots other than the empty-trie root for an empty
+    // block. Only a family that declares this gets the exception.
+    let ordered = OrderedBlock::try_from_fetched_block(
+        1,
+        ChainFamily::Frontier,
+        truncated_block(ZERO32, ZERO32),
+        vec![],
+        7,
+        EncodingVersion::V1,
+    )
+    .expect("the frontier family tolerates non-standard empty-block roots");
     assert!(ordered.items().is_empty());
 }
