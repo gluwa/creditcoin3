@@ -660,9 +660,18 @@ where
                     block_pivot = block_pivot.saturating_sub(CHECKPOINT_BUCKET_SIZE);
                 }
 
-                // Since the last checkpoint is above the target height, if we found any checkpoint below (or at) the target height,
+                // A retained attestation below (or at) the target is an equally good previous
+                // bound, matching `find_highest_attested_before`. Only scanned when the
+                // checkpoint walk found nothing, and skipped while a cleanup cursor is draining.
+                let found_prev = found_prev_checkpoint
+                    || (attestations_readable::<Runtime>(handle, chain_key)?
+                        && any_attestation::<Runtime>(handle, chain_key, |height| {
+                            height <= target_height
+                        })?);
+
+                // Since the last checkpoint is above the target height, if we found any checkpoint or attestation below (or at) the target height,
                 // we can be sure that target height is attested.
-                (found_prev_checkpoint, true)
+                (found_prev, true)
             }
             Some(_) => {
                 // If the last checkpoint is exactly at the target height, then we know for sure that the target height is attested.
