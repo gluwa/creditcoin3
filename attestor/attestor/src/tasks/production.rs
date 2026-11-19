@@ -86,6 +86,16 @@ pub async fn run(
         .build();
     let mut stream_attestation = stream::attestation::StreamAttestation::new(attestation_cfg);
 
+    // ----------------------------------* genesis maturity gate *---------------------------- //
+    //
+    // The genesis vote is signed from a direct block fetch, outside the maturity-bounded roots
+    // stream, so it needs its own maturity check (CSUB-2143). Done before the cc3 subscription
+    // opens so finalized batches don't queue up behind a long wait.
+    if start_attestation.is_none() && !wait_for_genesis_maturity(&shared, genesis).await {
+        tracing::info!("🔌 shutdown while waiting for genesis block maturity");
+        return Ok(());
+    }
+
     // ----------------------------------* cc3 stream *---------------------------------------- //
     // Opened before the (optional) genesis step so we can wait for the genesis BlockAttested
     // event on the same subscription we use in the main loop.
@@ -630,6 +640,65 @@ async fn handle_one(
     Ok(())
 }
 
+// ------------------------------ [ Helper: wait for genesis maturity ] ------------------------- //
+
+/// Block until `genesis` is at or below the source chain's mature height. `false` means shutdown
+/// was requested while waiting.
+async fn wait_for_genesis_maturity(shared: &Shared, genesis: attestor_primitives::Height) -> bool {
+    wait_until_mature(
+        &shared.token,
+        shared.eth_head_poll_interval,
+        genesis,
+        || async {
+            let head = shared.eth.get_last_block().await?;
+            shared.maturity.mature_height(&shared.eth, head).await
+        },
+        // A block-tag maturity can take minutes; keep the watchdog from reading it as a wedge.
+        || shared.health.note_progress(),
+    )
+    .await
+}
+
+/// Poll `mature_height` every `poll` until it reaches `target`. A genesis above the current tip
+/// is simply not mature yet, and an unresolvable mature height is retried: neither is an init
+/// failure, since a restart loop would only redo the same wait.
+async fn wait_until_mature<F, Fut>(
+    token: &tokio_util::sync::CancellationToken,
+    poll: std::time::Duration,
+    target: attestor_primitives::Height,
+    mut mature_height: F,
+    mut on_wait: impl FnMut(),
+) -> bool
+where
+    F: FnMut() -> Fut,
+    Fut: std::future::Future<Output = Result<Option<attestor_primitives::Height>, eth::Error>>,
+{
+    loop {
+        let resolved = tokio::select! {
+            _ = token.cancelled() => return false,
+            resolved = mature_height() => resolved,
+        };
+        match resolved {
+            Ok(Some(mature)) if mature >= target => return true,
+            Ok(mature) => tracing::info!(
+                target,
+                ?mature,
+                "⏳ genesis block is not mature yet — waiting before signing it"
+            ),
+            Err(err) => tracing::warn!(
+                target,
+                %err,
+                "⏳ could not resolve the mature height — retrying"
+            ),
+        }
+        on_wait();
+        tokio::select! {
+            _ = token.cancelled() => return false,
+            () = tokio::time::sleep(poll) => {}
+        }
+    }
+}
+
 // --------------------------- [ Helper: wait for a BlockAttested event ] ----------------------- //
 //
 // Drains CC3 events on the production task's own subscription until BlockAttested(height ≥ N)
@@ -723,7 +792,80 @@ async fn wait_for_block_attested(
 
 #[cfg(test)]
 mod tests {
-    use super::{eligibility_action, EligibilityAction};
+    use super::{eligibility_action, wait_until_mature, EligibilityAction};
+    use std::collections::VecDeque;
+    use std::sync::Mutex;
+    use std::time::Duration;
+    use tokio_util::sync::CancellationToken;
+
+    type Step = Result<Option<u64>, eth::Error>;
+
+    /// Drive `wait_until_mature` with a scripted sequence of mature-height answers. Returns the
+    /// outcome, how many answers were consumed, and how many times the waiter reported waiting.
+    async fn run_script(
+        token: &CancellationToken,
+        target: u64,
+        script: Vec<Step>,
+    ) -> (bool, usize, usize) {
+        let total = script.len();
+        let script = Mutex::new(VecDeque::from(script));
+        let mut waits = 0;
+        let matured = wait_until_mature(
+            token,
+            Duration::from_millis(1),
+            target,
+            || {
+                let next = script.lock().unwrap().pop_front();
+                async move { next.expect("script exhausted before maturity") }
+            },
+            || waits += 1,
+        )
+        .await;
+        let consumed = total - script.lock().unwrap().len();
+        (matured, consumed, waits)
+    }
+
+    #[tokio::test]
+    async fn mature_genesis_is_released_without_waiting() {
+        let token = CancellationToken::new();
+        let (matured, consumed, waits) = run_script(&token, 100, vec![Ok(Some(100))]).await;
+        assert!(matured);
+        assert_eq!((consumed, waits), (1, 0));
+    }
+
+    /// A genesis at/above the mature height is waited on, not signed or treated as an init error.
+    #[tokio::test]
+    async fn unmatured_genesis_is_waited_on_until_it_matures() {
+        let token = CancellationToken::new();
+        let script = vec![Ok(None), Ok(Some(98)), Ok(Some(99)), Ok(Some(100))];
+        let (matured, consumed, waits) = run_script(&token, 100, script).await;
+        assert!(matured);
+        assert_eq!((consumed, waits), (4, 3));
+    }
+
+    #[tokio::test]
+    async fn unresolvable_mature_height_is_retried() {
+        let token = CancellationToken::new();
+        let script = vec![Err(eth::Error::FailedToGetBlock(1)), Ok(Some(100))];
+        let (matured, consumed, waits) = run_script(&token, 100, script).await;
+        assert!(matured);
+        assert_eq!((consumed, waits), (2, 1));
+    }
+
+    #[tokio::test]
+    async fn shutdown_ends_the_wait() {
+        let token = CancellationToken::new();
+        let canceller = token.clone();
+        let matured = wait_until_mature(
+            &token,
+            Duration::from_secs(3600),
+            100,
+            || async { Ok(Some(1)) },
+            move || canceller.cancel(),
+        )
+        .await;
+        assert!(!matured);
+    }
 
     /// The full eligibility transition matrix. Regression pin for the warm-up logic: the bug that
     /// motivated the target guard was unrelated `AttestorKicked` events (target unchanged) being
