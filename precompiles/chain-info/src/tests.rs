@@ -15,6 +15,7 @@ use pallet_attestation::{
 };
 use precompile_utils::{
     prelude::{RuntimeHelper, UnboundedBytes},
+    solidity::Codec,
     testing::*,
 };
 
@@ -1491,5 +1492,378 @@ mod unsupported_chain_reverts {
                     )
                     .execute_reverts(|out| out == EXPECTED_REVERT);
             });
+    }
+}
+
+/// Fixtures shared by the retained-attestation and metering tests below.
+mod scan_fixtures {
+    use super::*;
+
+    pub fn insert_attestation(height: u64) -> H256 {
+        let attestation = create_dummy_attestation(height);
+        let digest = attestation.digest();
+        Attestations::<Runtime>::insert(SUPPORTED_CHAIN_KEY, digest, attestation);
+        digest
+    }
+
+    pub fn insert_checkpoint(height: u64, digest: H256) {
+        let pivot = AttestationPallet::<Runtime>::compute_block_index_for(height);
+        CheckpointBuckets::<Runtime>::insert((SUPPORTED_CHAIN_KEY, pivot, height), ());
+        Checkpoints::<Runtime>::insert(SUPPORTED_CHAIN_KEY, height, digest);
+    }
+
+    pub fn set_last_checkpoint(height: u64) {
+        LastCheckpoint::<Runtime>::insert(
+            SUPPORTED_CHAIN_KEY,
+            AttestationCheckpoint {
+                block_number: height,
+                digest: H256::random(),
+            },
+        );
+    }
+
+    pub fn drain_attestations_cursor() {
+        pallet_attestation::AttestationClearingCursors::<Runtime>::insert(
+            SUPPORTED_CHAIN_KEY,
+            Vec::from([0u8; 4]),
+        );
+    }
+
+    pub fn attestation_result(height: u64, hash: H256) -> HeightHashResult {
+        HeightHashResult {
+            height,
+            hash,
+            is_attestation: true,
+            exists: true,
+        }
+    }
+
+    pub fn checkpoint_result(height: u64, hash: H256) -> HeightHashResult {
+        HeightHashResult {
+            height,
+            hash,
+            is_attestation: false,
+            exists: true,
+        }
+    }
+
+    /// Run `setup` (which returns the expected output, since attestation digests are random),
+    /// then call the precompile and compare.
+    pub fn assert_returns<T: Codec>(call: PCall, setup: impl FnOnce() -> T) {
+        let alice: H160 = Alice.into();
+        ExtBuilder::default()
+            .with_balances(vec![(alice.into(), 300)])
+            .build()
+            .execute_with(|| {
+                let expected = setup();
+                precompiles()
+                    .prepare_test(alice, Precompile, call)
+                    .execute_returns(expected);
+            });
+    }
+}
+
+/// Condensed attestations stay in storage for the retention period, so the nearest parent/child
+/// can be a retained attestation even when a checkpoint exists on the same side.
+mod retained_attestations_compete_with_checkpoints {
+    use super::{scan_fixtures::*, *};
+
+    const TARGET: u64 = 1500;
+    /// Above the target, so the checkpoint-bucket search is the branch under test.
+    const LAST_CHECKPOINT: u64 = 3000;
+
+    fn checkpoint_digest() -> H256 {
+        H256::from_slice(&[7_u8; 32])
+    }
+
+    fn highest() -> PCall {
+        PCall::find_highest_attested_before {
+            chain_key: SUPPORTED_CHAIN_KEY,
+            target_height: TARGET,
+        }
+    }
+
+    fn lowest() -> PCall {
+        PCall::find_lowest_attested_after {
+            chain_key: SUPPORTED_CHAIN_KEY,
+            target_height: TARGET,
+        }
+    }
+
+    #[test]
+    fn highest_returns_retained_attestation_nearer_than_checkpoint() {
+        assert_returns(highest(), || {
+            set_last_checkpoint(LAST_CHECKPOINT);
+            insert_checkpoint(800, checkpoint_digest());
+            attestation_result(1400, insert_attestation(1400))
+        });
+    }
+
+    #[test]
+    fn highest_returns_checkpoint_nearer_than_retained_attestation() {
+        assert_returns(highest(), || {
+            set_last_checkpoint(LAST_CHECKPOINT);
+            insert_checkpoint(1400, checkpoint_digest());
+            insert_attestation(900);
+            checkpoint_result(1400, checkpoint_digest())
+        });
+    }
+
+    #[test]
+    fn highest_prefers_the_attestation_when_both_sit_at_the_same_height() {
+        assert_returns(highest(), || {
+            set_last_checkpoint(LAST_CHECKPOINT);
+            let digest = insert_attestation(1400);
+            insert_checkpoint(1400, digest);
+            attestation_result(1400, digest)
+        });
+    }
+
+    #[test]
+    fn highest_ignores_retained_attestations_while_cleanup_is_draining() {
+        assert_returns(highest(), || {
+            set_last_checkpoint(LAST_CHECKPOINT);
+            insert_checkpoint(800, checkpoint_digest());
+            insert_attestation(1400);
+            drain_attestations_cursor();
+            checkpoint_result(800, checkpoint_digest())
+        });
+    }
+
+    #[test]
+    fn highest_falls_back_to_a_checkpoint_above_every_retained_attestation() {
+        // Latest checkpoint below the target; the retained attestation is older than it.
+        assert_returns(highest(), || {
+            set_last_checkpoint(1400);
+            insert_checkpoint(1400, checkpoint_digest());
+            insert_attestation(900);
+            checkpoint_result(1400, checkpoint_digest())
+        });
+    }
+
+    #[test]
+    fn highest_keeps_the_newer_attestation_over_the_latest_checkpoint() {
+        assert_returns(highest(), || {
+            set_last_checkpoint(900);
+            insert_checkpoint(900, checkpoint_digest());
+            attestation_result(1400, insert_attestation(1400))
+        });
+    }
+
+    #[test]
+    fn lowest_returns_retained_attestation_nearer_than_checkpoint() {
+        assert_returns(lowest(), || {
+            set_last_checkpoint(LAST_CHECKPOINT);
+            insert_checkpoint(2400, checkpoint_digest());
+            attestation_result(1600, insert_attestation(1600))
+        });
+    }
+
+    #[test]
+    fn lowest_returns_checkpoint_nearer_than_retained_attestation() {
+        assert_returns(lowest(), || {
+            set_last_checkpoint(LAST_CHECKPOINT);
+            insert_checkpoint(1600, checkpoint_digest());
+            insert_attestation(2600);
+            checkpoint_result(1600, checkpoint_digest())
+        });
+    }
+
+    #[test]
+    fn lowest_prefers_the_attestation_when_both_sit_at_the_same_height() {
+        assert_returns(lowest(), || {
+            set_last_checkpoint(LAST_CHECKPOINT);
+            let digest = insert_attestation(1600);
+            insert_checkpoint(1600, digest);
+            attestation_result(1600, digest)
+        });
+    }
+
+    #[test]
+    fn lowest_ignores_retained_attestations_while_cleanup_is_draining() {
+        assert_returns(lowest(), || {
+            set_last_checkpoint(LAST_CHECKPOINT);
+            insert_checkpoint(2400, checkpoint_digest());
+            insert_attestation(1600);
+            drain_attestations_cursor();
+            checkpoint_result(2400, checkpoint_digest())
+        });
+    }
+
+    #[test]
+    fn lowest_returns_the_latest_checkpoint_when_it_is_exactly_at_the_target() {
+        // The latest checkpoint is at the target, so it is the nearest child; a later retained
+        // attestation must not displace it.
+        assert_returns(lowest(), || {
+            set_last_checkpoint(TARGET);
+            insert_checkpoint(TARGET, checkpoint_digest());
+            insert_attestation(1700);
+            checkpoint_result(TARGET, checkpoint_digest())
+        });
+    }
+
+    #[test]
+    fn bounds_combine_attestations_and_checkpoints_on_either_side() {
+        let alice: H160 = Alice.into();
+        ExtBuilder::default()
+            .with_balances(vec![(alice.into(), 300)])
+            .build()
+            .execute_with(|| {
+                set_last_checkpoint(LAST_CHECKPOINT);
+                // No checkpoint below the target at all: the parent can only be the retained
+                // attestation, the child only the checkpoint.
+                insert_checkpoint(2400, checkpoint_digest());
+                let parent_digest = insert_attestation(1400);
+
+                precompiles()
+                    .prepare_test(
+                        alice,
+                        Precompile,
+                        PCall::get_attestation_bounds {
+                            chain_key: SUPPORTED_CHAIN_KEY,
+                            target_height: TARGET,
+                        },
+                    )
+                    .execute_returns(BoundsCheckResult {
+                        parent: 1400,
+                        parent_hash: parent_digest,
+                        parent_is_attestation: true,
+                        child: 2400,
+                        child_hash: checkpoint_digest(),
+                        child_is_attestation: false,
+                        is_attested: true,
+                    });
+            });
+    }
+}
+
+/// Every row of a scan is charged one storage lookup before its value is read, so the total
+/// matches the rows visited and a call that cannot pay for the traversal runs out of gas.
+mod scans_are_metered_per_row {
+    use super::{scan_fixtures::*, *};
+    use fp_evm::ExitError;
+
+    const ROWS: u64 = 5;
+
+    /// Gas every call pays before its body: the framework's caller read plus the supported-chain
+    /// lookup.
+    fn framework_cost() -> u64 {
+        base_cost()
+    }
+
+    fn assert_exact_cost_and_out_of_gas_below(
+        call: impl Fn() -> PCall,
+        setup: impl FnOnce() -> u64,
+    ) {
+        let alice: H160 = Alice.into();
+        ExtBuilder::default()
+            .with_balances(vec![(alice.into(), 300)])
+            .build()
+            .execute_with(|| {
+                let expected_cost = setup();
+
+                precompiles()
+                    .prepare_test(alice, Precompile, call())
+                    .with_target_gas(Some(expected_cost))
+                    .expect_cost(expected_cost)
+                    .execute_some();
+
+                precompiles()
+                    .prepare_test(alice, Precompile, call())
+                    .with_target_gas(Some(expected_cost - 1))
+                    .execute_error(ExitError::OutOfGas);
+            });
+    }
+
+    #[test]
+    fn highest_charges_one_lookup_per_scanned_attestation() {
+        assert_exact_cost_and_out_of_gas_below(
+            || PCall::find_highest_attested_before {
+                chain_key: SUPPORTED_CHAIN_KEY,
+                target_height: 10_000,
+            },
+            || {
+                for i in 0..ROWS {
+                    insert_attestation(100 + i);
+                }
+                // `LastCheckpoint` read, guard + scan setup, then every row (no early exit).
+                framework_cost() + GAS_STORAGE_LOOKUP * (1 + 2 + ROWS)
+            },
+        );
+    }
+
+    #[test]
+    fn lowest_charges_one_lookup_per_scanned_attestation() {
+        assert_exact_cost_and_out_of_gas_below(
+            || PCall::find_lowest_attested_after {
+                chain_key: SUPPORTED_CHAIN_KEY,
+                target_height: 0,
+            },
+            || {
+                for i in 0..ROWS {
+                    insert_attestation(100 + i);
+                }
+                framework_cost() + GAS_STORAGE_LOOKUP * (1 + 2 + ROWS)
+            },
+        );
+    }
+
+    #[test]
+    fn height_check_stops_charging_at_the_first_matching_attestation() {
+        // No checkpoint, so the exact-height scan runs first; a single attestation sits exactly
+        // at the target, so the scan ends after one row.
+        assert_exact_cost_and_out_of_gas_below(
+            || PCall::is_height_attested {
+                chain_key: SUPPORTED_CHAIN_KEY,
+                target_height: 100,
+            },
+            || {
+                insert_attestation(100);
+                // `LastCheckpoint` read, guard + scan setup, one row.
+                framework_cost() + GAS_STORAGE_LOOKUP * (1 + 2 + 1)
+            },
+        );
+    }
+
+    #[test]
+    fn height_check_without_checkpoints_charges_each_of_its_three_scans() {
+        // Every attestation is below the target: the exact-height and the "above" scans run to
+        // the end, the "below" scan stops at its first row.
+        assert_exact_cost_and_out_of_gas_below(
+            || PCall::is_height_attested {
+                chain_key: SUPPORTED_CHAIN_KEY,
+                target_height: 1_000,
+            },
+            || {
+                for i in 0..ROWS {
+                    insert_attestation(100 + i);
+                }
+                // `LastCheckpoint` read, guard + first scan, one setup lookup for each of the two
+                // later scans, then the rows each scan visited.
+                framework_cost() + GAS_STORAGE_LOOKUP * (1 + 2 + 1 + 1 + ROWS + ROWS + 1)
+            },
+        );
+    }
+
+    #[test]
+    fn highest_with_both_candidates_pays_for_the_scan_and_the_bucket_walk() {
+        assert_exact_cost_and_out_of_gas_below(
+            || PCall::find_highest_attested_before {
+                chain_key: SUPPORTED_CHAIN_KEY,
+                target_height: 1_500,
+            },
+            || {
+                set_last_checkpoint(3_000);
+                insert_checkpoint(800, H256::from_slice(&[7_u8; 32]));
+                insert_attestation(1_400);
+                framework_cost()
+                    + GAS_STORAGE_LOOKUP
+                        * (1 // `LastCheckpoint`
+                            + 2 // guard + scan setup
+                            + 1 // the retained attestation
+                            + 1 // bucket 1000: empty
+                            + 1 + 1 + 2) // bucket 0: lookup, its one height, the stable read
+            },
+        );
     }
 }
