@@ -4,6 +4,7 @@ use alloy::{
         proofs::ordered_trie_root_with_encoder,
         transaction::{Recovered, SignerRecoverable},
         Block as ConsensusBlock, ReceiptEnvelope, Transaction as ConsensusTransaction, TxEnvelope,
+        TxReceipt,
     },
     eips::eip2718::{Decodable2718, Encodable2718 as _},
     hex::ToHexExt,
@@ -24,17 +25,21 @@ use alloy::{
     rlp::{Decodable, Header as RlpHeader},
     rpc::{
         client::WsConnect,
+        json_rpc::{RequestPacket, ResponsePacket},
         types::{
             eth::{Block, BlockId, BlockNumberOrTag, BlockTransactions, Header as RpcHeader},
             ConversionError, Log as RpcLog, Transaction, TransactionReceipt,
         },
     },
     signers::{k256::ecdsa::SigningKey, local::PrivateKeySigner},
-    transports::{http::reqwest::Url, ws::WebSocketConfig, TransportErrorKind},
+    transports::{
+        http::reqwest::Url, ws::WebSocketConfig, TransportError, TransportErrorKind, TransportFut,
+        TransportResult,
+    },
 };
 
 use alloy::rpc::client::RpcClient as AlloyRpcClient;
-use alloy::transports::http::{reqwest, Http};
+use alloy::transports::http::reqwest;
 use alloy::transports::utils::guess_local_url;
 use anyhow::{Context, Result};
 use attestcoin_abi_encoding::common::EncodingVersion;
@@ -162,6 +167,13 @@ pub enum Error {
         number: u64,
         block: BlockHash,
         receipts: BlockHash,
+    },
+    #[error("Block {number} carries {count} {what}, above the limit of {limit}")]
+    BlockPayloadTooLarge {
+        number: u64,
+        what: &'static str,
+        count: usize,
+        limit: usize,
     },
     #[error("Failed to get chain id, Error: {0}")]
     FailedToGetChainId(String),
@@ -292,7 +304,30 @@ impl Error {
                 | Error::SenderMismatch { .. }
                 | Error::TransactionHashMismatch { .. }
                 | Error::DecreasingCumulativeGas { .. }
+                | Error::BlockPayloadTooLarge { .. }
+        ) || self.is_oversized_response()
+    }
+
+    /// True when an HTTP reply was dropped for exceeding [`HTTP_MAX_RESPONSE_SIZE`]. The endpoint
+    /// answered, so another one may serve the same request.
+    pub fn is_oversized_response(&self) -> bool {
+        use alloy::transports::RpcError;
+        matches!(
+            self,
+            Error::EthError(RpcError::Transport(TransportErrorKind::Custom(err)))
+                if err.is::<ResponseTooLarge>()
         )
+    }
+
+    /// True when the endpoints answered but this one block cannot be used (unusable payload, not
+    /// served yet, or undecodable), as opposed to a failing connection that a reconnect may fix.
+    pub fn is_block_level(&self) -> bool {
+        self.inconsistent_block_payload_for_fallback()
+            || self.is_unrecoverable()
+            || matches!(
+                self,
+                Error::FailedToGetBlock(_) | Error::FailedToGetReceipts(_)
+            )
     }
 
     /// True when the provider refused the request because we are over its rate limit or credit
@@ -348,7 +383,8 @@ impl Error {
             | Error::ReceiptsBlockMismatch { number: n, .. }
             | Error::SenderMismatch { number: n, .. }
             | Error::TransactionHashMismatch { number: n, .. }
-            | Error::DecreasingCumulativeGas { number: n, .. } => Some(*n),
+            | Error::DecreasingCumulativeGas { number: n, .. }
+            | Error::BlockPayloadTooLarge { number: n, .. } => Some(*n),
             Error::ReceiptTypeMismatch { block, .. } | Error::Deposit { block, .. } => Some(*block),
             _ => None,
         }
@@ -567,6 +603,31 @@ const ETHEREUM_MAINNET_CHAIN_ID: u64 = 1;
 /// header root even when the data is otherwise sound.
 const ETHEREUM_BYZANTIUM_BLOCK: u64 = 4_370_000;
 
+/// Most transactions, and so receipts, accepted in one block. Real blocks hold a few thousand at
+/// most; this only bounds the work one reply can cost (sender recovery, root computation).
+pub const MAX_BLOCK_TRANSACTIONS: usize = 50_000;
+/// Most logs accepted across the receipts of one block; bounds the same work.
+pub const MAX_BLOCK_LOGS: usize = 500_000;
+
+fn check_limit(number: u64, what: &'static str, count: usize, limit: usize) -> Result<(), Error> {
+    if count > limit {
+        return Err(Error::BlockPayloadTooLarge {
+            number,
+            what,
+            count,
+            limit,
+        });
+    }
+    Ok(())
+}
+
+/// Number of logs across `receipts`, counted without cloning or decoding anything.
+fn log_count<'a, R: TxReceipt + 'a>(receipts: impl Iterator<Item = &'a R>) -> usize {
+    receipts.fold(0usize, |total, receipt| {
+        total.saturating_add(receipt.logs().len())
+    })
+}
+
 impl OrderedBlock {
     /// Builds an [`OrderedBlock`] from RPC-fetched `AnyNetwork` block and receipts. Verifies that
     /// recomputed transaction and receipt Merkle roots match the header (so a reorg between
@@ -576,6 +637,9 @@ impl OrderedBlock {
     /// `family` decides which transaction types are admitted and how deposits are handled; see
     /// [`ChainFamily`]. A transaction type the family does not support is a hard
     /// [`Error::UnsupportedTransactionType`] — a misconfigured chain family, not a flaky peer.
+    ///
+    /// A block carrying more than [`MAX_BLOCK_TRANSACTIONS`] transactions or receipts, or
+    /// [`MAX_BLOCK_LOGS`] logs, is refused before any of that work starts.
     pub fn try_from_fetched_block(
         chain_id: u64,
         family: ChainFamily,
@@ -587,6 +651,25 @@ impl OrderedBlock {
         if block.header.number != expected_number {
             return Err(Error::FailedToGetBlock(expected_number));
         }
+
+        check_limit(
+            expected_number,
+            "transactions",
+            block.transactions.len(),
+            MAX_BLOCK_TRANSACTIONS,
+        )?;
+        check_limit(
+            expected_number,
+            "receipts",
+            receipts.len(),
+            MAX_BLOCK_TRANSACTIONS,
+        )?;
+        check_limit(
+            expected_number,
+            "logs",
+            log_count(receipts.iter().map(|receipt| &receipt.inner.inner)),
+            MAX_BLOCK_LOGS,
+        )?;
 
         let hash = block.header.hash;
 
@@ -853,6 +936,43 @@ fn header_hash_from_raw_block(raw: &[u8]) -> Result<BlockHash, alloy::rlp::Error
     Ok(keccak256(bytes))
 }
 
+/// Number of transactions in a raw block's body, counted by walking the RLP item headers. Nothing
+/// is decoded or allocated, so a block with millions of transactions costs a scan instead of
+/// memory. Counting stops at `cap`, which is all a limit check needs.
+fn raw_block_transaction_count(raw: &[u8], cap: usize) -> Result<usize, alloy::rlp::Error> {
+    use alloy::rlp::Error as RlpError;
+
+    // block = [header, [transaction, ...], ommers, ...]
+    let mut buf = raw;
+    if !RlpHeader::decode(&mut buf)?.list {
+        return Err(RlpError::UnexpectedString);
+    }
+    let header = RlpHeader::decode(&mut buf)?;
+    if !header.list {
+        return Err(RlpError::UnexpectedString);
+    }
+    buf = buf
+        .get(header.payload_length..)
+        .ok_or(RlpError::InputTooShort)?;
+    let transactions = RlpHeader::decode(&mut buf)?;
+    if !transactions.list {
+        return Err(RlpError::UnexpectedString);
+    }
+    let mut body = buf
+        .get(..transactions.payload_length)
+        .ok_or(RlpError::InputTooShort)?;
+
+    let mut count = 0usize;
+    while !body.is_empty() && count < cap {
+        let item = RlpHeader::decode(&mut body)?;
+        body = body
+            .get(item.payload_length..)
+            .ok_or(RlpError::InputTooShort)?;
+        count += 1;
+    }
+    Ok(count)
+}
+
 /// Overwrite every receipt's `gas_used` with the difference of consecutive cumulative gas values.
 /// RPC `gasUsed` is not part of the receipts root, but the leaf commits to it. Deriving it for
 /// every receipt, as the raw-RLP path does, makes both fetch modes yield the same leaves. For
@@ -1003,6 +1123,18 @@ pub fn rpc_block_from_raw(
 ) -> Result<(Block, Vec<TransactionReceipt>), Error> {
     let hash = header_hash_from_raw_block(raw_block)
         .map_err(|e| Error::RawBlockDecode(number, e.to_string()))?;
+    // Bound the work before doing any of it. Both counts are cheap to read, and decoding the
+    // block allocates per transaction.
+    check_limit(
+        number,
+        "receipts",
+        raw_receipts.len(),
+        MAX_BLOCK_TRANSACTIONS,
+    )?;
+    let transactions = raw_block_transaction_count(raw_block, MAX_BLOCK_TRANSACTIONS + 1)
+        .map_err(|e| Error::RawBlockDecode(number, e.to_string()))?;
+    check_limit(number, "transactions", transactions, MAX_BLOCK_TRANSACTIONS)?;
+
     let block: ConsensusBlock<TxEnvelope> = ConsensusBlock::decode(&mut &raw_block[..])
         .map_err(|e| Error::RawBlockDecode(number, e.to_string()))?;
     if block.header.number != number {
@@ -1012,6 +1144,18 @@ pub fn rpc_block_from_raw(
         return Err(Error::TransactionsReceiptsMismatch(number));
     }
 
+    // Decode every receipt before the first sender recovery, the expensive step, so the log
+    // count can refuse the block first.
+    let decoded: Vec<ReceiptEnvelope> = raw_receipts
+        .iter()
+        .enumerate()
+        .map(|(index, raw)| {
+            ReceiptEnvelope::decode_2718(&mut &raw[..])
+                .map_err(|e| Error::RawReceiptDecode(number, index, e.to_string()))
+        })
+        .collect::<Result<_, _>>()?;
+    check_limit(number, "logs", log_count(decoded.iter()), MAX_BLOCK_LOGS)?;
+
     let base_fee = block.header.base_fee_per_gas;
     let timestamp = block.header.timestamp;
     let mut txs = Vec::with_capacity(block.body.transactions.len());
@@ -1019,12 +1163,7 @@ pub fn rpc_block_from_raw(
     let mut previous_cumulative_gas: u64 = 0;
     let mut log_index: u64 = 0;
 
-    for (index, (envelope, raw_receipt)) in block
-        .body
-        .transactions
-        .into_iter()
-        .zip(raw_receipts.iter())
-        .enumerate()
+    for (index, (envelope, receipt)) in block.body.transactions.into_iter().zip(decoded).enumerate()
     {
         let tx_index = index as u64;
         let from = envelope
@@ -1035,8 +1174,6 @@ pub fn rpc_block_from_raw(
         let to = envelope.to();
         let contract_address = to.is_none().then(|| from.create(envelope.nonce()));
 
-        let receipt: ReceiptEnvelope = ReceiptEnvelope::decode_2718(&mut &raw_receipt[..])
-            .map_err(|e| Error::RawReceiptDecode(number, index, e.to_string()))?;
         let cumulative_gas_used = receipt.cumulative_gas_used();
         let gas_used = cumulative_gas_used.saturating_sub(previous_cumulative_gas);
         previous_cumulative_gas = cumulative_gas_used;
@@ -1257,26 +1394,117 @@ fn ws_connect(url: impl Into<String>) -> WsConnect {
     )
 }
 
+/// Largest HTTP response body accepted from an RPC endpoint, the same ceiling as a websocket
+/// message.
+pub const HTTP_MAX_RESPONSE_SIZE: usize = WS_MAX_MESSAGE_SIZE;
+
+/// An HTTP reply passed the response-size cap and was abandoned there.
+#[derive(Debug, Error)]
+#[error("RPC response exceeds the {limit} byte limit")]
+struct ResponseTooLarge {
+    limit: usize,
+}
+
+/// alloy's reqwest transport, except the body is read in chunks and abandoned past
+/// `max_response_size` instead of being buffered whole.
+#[derive(Clone)]
+struct CappedHttp {
+    client: reqwest::Client,
+    url: Url,
+    max_response_size: usize,
+}
+
+impl CappedHttp {
+    async fn request(self, req: RequestPacket) -> TransportResult<ResponsePacket> {
+        let mut response = self
+            .client
+            .post(self.url)
+            .json(&req)
+            .headers(req.headers())
+            .send()
+            .await
+            .map_err(TransportErrorKind::custom)?;
+        let status = response.status();
+        // Read the body whatever the status: an error object in it says more than the code.
+        let body = read_capped(&mut response, self.max_response_size).await?;
+
+        if !status.is_success() {
+            return Err(TransportErrorKind::http_error(
+                status.as_u16(),
+                String::from_utf8_lossy(&body).into_owned(),
+            ));
+        }
+        serde_json::from_slice(&body)
+            .map_err(|err| TransportError::deser_err(err, String::from_utf8_lossy(&body)))
+    }
+}
+
+impl tower::Service<RequestPacket> for CappedHttp {
+    type Response = ResponsePacket;
+    type Error = TransportError;
+    type Future = TransportFut<'static>;
+
+    fn poll_ready(
+        &mut self,
+        _cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Result<(), Self::Error>> {
+        std::task::Poll::Ready(Ok(()))
+    }
+
+    fn call(&mut self, req: RequestPacket) -> Self::Future {
+        Box::pin(self.clone().request(req))
+    }
+}
+
+/// Read a response body of at most `limit` bytes, failing with [`ResponseTooLarge`] as soon as it
+/// is known to be longer (declared length, or bytes received so far).
+async fn read_capped(
+    response: &mut reqwest::Response,
+    limit: usize,
+) -> Result<Vec<u8>, TransportError> {
+    let too_large = || TransportErrorKind::custom(ResponseTooLarge { limit });
+    if response
+        .content_length()
+        .is_some_and(|declared| declared > limit as u64)
+    {
+        return Err(too_large());
+    }
+    // Not sized from the declared length: a server can promise the limit and send nothing.
+    let mut body = Vec::new();
+    while let Some(chunk) = response.chunk().await.map_err(TransportErrorKind::custom)? {
+        if chunk.len() > limit - body.len() {
+            return Err(too_large());
+        }
+        body.extend_from_slice(&chunk);
+    }
+    Ok(body)
+}
+
+/// An RPC client over HTTP(S) with connect and request timeouts and a response-size cap.
+fn capped_http_client(url: Url) -> Result<AlloyRpcClient, Error> {
+    let client = reqwest::Client::builder()
+        .connect_timeout(HTTP_CONNECT_TIMEOUT)
+        .timeout(HTTP_REQUEST_TIMEOUT)
+        .build()
+        .map_err(|e| Error::ClientError(anyhow::anyhow!("building HTTP client: {e}")))?;
+    let is_local = guess_local_url(url.as_str());
+    let transport = CappedHttp {
+        client,
+        url,
+        max_response_size: HTTP_MAX_RESPONSE_SIZE,
+    };
+    Ok(AlloyRpcClient::new(transport, is_local))
+}
+
 impl Client {
     async fn init_rpc(url: &str) -> Result<(Url, AlloyProvider, u64), Error> {
         let url = Url::parse(url)?;
         let url_scheme = url.scheme();
 
         let rpc_provider = match url_scheme {
-            "http" | "https" => {
-                let http_client = reqwest::Client::builder()
-                    .connect_timeout(HTTP_CONNECT_TIMEOUT)
-                    .timeout(HTTP_REQUEST_TIMEOUT)
-                    .build()
-                    .map_err(|e| {
-                        Error::ClientError(anyhow::anyhow!("building HTTP client: {e}"))
-                    })?;
-                let transport = Http::with_client(http_client, url.clone());
-                let is_local = guess_local_url(url.as_str());
-                ProviderBuilder::new()
-                    .network::<AnyNetwork>()
-                    .connect_client(AlloyRpcClient::new(transport, is_local))
-            }
+            "http" | "https" => ProviderBuilder::new()
+                .network::<AnyNetwork>()
+                .connect_client(capped_http_client(url.clone())?),
 
             "ws" | "wss" => {
                 let ws = ws_connect(url.clone());
@@ -1708,7 +1936,7 @@ impl Client {
         let builder = ProviderBuilder::new().wallet(EthereumWallet::from(self.get_signer()?));
 
         let provider = match self.get_url()? {
-            ConnectionTransport::Http(url) => builder.connect_http(url),
+            ConnectionTransport::Http(url) => builder.connect_client(capped_http_client(url)?),
             ConnectionTransport::Ws(ws_client) => builder.connect_ws(ws_client).await?,
         };
 
@@ -1840,6 +2068,18 @@ impl Client {
                                 return Err(Interrupt::Cont(e));
                             }
                         }
+                    }
+                    // The endpoint answered, but with a payload this client refuses to use (an
+                    // oversized reply, a block over the count limits, or counts that disagree):
+                    // fail over exactly as for a payload that fails verification.
+                    Err(e) if e.inconsistent_block_payload_for_fallback() => {
+                        tracing::warn!(
+                            provider = %label,
+                            block_number = number,
+                            error = %e,
+                            "provider returned a block payload this client refuses to use; trying next endpoint"
+                        );
+                        payload_inconsistent_errs.push((label, e));
                     }
                     Err(e) if e.is_unrecoverable() => {
                         tracing::warn!(
@@ -3117,6 +3357,13 @@ mod error_classifier_tests {
                 Some(42)
             );
         }
+        assert!(Error::BlockPayloadTooLarge {
+            number: 42,
+            what: "logs",
+            count: 2,
+            limit: 1,
+        }
+        .inconsistent_block_payload_for_fallback());
     }
 
     #[test]
@@ -3146,6 +3393,16 @@ mod error_classifier_tests {
         );
         assert_eq!(
             Error::NotFullTransactionsFetched(7).inconsistent_block_number_hint(),
+            Some(7)
+        );
+        assert_eq!(
+            Error::BlockPayloadTooLarge {
+                number: 7,
+                what: "logs",
+                count: 2,
+                limit: 1,
+            }
+            .inconsistent_block_number_hint(),
             Some(7)
         );
         // Symmetry with `inconsistent_block_payload_for_fallback`: "not found"
@@ -3365,6 +3622,70 @@ mod chain_family_block_tests {
     }
 
     #[test]
+    fn json_block_over_the_count_limits_is_refused_before_any_work() {
+        let (block, receipts) = fixture();
+        let try_build = |block: AnyRpcBlock, receipts: Vec<AnyTransactionReceipt>| {
+            OrderedBlock::try_from_fetched_block(
+                chain_family::BASE_SEPOLIA_CHAIN_ID,
+                ChainFamily::OpStack,
+                block,
+                receipts,
+                BLOCK_NUMBER,
+                EncodingVersion::V1,
+            )
+        };
+
+        // Counts that agree with each other, so nothing but the limit can reject this.
+        let tx = block
+            .transactions
+            .clone()
+            .into_transactions()
+            .next()
+            .unwrap();
+        let mut many = block.clone();
+        many.inner.transactions = BlockTransactions::Full(vec![tx; MAX_BLOCK_TRANSACTIONS + 1]);
+        let err =
+            try_build(many, vec![receipts[0].clone(); MAX_BLOCK_TRANSACTIONS + 1]).unwrap_err();
+        assert!(
+            matches!(
+                err,
+                Error::BlockPayloadTooLarge {
+                    what: "transactions",
+                    ..
+                }
+            ),
+            "{err}"
+        );
+
+        let err = try_build(
+            block.clone(),
+            vec![receipts[0].clone(); MAX_BLOCK_TRANSACTIONS + 1],
+        )
+        .unwrap_err();
+        assert!(
+            matches!(
+                err,
+                Error::BlockPayloadTooLarge {
+                    what: "receipts",
+                    ..
+                }
+            ),
+            "{err}"
+        );
+
+        let mut heavy = receipts.clone();
+        heavy[1].inner.inner.inner.receipt.logs = vec![RpcLog::default(); MAX_BLOCK_LOGS + 1];
+        let err = try_build(block.clone(), heavy).unwrap_err();
+        assert!(
+            matches!(err, Error::BlockPayloadTooLarge { what: "logs", .. }),
+            "{err}"
+        );
+
+        // And the genuine block is still accepted.
+        try_build(block, receipts).unwrap();
+    }
+
+    #[test]
     fn op_stack_family_verifies_roots_and_builds_leaves_for_base_block() {
         let (block, receipts) = fixture();
         let ordered = OrderedBlock::try_from_fetched_block(
@@ -3568,7 +3889,7 @@ mod raw_rlp_tests {
             BlockBody, Header as ConsensusHeader, Receipt, SignableTransaction, TxEip1559, TxLegacy,
         },
         eips::eip2718::Encodable2718,
-        primitives::{address, Log as PrimitiveLog, LogData, TxKind, B256, U256},
+        primitives::{address, Log as PrimitiveLog, LogData, Signature, TxKind, B256, U256},
         signers::{local::PrivateKeySigner, SignerSync},
     };
 
@@ -3919,5 +4240,316 @@ mod raw_rlp_tests {
             Err(Error::UnknownFetchMode(_))
         ));
         assert_eq!(BlockFetchMode::RawRlp.to_string(), "raw-rlp");
+    }
+
+    // ---- limits on what an endpoint can make this client read and compute ----
+
+    fn rlp_list(items: &[Vec<u8>]) -> Vec<u8> {
+        let payload = items.concat();
+        let mut out = Vec::new();
+        alloy::rlp::Header {
+            list: true,
+            payload_length: payload.len(),
+        }
+        .encode(&mut out);
+        out.extend_from_slice(&payload);
+        out
+    }
+
+    /// `[header, [n one-byte items], []]`: shaped like a block body, but not decodable as one.
+    fn undecodable_block_with(transactions: usize) -> Vec<u8> {
+        rlp_list(&[
+            rlp_list(&[vec![0x01]]),
+            rlp_list(&vec![vec![0x01]; transactions]),
+            rlp_list(&[]),
+        ])
+    }
+
+    #[test]
+    fn raw_transaction_count_reads_item_headers_only() {
+        assert_eq!(
+            raw_block_transaction_count(&undecodable_block_with(0), 10).unwrap(),
+            0
+        );
+        assert_eq!(
+            raw_block_transaction_count(&undecodable_block_with(7), 10).unwrap(),
+            7
+        );
+        // Counting stops at the cap.
+        assert_eq!(
+            raw_block_transaction_count(&undecodable_block_with(7), 3).unwrap(),
+            3
+        );
+
+        // A typed transaction is a string item of any length, and still counts once.
+        let typed = alloy::rlp::encode(Bytes::from(vec![0xaa; 300]));
+        let block = rlp_list(&[
+            rlp_list(&[vec![0x01]]),
+            rlp_list(&[typed.clone(), vec![0x01], typed]),
+            rlp_list(&[]),
+        ]);
+        assert_eq!(raw_block_transaction_count(&block, 10).unwrap(), 3);
+
+        // Shapes that are not a block body, and bodies cut short, are errors, not counts.
+        assert!(raw_block_transaction_count(&[0x01], 10).is_err());
+        assert!(raw_block_transaction_count(&rlp_list(&[vec![0x01]]), 10).is_err());
+        let block = undecodable_block_with(7);
+        assert!(raw_block_transaction_count(&block[..block.len() - 4], 10).is_err());
+    }
+
+    #[test]
+    fn raw_block_over_the_transaction_limit_is_refused_before_it_is_decoded() {
+        let block = undecodable_block_with(MAX_BLOCK_TRANSACTIONS + 1);
+
+        // Reaching the decoder would report `RawBlockDecode`: this is not a block.
+        let err = rpc_block_from_raw(9, &block, &[]).unwrap_err();
+        assert!(
+            matches!(
+                err,
+                Error::BlockPayloadTooLarge {
+                    number: 9,
+                    what: "transactions",
+                    limit: MAX_BLOCK_TRANSACTIONS,
+                    ..
+                }
+            ),
+            "{err}"
+        );
+        assert!(err.inconsistent_block_payload_for_fallback());
+        assert!(err.is_block_level() && !err.is_unrecoverable());
+        assert_eq!(err.inconsistent_block_number_hint(), Some(9));
+    }
+
+    #[test]
+    fn raw_receipts_over_the_limit_are_refused_before_the_block_is_looked_at() {
+        let (_, block, receipts) = fixture();
+        let (raw_block, _) = raw(&block, &receipts);
+        let too_many = vec![Bytes::new(); MAX_BLOCK_TRANSACTIONS + 1];
+        let err = rpc_block_from_raw(block.header.number, &raw_block, &too_many).unwrap_err();
+        assert!(
+            matches!(
+                err,
+                Error::BlockPayloadTooLarge {
+                    what: "receipts",
+                    ..
+                }
+            ),
+            "{err}"
+        );
+    }
+
+    /// A legacy receipt carrying `logs` empty logs; the bloom is left zero, as only the count
+    /// matters here and a real one costs a hash per log.
+    fn receipt_with_logs(logs: usize) -> ReceiptEnvelope {
+        let empty = PrimitiveLog {
+            address: address!("5FbDB2315678afecb367f032d93F642f64180aa3"),
+            data: LogData::new_unchecked(vec![], Bytes::new()),
+        };
+        ReceiptEnvelope::Legacy(alloy::consensus::ReceiptWithBloom {
+            receipt: Receipt {
+                status: true.into(),
+                cumulative_gas_used: 21_000,
+                logs: vec![empty; logs],
+            },
+            logs_bloom: alloy::primitives::Bloom::ZERO,
+        })
+    }
+
+    #[test]
+    fn raw_logs_over_the_limit_are_refused_before_any_sender_is_recovered() {
+        let signer = PrivateKeySigner::random();
+        let TxEnvelope::Legacy(signed) = signed_legacy(&signer, 1) else {
+            unreachable!()
+        };
+        let (tx, _, _) = signed.into_parts();
+        // A signature no sender can be recovered from: reaching recovery is `SenderRecovery`.
+        let unrecoverable =
+            TxEnvelope::Legacy(tx.into_signed(Signature::new(U256::ZERO, U256::ZERO, false)));
+        let block = ConsensusBlock {
+            header: ConsensusHeader {
+                number: 77,
+                ..Default::default()
+            },
+            body: BlockBody {
+                transactions: vec![unrecoverable],
+                ommers: vec![],
+                withdrawals: None,
+            },
+        };
+
+        // Control: with a sane receipt the block does reach sender recovery.
+        let (raw_block, raw_receipts) = raw(&block, &[receipt_with_logs(1)]);
+        assert!(matches!(
+            rpc_block_from_raw(77, &raw_block, &raw_receipts),
+            Err(Error::SenderRecovery(77, 0, _))
+        ));
+
+        let (raw_block, raw_receipts) = raw(&block, &[receipt_with_logs(MAX_BLOCK_LOGS + 1)]);
+        let err = rpc_block_from_raw(77, &raw_block, &raw_receipts).unwrap_err();
+        assert!(
+            matches!(
+                err,
+                Error::BlockPayloadTooLarge {
+                    number: 77,
+                    what: "logs",
+                    limit: MAX_BLOCK_LOGS,
+                    ..
+                }
+            ),
+            "{err}"
+        );
+    }
+
+    #[test]
+    fn log_count_adds_up_logs_across_receipts() {
+        let receipts = [
+            receipt_with_logs(0),
+            receipt_with_logs(3),
+            receipt_with_logs(4),
+        ];
+        assert_eq!(log_count(receipts.iter()), 7);
+        assert_eq!(log_count(std::iter::empty::<&ReceiptEnvelope>()), 0);
+    }
+
+    // ---- the HTTP response cap ----
+
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    /// Read one HTTP request off `socket`, body included, so closing afterwards cannot reset the
+    /// connection before the client has read the reply.
+    async fn read_request(socket: &mut tokio::net::TcpStream) {
+        let mut data = Vec::new();
+        let mut chunk = [0u8; 4096];
+        loop {
+            let n = socket.read(&mut chunk).await.unwrap();
+            if n == 0 {
+                return;
+            }
+            data.extend_from_slice(&chunk[..n]);
+            if let Some(end) = data.windows(4).position(|w| w == b"\r\n\r\n") {
+                let head = String::from_utf8_lossy(&data[..end]).to_ascii_lowercase();
+                let length = head
+                    .lines()
+                    .find_map(|line| line.strip_prefix("content-length:"))
+                    .and_then(|value| value.trim().parse::<usize>().ok())
+                    .unwrap_or(0);
+                if data.len() >= end + 4 + length {
+                    return;
+                }
+            }
+        }
+    }
+
+    /// An HTTP endpoint that answers its first request with `reply` verbatim.
+    async fn serve_once(reply: Vec<u8>) -> Url {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let url = Url::parse(&format!("http://{}", listener.local_addr().unwrap())).unwrap();
+        tokio::spawn(async move {
+            let (mut socket, _) = listener.accept().await.unwrap();
+            read_request(&mut socket).await;
+            let _ = socket.write_all(&reply).await;
+            let _ = socket.shutdown().await;
+        });
+        url
+    }
+
+    const TEST_RESPONSE_LIMIT: usize = 1024;
+
+    async fn request_against(reply: Vec<u8>) -> Result<ResponsePacket, Error> {
+        let transport = CappedHttp {
+            client: reqwest::Client::builder().no_proxy().build().unwrap(),
+            url: serve_once(reply).await,
+            max_response_size: TEST_RESPONSE_LIMIT,
+        };
+        let request = alloy::rpc::json_rpc::Request::new(
+            "eth_blockNumber",
+            alloy::rpc::json_rpc::Id::Number(1),
+            (),
+        )
+        .serialize()
+        .unwrap();
+        transport
+            .request(RequestPacket::from(request))
+            .await
+            .map_err(Error::from)
+    }
+
+    fn http_reply(status: &str, headers: &str, body: &[u8]) -> Vec<u8> {
+        let mut reply =
+            format!("HTTP/1.1 {status}\r\n{headers}Connection: close\r\n\r\n").into_bytes();
+        reply.extend_from_slice(body);
+        reply
+    }
+
+    #[tokio::test]
+    async fn http_reply_within_the_cap_is_read_whole() {
+        let body = br#"{"jsonrpc":"2.0","id":1,"result":"0x10"}"#;
+        let headers = format!("Content-Length: {}\r\n", body.len());
+        request_against(http_reply("200 OK", &headers, body))
+            .await
+            .expect("a small reply is served");
+    }
+
+    #[tokio::test]
+    async fn http_reply_declaring_more_than_the_cap_is_refused_unread() {
+        // Only ten bytes follow the header, so a refusal can only have come from the declared
+        // length.
+        let reply = http_reply(
+            "200 OK",
+            &format!("Content-Length: {}\r\n", TEST_RESPONSE_LIMIT + 1),
+            b"0123456789",
+        );
+        let err = request_against(reply).await.unwrap_err();
+        assert!(err.is_oversized_response(), "{err}");
+        assert!(err.inconsistent_block_payload_for_fallback());
+        assert!(err.is_block_level() && !err.is_rate_limited());
+    }
+
+    #[tokio::test]
+    async fn http_reply_streamed_past_the_cap_is_abandoned() {
+        // No Content-Length: the size only shows as the chunks arrive.
+        let mut body = Vec::new();
+        for _ in 0..4 {
+            body.extend_from_slice(b"200\r\n");
+            body.extend_from_slice(&[b' '; 0x200]);
+            body.extend_from_slice(b"\r\n");
+        }
+        body.extend_from_slice(b"0\r\n\r\n");
+        let err = request_against(http_reply(
+            "200 OK",
+            "Transfer-Encoding: chunked\r\n",
+            &body,
+        ))
+        .await
+        .unwrap_err();
+        assert!(err.is_oversized_response(), "{err}");
+    }
+
+    #[tokio::test]
+    async fn http_error_status_keeps_the_classification_alloy_gave_it() {
+        let err = request_against(http_reply(
+            "429 Too Many Requests",
+            "Content-Length: 4\r\n",
+            b"slow",
+        ))
+        .await
+        .unwrap_err();
+        assert!(err.is_rate_limited(), "{err}");
+        assert!(!err.is_oversized_response());
+    }
+
+    #[test]
+    fn only_a_block_the_endpoints_answered_for_counts_as_block_level() {
+        assert!(Error::FailedToGetBlock(1).is_block_level());
+        assert!(Error::FailedToGetReceipts(1).is_block_level());
+        assert!(Error::BlockHeaderRootsMismatch(1).is_block_level());
+        assert!(Error::RawBlockDecode(1, String::new()).is_block_level());
+        assert!(!Error::ClientError(anyhow::anyhow!("timed out")).is_block_level());
+        assert!(!Error::NoWalletConfigured.is_block_level());
+        assert!(!Error::ChainIdChanged {
+            expected: 1,
+            got: 2
+        }
+        .is_block_level());
     }
 }

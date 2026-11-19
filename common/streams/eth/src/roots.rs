@@ -50,11 +50,40 @@ pub struct Config {
     /// End the stream instead of reconnecting when a block fetch fails in a way no retry can
     /// fix ([`eth::Error::is_unrecoverable`]: the node lacks the RPC method, or serves a block
     /// this client cannot decode). Reconnecting would fetch the same height and fail the same
-    /// way, forever. The error is then available from [`StreamRoots::take_unrecoverable_error`].
-    /// Off by default, so an attestor keeps retrying as before.
+    /// way, forever. The error is then available from [`StreamRoots::unrecoverable_slot`]. Off by
+    /// default; whoever turns it on must read the slot when the stream ends.
     #[default(false)]
     pub stop_on_unrecoverable: bool,
 }
+
+/// Where a [`StreamRoots`] leaves the error that ended it under [`Config::stop_on_unrecoverable`].
+///
+/// Shared with the streams [`stream_util::ChainData::reset`] builds from it, so a caller can box
+/// the stream and still read why it ended.
+#[derive(Clone, Default)]
+pub struct UnrecoverableSlot(std::sync::Arc<std::sync::Mutex<Option<Error>>>);
+
+impl UnrecoverableSlot {
+    /// The error that ended the stream, if one did. Taking it empties the slot.
+    pub fn take(&self) -> Option<Error> {
+        self.lock().take()
+    }
+
+    fn set(&self, err: Error) {
+        *self.lock() = Some(err);
+    }
+
+    fn lock(&self) -> std::sync::MutexGuard<'_, Option<Error>> {
+        self.0
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+}
+
+/// Times one height is fetched again after the endpoints answered but the block was unusable,
+/// before the error is handed up.
+const HEIGHT_RETRIES: usize = 2;
+const HEIGHT_RETRY_DELAY: std::time::Duration = std::time::Duration::from_secs(2);
 
 /// The upper bound of the heights this stream fetches, and where it comes from.
 ///
@@ -106,11 +135,15 @@ pub const DEFAULT_RPC_CALL_TIMEOUT: std::time::Duration = std::time::Duration::f
 pub struct StreamRoots {
     stream: sync_wrapper::SyncStream<stream_util::BoxedStream<stream_util::RootInfo>>,
     config: Config,
-    unrecoverable: std::sync::Arc<std::sync::Mutex<Option<Error>>>,
+    unrecoverable: UnrecoverableSlot,
 }
 
 impl StreamRoots {
-    pub async fn new(mut config: Config) -> Self {
+    pub async fn new(config: Config) -> Self {
+        Self::with_slot(config, UnrecoverableSlot::default()).await
+    }
+
+    async fn with_slot(mut config: Config, unrecoverable: UnrecoverableSlot) -> Self {
         use futures::StreamExt as _;
 
         let start_height = config.start_height;
@@ -123,7 +156,6 @@ impl StreamRoots {
 
         let backup = config.clone();
         let stop_on_unrecoverable = config.stop_on_unrecoverable;
-        let unrecoverable = std::sync::Arc::new(std::sync::Mutex::new(None));
         let unrecoverable_slot = unrecoverable.clone();
 
         let stream = async_stream::stream! {
@@ -194,15 +226,21 @@ impl StreamRoots {
                                 // and leave the error for the caller instead of reconnecting.
                                 tracing::error!(%err, "⛔ Eth block cannot be fetched; ending the root stream");
                                 abort_roots(&mut roots).await;
-                                *unrecoverable_slot
-                                    .lock()
-                                    .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(err);
+                                unrecoverable_slot.set(err);
                                 return;
                             },
                             Some(Err(err)) => {
-                                // Failed to retrieve source chain block, try and regenerate the
-                                // stream (this can only be an RPC error)
-                                tracing::error!(%err, "Eth connection error");
+                                // Regenerate the stream. A block-level error only gets here after
+                                // `retry_block_level` or when no retry can help; anything else is
+                                // taken to be a dead connection.
+                                if err.is_block_level() {
+                                    tracing::error!(
+                                        %err,
+                                        "Eth block cannot be used; rebuilding the connection"
+                                    );
+                                } else {
+                                    tracing::error!(%err, "Eth connection error");
+                                }
                                 heap.clear();
 
                                 abort_roots(&mut roots).await;
@@ -265,10 +303,14 @@ impl StreamRoots {
     /// The error that ended this stream under [`Config::stop_on_unrecoverable`], if any. Check it
     /// once the stream returns [`None`]; `None` here means the stream ended for another reason.
     pub fn take_unrecoverable_error(&self) -> Option<Error> {
-        self.unrecoverable
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .take()
+        self.unrecoverable.take()
+    }
+
+    /// A handle on the same slot [`Self::take_unrecoverable_error`] reads, for a caller that is
+    /// about to give the stream away. The streams [`stream_util::ChainData::reset`] builds from
+    /// this one share it.
+    pub fn unrecoverable_slot(&self) -> UnrecoverableSlot {
+        self.unrecoverable.clone()
     }
 
     async fn reconnect(
@@ -318,7 +360,9 @@ impl stream_util::ChainData<stream_util::RootInfo> for StreamRoots {
         let mut config = self.config.clone();
         config.start_height = info.height;
 
-        Self::new(config).await
+        // A reset starts a new run, so an error left by the one it replaces is stale.
+        self.unrecoverable.take();
+        Self::with_slot(config, self.unrecoverable.clone()).await
     }
 }
 
@@ -536,12 +580,9 @@ async fn stream_rpc(
                     // Actual block fetching. No more than `max_concurrency` blocks may be
                     // fetched at once. `n` is already a mature height.
                     blocks.spawn(async move {
-                        eth.get_block(
-                            n,
-                            encoding
-                        )
-                        .await
-                        .map_interrupt(Error::Client)
+                        retry_block_level(n, || eth.get_block(n, encoding))
+                            .await
+                            .map_interrupt(Error::Client)
                     });
                 }
                 // TASK 2] Drain fetched blocks (out-of-order)
@@ -574,6 +615,42 @@ async fn stream_rpc(
         }
     }
     .boxed()
+}
+
+/// Fetch one height, again after a growing delay (up to [`HEIGHT_RETRIES`]) if the endpoints
+/// answered but the block was unusable ([`eth::Error::is_block_level`]). An error leaving the
+/// fetch loop rebuilds the pipeline and drops the finished roots of every later height. Dead
+/// connections and unrecoverable blocks go up at once.
+async fn retry_block_level<T, F, Fut>(height: u64, mut fetch: F) -> Result<T, Interrupt<eth::Error>>
+where
+    F: FnMut() -> Fut,
+    Fut: std::future::Future<Output = Result<T, Interrupt<eth::Error>>>,
+{
+    let mut retries = 0;
+    let mut delay = HEIGHT_RETRY_DELAY;
+    loop {
+        match fetch().await {
+            Err(Interrupt::Cont(err))
+                if err.is_block_level() && !err.is_unrecoverable() && retries < HEIGHT_RETRIES =>
+            {
+                retries += 1;
+                tracing::warn!(
+                    height,
+                    retry = retries,
+                    of = HEIGHT_RETRIES,
+                    ?delay,
+                    %err,
+                    "block unusable; fetching this height again without resetting the pipeline"
+                );
+                tokio::select! {
+                    _ = tokio::time::sleep(delay) => {}
+                    _ = tokio::signal::ctrl_c() => return Err(Interrupt::Stop),
+                }
+                delay *= 2;
+            }
+            outcome => return outcome,
+        }
+    }
 }
 
 /// [`heights_to_fetch`], fused, as the fetch loop consumes it.
@@ -1109,5 +1186,107 @@ mod tests {
         let polls = futures::stream::pending::<Option<u64>>();
         let got: Vec<u64> = merge_heads(subscribed, polls).collect().await;
         assert_eq!(got, vec![1, 2]);
+    }
+
+    // ---- retrying one height instead of rebuilding the pipeline ----
+
+    type Fetched = Result<u64, Interrupt<eth::Error>>;
+
+    /// Run `retry_block_level` against scripted fetch outcomes, in order. Returns the result, how
+    /// many times the height was fetched, and how long (on the paused clock) it waited.
+    async fn run_scripted(outcomes: Vec<Fetched>) -> (Fetched, usize, std::time::Duration) {
+        let calls = std::cell::Cell::new(0usize);
+        let outcomes = std::cell::RefCell::new(outcomes.into_iter());
+        let start = tokio::time::Instant::now();
+        let result = retry_block_level(5, || {
+            calls.set(calls.get() + 1);
+            let next = outcomes
+                .borrow_mut()
+                .next()
+                .expect("fetched more often than the script allows");
+            async move { next }
+        })
+        .await;
+        (result, calls.get(), start.elapsed())
+    }
+
+    fn unusable() -> Interrupt<eth::Error> {
+        Interrupt::Cont(eth::Error::BlockHeaderRootsMismatch(5))
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn an_unusable_block_is_fetched_again_with_a_growing_delay() {
+        let (result, calls, waited) =
+            run_scripted(vec![Err(unusable()), Err(unusable()), Ok(5)]).await;
+        assert!(matches!(result, Ok(5)));
+        assert_eq!(calls, 3);
+        assert_eq!(waited, HEIGHT_RETRY_DELAY + HEIGHT_RETRY_DELAY * 2);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_block_that_stays_unusable_is_handed_up_after_the_retries() {
+        let (result, calls, _) =
+            run_scripted((0..=HEIGHT_RETRIES).map(|_| Err(unusable())).collect()).await;
+        assert!(matches!(
+            result,
+            Err(Interrupt::Cont(eth::Error::BlockHeaderRootsMismatch(5)))
+        ));
+        assert_eq!(calls, HEIGHT_RETRIES + 1);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_block_the_endpoints_do_not_have_yet_is_retried_too() {
+        let missing = || Err(Interrupt::Cont(eth::Error::FailedToGetBlock(5)));
+        let (result, calls, _) = run_scripted(vec![missing(), Ok(5)]).await;
+        assert!(matches!(result, Ok(5)));
+        assert_eq!(calls, 2);
+    }
+
+    /// A dead connection, a block no retry can fix and a shutdown all go up on the first
+    /// failure: retrying would only delay the reconnect, the typed error, or the exit.
+    #[tokio::test(start_paused = true)]
+    async fn only_block_level_failures_that_may_change_are_retried() {
+        let connection = Err(Interrupt::Cont(eth::Error::FailedToGetChainId(
+            "connection reset".into(),
+        )));
+        let (result, calls, waited) = run_scripted(vec![connection]).await;
+        assert!(matches!(
+            result,
+            Err(Interrupt::Cont(eth::Error::FailedToGetChainId(_)))
+        ));
+        assert_eq!((calls, waited), (1, std::time::Duration::ZERO));
+
+        let undecodable = Err(Interrupt::Cont(eth::Error::RawBlockDecode(
+            5,
+            "bad rlp".into(),
+        )));
+        let (result, calls, waited) = run_scripted(vec![undecodable]).await;
+        assert!(matches!(
+            result,
+            Err(Interrupt::Cont(eth::Error::RawBlockDecode(..)))
+        ));
+        assert_eq!((calls, waited), (1, std::time::Duration::ZERO));
+
+        let (result, calls, waited) = run_scripted(vec![Err(Interrupt::Stop)]).await;
+        assert!(matches!(result, Err(Interrupt::Stop)));
+        assert_eq!((calls, waited), (1, std::time::Duration::ZERO));
+    }
+
+    #[test]
+    fn the_unrecoverable_slot_is_shared_by_its_clones_and_emptied_by_taking() {
+        let slot = UnrecoverableSlot::default();
+        let held_by_the_caller = slot.clone();
+        assert!(held_by_the_caller.take().is_none());
+
+        // A stream built by `reset` writes through its own clone.
+        slot.set(Error::Client(eth::Error::RawBlockDecode(
+            9,
+            "bad rlp".into(),
+        )));
+        let ended_by = held_by_the_caller
+            .take()
+            .expect("written through the clone");
+        assert!(ended_by.is_unrecoverable());
+        assert!(slot.take().is_none(), "taking empties it for every holder");
     }
 }

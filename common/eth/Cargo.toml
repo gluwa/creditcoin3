@@ -8,7 +8,7 @@ repository.workspace = true
 version.workspace = true
 
 [dependencies]
-alloy = { workspace = true, features = ["full", "rlp"] }
+alloy = { workspace = true, features = ["full", "json-rpc", "rlp"] }
 
 anyhow = { workspace = true }
 async-trait = { workspace = true }
@@ -17,9 +17,11 @@ futures = "0.3.30"
 futures-util = { workspace = true }
 hex = { workspace = true }
 serde = { workspace = true }
+serde_json = { workspace = true, features = ["std"] }
 sp-core = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true, features = ["signal", "time", "macros"] }
+tower = { workspace = true }
 tracing = { workspace = true }
 url = { workspace = true }
 
@@ -30,5 +32,9 @@ user = { workspace = true }
 utils = { workspace = true }
 
 [dev-dependencies]
-serde_json = { workspace = true }
-tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+tokio = { workspace = true, features = [
+    "io-util",
+    "macros",
+    "net",
+    "rt-multi-thread",
+] }
