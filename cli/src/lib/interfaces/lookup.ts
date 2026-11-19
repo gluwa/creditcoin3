@@ -3662,51 +3662,55 @@ export default {
      **/
     FrameSystemExtensionsCheckNonZeroSender: 'Null',
     /**
-     * Lookup464: frame_system::extensions::check_spec_version::CheckSpecVersion<T>
+     * Lookup464: creditcoin3_runtime::signer_checks::CheckSignerKey<T>
+     **/
+    Creditcoin3RuntimeSignerChecksCheckSignerKey: 'Null',
+    /**
+     * Lookup465: frame_system::extensions::check_spec_version::CheckSpecVersion<T>
      **/
     FrameSystemExtensionsCheckSpecVersion: 'Null',
     /**
-     * Lookup465: frame_system::extensions::check_tx_version::CheckTxVersion<T>
+     * Lookup466: frame_system::extensions::check_tx_version::CheckTxVersion<T>
      **/
     FrameSystemExtensionsCheckTxVersion: 'Null',
     /**
-     * Lookup466: frame_system::extensions::check_genesis::CheckGenesis<T>
+     * Lookup467: frame_system::extensions::check_genesis::CheckGenesis<T>
      **/
     FrameSystemExtensionsCheckGenesis: 'Null',
     /**
-     * Lookup469: frame_system::extensions::check_nonce::CheckNonce<T>
+     * Lookup470: frame_system::extensions::check_nonce::CheckNonce<T>
      **/
     FrameSystemExtensionsCheckNonce: 'Compact<u32>',
     /**
-     * Lookup470: frame_system::extensions::check_weight::CheckWeight<T>
+     * Lookup471: frame_system::extensions::check_weight::CheckWeight<T>
      **/
     FrameSystemExtensionsCheckWeight: 'Null',
     /**
-     * Lookup471: pallet_transaction_payment::ChargeTransactionPayment<T>
+     * Lookup472: pallet_transaction_payment::ChargeTransactionPayment<T>
      **/
     PalletTransactionPaymentChargeTransactionPayment: 'Compact<u128>',
     /**
-     * Lookup472: frame_metadata_hash_extension::CheckMetadataHash<T>
+     * Lookup473: frame_metadata_hash_extension::CheckMetadataHash<T>
      **/
     FrameMetadataHashExtensionCheckMetadataHash: {
         mode: 'FrameMetadataHashExtensionMode',
     },
     /**
-     * Lookup473: frame_metadata_hash_extension::Mode
+     * Lookup474: frame_metadata_hash_extension::Mode
      **/
     FrameMetadataHashExtensionMode: {
         _enum: ['Disabled', 'Enabled'],
     },
     /**
-     * Lookup474: pallet_attestation::extensions::PrevalidateAttestationCommit<T>
+     * Lookup475: pallet_attestation::extensions::PrevalidateAttestationCommit<T>
      **/
     PalletAttestationExtensionsPrevalidateAttestationCommit: 'Null',
     /**
-     * Lookup475: frame_system::extensions::weight_reclaim::WeightReclaim<T>
+     * Lookup476: frame_system::extensions::weight_reclaim::WeightReclaim<T>
      **/
     FrameSystemExtensionsWeightReclaim: 'Null',
     /**
-     * Lookup477: creditcoin3_runtime::Runtime
+     * Lookup478: creditcoin3_runtime::Runtime
      **/
     Creditcoin3RuntimeRuntime: 'Null',
 };
