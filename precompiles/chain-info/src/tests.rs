@@ -1702,6 +1702,78 @@ mod retained_attestations_compete_with_checkpoints {
         });
     }
 
+    fn height_check() -> PCall {
+        PCall::is_height_attested {
+            chain_key: SUPPORTED_CHAIN_KEY,
+            target_height: TARGET,
+        }
+    }
+
+    #[test]
+    fn height_check_counts_a_retained_attestation_as_the_previous_bound() {
+        // The latest checkpoint is above the target and no checkpoint sits below it.
+        assert_returns(height_check(), || {
+            set_last_checkpoint(LAST_CHECKPOINT);
+            insert_attestation(1400);
+            true
+        });
+    }
+
+    #[test]
+    fn height_check_needs_a_previous_bound_at_or_below_the_target() {
+        assert_returns(height_check(), || {
+            set_last_checkpoint(LAST_CHECKPOINT);
+            insert_attestation(1600);
+            false
+        });
+    }
+
+    #[test]
+    fn height_check_ignores_retained_attestations_while_cleanup_is_draining() {
+        assert_returns(height_check(), || {
+            set_last_checkpoint(LAST_CHECKPOINT);
+            insert_attestation(1400);
+            drain_attestations_cursor();
+            false
+        });
+    }
+
+    #[test]
+    fn height_check_agrees_with_bounds_when_the_parent_is_a_retained_attestation() {
+        let alice: H160 = Alice.into();
+        ExtBuilder::default()
+            .with_balances(vec![(alice.into(), 300)])
+            .build()
+            .execute_with(|| {
+                set_last_checkpoint(LAST_CHECKPOINT);
+                insert_checkpoint(2400, checkpoint_digest());
+                let parent_digest = insert_attestation(1400);
+
+                precompiles()
+                    .prepare_test(alice, Precompile, height_check())
+                    .execute_returns(true);
+
+                precompiles()
+                    .prepare_test(
+                        alice,
+                        Precompile,
+                        PCall::get_attestation_bounds {
+                            chain_key: SUPPORTED_CHAIN_KEY,
+                            target_height: TARGET,
+                        },
+                    )
+                    .execute_returns(BoundsCheckResult {
+                        parent: 1400,
+                        parent_hash: parent_digest,
+                        parent_is_attestation: true,
+                        child: 2400,
+                        child_hash: checkpoint_digest(),
+                        child_is_attestation: false,
+                        is_attested: true,
+                    });
+            });
+    }
+
     #[test]
     fn bounds_combine_attestations_and_checkpoints_on_either_side() {
         let alice: H160 = Alice.into();
@@ -1841,6 +1913,26 @@ mod scans_are_metered_per_row {
                 // `LastCheckpoint` read, guard + first scan, one setup lookup for each of the two
                 // later scans, then the rows each scan visited.
                 framework_cost() + GAS_STORAGE_LOOKUP * (1 + 2 + 1 + 1 + ROWS + ROWS + 1)
+            },
+        );
+    }
+
+    #[test]
+    fn height_check_scans_attestations_only_after_the_checkpoint_walk_finds_nothing() {
+        assert_exact_cost_and_out_of_gas_below(
+            || PCall::is_height_attested {
+                chain_key: SUPPORTED_CHAIN_KEY,
+                target_height: 1_500,
+            },
+            || {
+                set_last_checkpoint(3_000);
+                insert_attestation(1_400);
+                framework_cost()
+                    + GAS_STORAGE_LOOKUP
+                        * (1 // `LastCheckpoint`
+                            + crate::BUCKET_SEARCH_ATTEMPTS as u64 // every bucket empty
+                            + 2 // guard + scan setup
+                            + 1) // the matching attestation
             },
         );
     }
