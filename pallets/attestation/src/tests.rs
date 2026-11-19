@@ -4304,9 +4304,10 @@ fn create_checkpoints_from_continuity_proof_with_500_blocks() {
             );
         }
 
+        // The head (501) is off the width grid, so it is checkpointed as well.
         let last_checkpoint = Attestation::last_checkpoint(SUPPORTED_CHAIN_KEY)
             .expect("Last checkpoint should exist");
-        assert_eq!(last_checkpoint.block_number, 500);
+        assert_eq!(last_checkpoint.block_number, 501);
 
         // Verify checkpoint digests match the continuity proof (digests are computed from roots)
         let start = attestation_500
@@ -4619,9 +4620,11 @@ fn create_checkpoints_from_continuity_proof_with_unaligned_last_attestation() {
             );
         }
 
+        // The head (892) is off the width grid, so it is checkpointed as well.
         let last_cp =
             Attestation::last_checkpoint(SUPPORTED_CHAIN_KEY).expect("should have last checkpoint");
-        assert_eq!(last_cp.block_number, 800);
+        assert_eq!(last_cp.block_number, 892);
+        assert_eq!(last_cp.digest, attestation_digest);
 
         // CheckpointingQueues should be cleared — all queued attestations were consumed
         assert!(
@@ -12900,6 +12903,132 @@ fn catch_up_commit_with_queued_attestations() {
         assert!(
             AttestationRemovalQueues::<Test>::get(SUPPORTED_CHAIN_KEY).contains(&small.digest())
         );
+    })
+}
+
+/// An attestation at `header` extending `prev` with a proof of every block in between.
+fn extend_attestation(
+    attestor: &Attestor,
+    prev: &SignedAttestation<H256, u64>,
+    header: u64,
+) -> SignedAttestation<H256, u64> {
+    create_signed_attestation(
+        vec![attestor.clone()],
+        SUPPORTED_CHAIN_KEY,
+        header,
+        Some(prev.digest()),
+        Some(construct_fragment(
+            Some(prev.digest()),
+            RangeInclusive::new(prev.header_number() + 1, header - 1),
+        )),
+    )
+}
+
+/// Catches up to a head at 540, which is off the default width-100 grid. Returns the attestor,
+/// the attestation at 40 that was queued before the catch-up and the head.
+fn catch_up_to_off_grid_head() -> (
+    Attestor,
+    SignedAttestation<H256, u64>,
+    SignedAttestation<H256, u64>,
+) {
+    let (attestor, genesis) = setup_attesting_chain();
+    System::set_block_number(System::block_number() + 1);
+
+    let small = extend_attestation(&attestor, &genesis, 40);
+    assert_ok!(Attestation::commit_attestation(
+        attestor.attestor_origin.clone(),
+        small.clone()
+    ));
+    // 499 roots span more than two widths of 100.
+    let head = extend_attestation(&attestor, &small, 540);
+    assert_ok!(Attestation::commit_attestation(
+        attestor.attestor_origin.clone(),
+        head.clone()
+    ));
+    (attestor, small, head)
+}
+
+#[test]
+fn catch_up_checkpoints_the_head_when_it_is_off_the_width_grid() {
+    ExtBuilder.build_and_execute(|| {
+        let (_attestor, small, head) = catch_up_to_off_grid_head();
+
+        assert_eq!(
+            LastCheckpoint::<Test>::get(SUPPORTED_CHAIN_KEY),
+            Some(AttestationCheckpoint {
+                block_number: 540,
+                digest: head.digest(),
+            })
+        );
+        assert_eq!(
+            Checkpoints::<Test>::get(SUPPORTED_CHAIN_KEY, 540),
+            Some(head.digest())
+        );
+        assert!(Checkpoints::<Test>::get(SUPPORTED_CHAIN_KEY, 500).is_some());
+        assert!(CheckpointingQueues::<Test>::get(SUPPORTED_CHAIN_KEY).is_empty());
+        let removal = AttestationRemovalQueues::<Test>::get(SUPPORTED_CHAIN_KEY);
+        assert!(removal.contains(&small.digest()));
+        assert!(removal.contains(&head.digest()));
+    })
+}
+
+#[test]
+fn narrowing_the_width_after_a_catch_up_keeps_checkpointing() {
+    ExtBuilder.build_and_execute(|| {
+        let (attestor, _small, head) = catch_up_to_off_grid_head();
+        // Width 100 -> 20: the next boundary after 500 would be 520, which no later proof covers.
+        assert_ok!(Attestation::set_attestations_per_checkpoint(
+            RuntimeOrigin::root(),
+            SUPPORTED_CHAIN_KEY,
+            2
+        ));
+
+        let mut prev = head;
+        for header in (550..=700).step_by(10) {
+            System::set_block_number(System::block_number() + 1);
+            let next = extend_attestation(&attestor, &prev, header);
+            assert_ok!(Attestation::commit_attestation(
+                attestor.attestor_origin.clone(),
+                next.clone()
+            ));
+            prev = next;
+        }
+
+        let last = LastCheckpoint::<Test>::get(SUPPORTED_CHAIN_KEY)
+            .expect("a checkpoint exists")
+            .block_number;
+        assert!(last > 540, "checkpointing stalled at {last}");
+        assert!(CheckpointingQueues::<Test>::get(SUPPORTED_CHAIN_KEY).len() < 10);
+    })
+}
+
+#[test]
+fn catch_up_commit_after_narrowing_the_width_succeeds() {
+    ExtBuilder.build_and_execute(|| {
+        let (attestor, _small, head) = catch_up_to_off_grid_head();
+        assert_ok!(Attestation::set_attestations_per_checkpoint(
+            RuntimeOrigin::root(),
+            SUPPORTED_CHAIN_KEY,
+            2
+        ));
+
+        System::set_block_number(System::block_number() + 1);
+        // 499 roots span more than two widths of 20.
+        let second = extend_attestation(&attestor, &head, 1040);
+        assert_ok!(Attestation::commit_attestation(
+            attestor.attestor_origin.clone(),
+            second.clone()
+        ));
+
+        assert_eq!(
+            LastCheckpoint::<Test>::get(SUPPORTED_CHAIN_KEY),
+            Some(AttestationCheckpoint {
+                block_number: 1040,
+                digest: second.digest(),
+            })
+        );
+        assert!(Checkpoints::<Test>::get(SUPPORTED_CHAIN_KEY, 560).is_some());
+        assert!(CheckpointingQueues::<Test>::get(SUPPORTED_CHAIN_KEY).is_empty());
     })
 }
 
