@@ -52,8 +52,11 @@ pub async fn run(
         .with_max_parallelism(max_parallelism)
         .with_encoding(shared.encoding)
         .with_head_poll_interval(shared.eth_head_poll_interval)
+        .with_stop_on_unrecoverable(true)
         .build();
     let stream_roots = stream::eth::StreamRoots::new(roots_cfg).await;
+    // Taken before the stream is boxed; the streams its resets build write to the same slot.
+    let roots_ended_by = stream_roots.unrecoverable_slot();
 
     let tip_cfg = stream::eth::tip::ConfigBuilder::new()
         .with_client(shared.eth.clone())
@@ -196,7 +199,15 @@ pub async fn run(
                 }
             }
 
-            Some(attestation) = stream_attestation.next(), if can_attest => {
+            maybe_attestation = stream_attestation.next(), if can_attest => {
+                // The stream only ends when the eth pipeline gives up on a block no retry can
+                // fix. Fail fast so the supervisor restarts us: a `Some(..)` pattern would
+                // silently disable this arm and leave production half-alive.
+                let Some(attestation) = maybe_attestation else {
+                    return Err(Error::EthStream(
+                        roots_ended_by.take().unwrap_or(stream::eth::Error::StreamEnd),
+                    ));
+                };
                 emit_local(&shared, &attestation).await;
                 // Refresh the source-chain lag gauge with the tip the stream is tracking —
                 // the config-time seed would otherwise never be updated after startup and the
