@@ -56,12 +56,14 @@ pub struct Config {
     pub stop_on_unrecoverable: bool,
 }
 
-/// Where a [`StreamRoots`] leaves the error that ended it under [`Config::stop_on_unrecoverable`].
-///
-/// Shared with the streams [`stream_util::ChainData::reset`] builds from it, so a caller can box
-/// the stream and still read why it ended.
+/// Where a [`StreamRoots`] leaves why it ended: the error under [`Config::stop_on_unrecoverable`],
+/// or that a user interrupt did. Shared with the streams [`stream_util::ChainData::reset`] builds
+/// from it, so a caller can box the stream and still read why it ended.
 #[derive(Clone, Default)]
-pub struct UnrecoverableSlot(std::sync::Arc<std::sync::Mutex<Option<Error>>>);
+pub struct UnrecoverableSlot {
+    error: std::sync::Arc<std::sync::Mutex<Option<Error>>>,
+    interrupted: std::sync::Arc<std::sync::atomic::AtomicBool>,
+}
 
 impl UnrecoverableSlot {
     /// The error that ended the stream, if one did. Taking it empties the slot.
@@ -69,12 +71,28 @@ impl UnrecoverableSlot {
         self.lock().take()
     }
 
+    /// Whether the stream ended because of a user interrupt, which is not a failure.
+    pub fn interrupted(&self) -> bool {
+        self.interrupted.load(std::sync::atomic::Ordering::SeqCst)
+    }
+
     fn set(&self, err: Error) {
         *self.lock() = Some(err);
     }
 
+    fn set_interrupted(&self) {
+        self.interrupted
+            .store(true, std::sync::atomic::Ordering::SeqCst);
+    }
+
+    fn clear(&self) {
+        self.lock().take();
+        self.interrupted
+            .store(false, std::sync::atomic::Ordering::SeqCst);
+    }
+
     fn lock(&self) -> std::sync::MutexGuard<'_, Option<Error>> {
-        self.0
+        self.error
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
     }
@@ -219,6 +237,7 @@ impl StreamRoots {
                                 // stream cleanly instead of reconnecting.
                                 tracing::info!("Eth root stream shutting down on user interrupt");
                                 abort_roots(&mut roots).await;
+                                unrecoverable_slot.set_interrupted();
                                 return;
                             },
                             Some(Err(err)) if stop_on_unrecoverable && err.is_unrecoverable() => {
@@ -360,8 +379,8 @@ impl stream_util::ChainData<stream_util::RootInfo> for StreamRoots {
         let mut config = self.config.clone();
         config.start_height = info.height;
 
-        // A reset starts a new run, so an error left by the one it replaces is stale.
-        self.unrecoverable.take();
+        // A reset starts a new run, so what ended the one it replaces is stale.
+        self.unrecoverable.clear();
         Self::with_slot(config, self.unrecoverable.clone()).await
     }
 }
@@ -1270,6 +1289,23 @@ mod tests {
         let (result, calls, waited) = run_scripted(vec![Err(Interrupt::Stop)]).await;
         assert!(matches!(result, Err(Interrupt::Stop)));
         assert_eq!((calls, waited), (1, std::time::Duration::ZERO));
+    }
+
+    #[test]
+    fn an_interrupt_is_recorded_apart_from_an_error_and_cleared_with_it() {
+        let slot = UnrecoverableSlot::default();
+        let held_by_the_caller = slot.clone();
+        assert!(!held_by_the_caller.interrupted());
+
+        slot.set_interrupted();
+        assert!(held_by_the_caller.interrupted());
+        assert!(
+            held_by_the_caller.take().is_none(),
+            "an interrupt is not an unrecoverable error"
+        );
+
+        slot.clear();
+        assert!(!held_by_the_caller.interrupted());
     }
 
     #[test]

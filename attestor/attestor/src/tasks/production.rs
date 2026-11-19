@@ -197,10 +197,15 @@ pub async fn run(
             }
 
             maybe_attestation = stream_attestation.next(), if can_attest => {
-                // The stream only ends when the eth pipeline gives up on a block no retry can
-                // fix. Fail fast so the supervisor restarts us: a `Some(..)` pattern would
-                // silently disable this arm and leave production half-alive.
+                // The stream ends on a block no retry can fix, or on an interrupt. Fail fast on the
+                // first so the supervisor restarts us; a `Some(..)` pattern would instead silently
+                // disable this arm and leave production half-alive.
                 let Some(attestation) = maybe_attestation else {
+                    if roots_ended_by.interrupted() {
+                        // Not a failure: the cancellation token, about to fire, ends the task.
+                        shared.token.cancelled().await;
+                        return Ok(());
+                    }
                     return Err(Error::EthStream(
                         roots_ended_by.take().unwrap_or(stream::eth::Error::StreamEnd),
                     ));
