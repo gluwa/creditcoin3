@@ -86,16 +86,6 @@ pub async fn run(
         .build();
     let mut stream_attestation = stream::attestation::StreamAttestation::new(attestation_cfg);
 
-    // ----------------------------------* genesis maturity gate *---------------------------- //
-    //
-    // The genesis vote is signed from a direct block fetch, outside the maturity-bounded roots
-    // stream, so it needs its own maturity check (CSUB-2143). Done before the cc3 subscription
-    // opens so finalized batches don't queue up behind a long wait.
-    if start_attestation.is_none() && !wait_for_genesis_maturity(&shared, genesis).await {
-        tracing::info!("🔌 shutdown while waiting for genesis block maturity");
-        return Ok(());
-    }
-
     // ----------------------------------* cc3 stream *---------------------------------------- //
     // Opened before the (optional) genesis step so we can wait for the genesis BlockAttested
     // event on the same subscription we use in the main loop.
@@ -120,30 +110,53 @@ pub async fn run(
     let mut latest_cc3 = if let Some(info) = start_attestation {
         info
     } else {
-        tracing::info!(genesis, "👶 generating genesis attestation");
-        let block = shared
-            .eth
-            .get_block(genesis, shared.encoding)
-            .await
-            .map_err(|e| Error::Init(anyhow::anyhow!("genesis block fetch: {e}")))?;
-        let root_info = stream::util::RootInfo {
-            height: genesis,
-            root: eth::simple_merkle_tree(&block).root(),
-            hash: attestor_primitives::Digest::from(*block.hash()),
-        };
-        let genesis_att = stream_attestation.generate_attestation_genesis(root_info);
-        emit_local(&shared, &genesis_att).await;
+        // The genesis vote is signed from a direct block fetch, outside the maturity-bounded
+        // roots stream, so it waits for its own maturity (CSUB-2143). cc3 events are applied
+        // meanwhile, and a genesis finalized by peers in the meantime ends the wait unsigned.
+        // Shutdown exits cleanly like every other task instead of failing startup.
+        tracing::info!(genesis, "⏳ waiting for the genesis block to mature");
+        let info =
+            match wait_for_genesis(&shared, &mut events, &mut stream_attestation, genesis, true)
+                .await?
+            {
+                GenesisWait::Shutdown => {
+                    tracing::info!("🔌 shutdown while waiting for genesis block maturity");
+                    return Ok(());
+                }
+                GenesisWait::Attested(info) => info,
+                GenesisWait::Mature => {
+                    tracing::info!(genesis, "👶 generating genesis attestation");
+                    let block = shared
+                        .eth
+                        .get_block(genesis, shared.encoding)
+                        .await
+                        .map_err(|e| Error::Init(anyhow::anyhow!("genesis block fetch: {e}")))?;
+                    let root_info = stream::util::RootInfo {
+                        height: genesis,
+                        root: eth::simple_merkle_tree(&block).root(),
+                        hash: attestor_primitives::Digest::from(*block.hash()),
+                    };
+                    let genesis_att = stream_attestation.generate_attestation_genesis(root_info);
+                    emit_local(&shared, &genesis_att).await;
 
-        // Wait for the genesis BlockAttested on cc3 — we need the *real* digest. `None` means
-        // shutdown was requested while waiting; exit cleanly like every other task does on
-        // cancellation instead of surfacing a spurious startup failure to the supervisor.
-        tracing::info!(genesis, "⏲️ waiting for genesis attestation to finalize");
-        let Some(info) =
-            wait_for_block_attested(&shared, &mut events, &mut stream_attestation, genesis).await?
-        else {
-            tracing::info!("🔌 shutdown while waiting for genesis attestation");
-            return Ok(());
-        };
+                    // Wait for the genesis BlockAttested on cc3 — we need the *real* digest.
+                    tracing::info!(genesis, "⏲️ waiting for genesis attestation to finalize");
+                    let GenesisWait::Attested(info) = wait_for_genesis(
+                        &shared,
+                        &mut events,
+                        &mut stream_attestation,
+                        genesis,
+                        false,
+                    )
+                    .await?
+                    else {
+                        // Only `Shutdown` is reachable here: no maturity gate to open.
+                        tracing::info!("🔌 shutdown while waiting for genesis attestation");
+                        return Ok(());
+                    };
+                    info
+                }
+            };
         stream_attestation.note_attestation_finalization(stream::util::AttestationInfo {
             height: info.height,
             digest: info.digest,
@@ -653,8 +666,6 @@ async fn wait_for_genesis_maturity(shared: &Shared, genesis: attestor_primitives
             let head = shared.eth.get_last_block().await?;
             shared.maturity.mature_height(&shared.eth, head).await
         },
-        // A block-tag maturity can take minutes; keep the watchdog from reading it as a wedge.
-        || shared.health.note_progress(),
     )
     .await
 }
@@ -667,7 +678,6 @@ async fn wait_until_mature<F, Fut>(
     poll: std::time::Duration,
     target: attestor_primitives::Height,
     mut mature_height: F,
-    mut on_wait: impl FnMut(),
 ) -> bool
 where
     F: FnMut() -> Fut,
@@ -691,7 +701,6 @@ where
                 "⏳ could not resolve the mature height — retrying"
             ),
         }
-        on_wait();
         tokio::select! {
             _ = token.cancelled() => return false,
             () = tokio::time::sleep(poll) => {}
@@ -699,22 +708,44 @@ where
     }
 }
 
-// --------------------------- [ Helper: wait for a BlockAttested event ] ----------------------- //
+// ------------------------------ [ Helper: wait for the genesis step ] ------------------------- //
 //
-// Drains CC3 events on the production task's own subscription until BlockAttested(height ≥ N)
-// arrives. Returns the real `(height, digest)`, or `None` when shutdown was requested while
-// waiting (an intentional cancellation, not a failure). Used by the genesis bootstrap path to
-// learn the runtime-committed digest before initializing the eth attestation stream's
-// prev-digest.
+// Drains CC3 events on the production task's own subscription until the genesis bootstrap can
+// move on. Used by the genesis path to learn the runtime-committed digest before initializing the
+// eth attestation stream's prev-digest, and (with `await_maturity`) to hold the genesis vote back
+// until the block is mature while still applying committee / config events and noticing a genesis
+// that peers finalized in the meantime.
 
-async fn wait_for_block_attested(
+/// Why [`wait_for_genesis`] returned.
+enum GenesisWait {
+    /// The first `BlockAttested` at/above genesis: the real `(height, digest)`.
+    Attested(AttestationInfo),
+    /// The genesis block is mature (only with `await_maturity`).
+    Mature,
+    /// Shutdown was requested while waiting (an intentional cancellation, not a failure).
+    Shutdown,
+}
+
+async fn wait_for_genesis(
     shared: &Arc<Shared>,
     events: &mut stream::cc3::StreamCC3,
     stream_attestation: &mut stream::attestation::StreamAttestation,
     target: attestor_primitives::Height,
-) -> Result<Option<AttestationInfo>, Error> {
+    await_maturity: bool,
+) -> Result<GenesisWait, Error> {
     use cc_client::attestation::CcEvent;
     use futures::{StreamExt as _, TryStreamExt as _};
+
+    // Without `await_maturity` the gate never opens. Polled alongside the events below, so a long
+    // maturity wait neither starves the cc3 stream nor is restarted by each batch.
+    let gate = async {
+        if await_maturity {
+            wait_for_genesis_maturity(shared, target).await
+        } else {
+            std::future::pending().await
+        }
+    };
+    tokio::pin!(gate);
 
     // Scratch finalized cursor for `handle_one`. Only its `BlockAttested` / reversion arms
     // read or write `latest_cc3`, and we never route those through it here — every event we do
@@ -734,19 +765,10 @@ async fn wait_for_block_attested(
     let mut waited_secs: u64 = 0;
     loop {
         tokio::select! {
-            _ = shared.token.cancelled() => return Ok(None),
-            _ = tick.tick() => {
-                waited_secs += TICK_SECS;
-                if waited_secs >= ESCALATE_AFTER_SECS && waited_secs % 60 == 0 {
-                    tracing::error!(
-                        target,
-                        waited_secs,
-                        "⏲️ genesis BlockAttested still missing after prolonged waiting — the attestation chain is not bootstrapping. Check that a quorum of attestors for this chain key is running and meshed (each re-gossips its genesis vote every 30s, so a healthy quorum recovers in under a minute)"
-                    );
-                } else {
-                    tracing::info!(target, waited_secs, "⏲️ still waiting for genesis BlockAttested...");
-                }
-            }
+            // Biased, events before the gate: a genesis that peers already finalized must win
+            // over signing a stale vote.
+            biased;
+            _ = shared.token.cancelled() => return Ok(GenesisWait::Shutdown),
             maybe_batch = events.next() => {
                 // Stream end = permanent backfill error (see the main-loop arm) — fail fast.
                 let Some(mut batch) = maybe_batch else {
@@ -767,7 +789,7 @@ async fn wait_for_block_attested(
                                 digest = ?att.digest,
                                 "✅ genesis attestation finalized on-chain"
                             );
-                            return Ok(Some(AttestationInfo {
+                            return Ok(GenesisWait::Attested(AttestationInfo {
                                 height: att.header_number,
                                 digest: att.digest,
                             }));
@@ -786,6 +808,25 @@ async fn wait_for_block_attested(
                     }
                 }
             }
+            matured = &mut gate => {
+                return Ok(if matured { GenesisWait::Mature } else { GenesisWait::Shutdown });
+            }
+            _ = tick.tick() => {
+                waited_secs += TICK_SECS;
+                // The maturity wait logs its own progress and can take minutes; the stuck-
+                // bootstrap escalation only applies once our genesis vote is out.
+                if !await_maturity {
+                    if waited_secs >= ESCALATE_AFTER_SECS && waited_secs % 60 == 0 {
+                        tracing::error!(
+                            target,
+                            waited_secs,
+                            "⏲️ genesis BlockAttested still missing after prolonged waiting — the attestation chain is not bootstrapping. Check that a quorum of attestors for this chain key is running and meshed (each re-gossips its genesis vote every 30s, so a healthy quorum recovers in under a minute)"
+                        );
+                    } else {
+                        tracing::info!(target, waited_secs, "⏲️ still waiting for genesis BlockAttested...");
+                    }
+                }
+            }
         }
     }
 }
@@ -801,36 +842,30 @@ mod tests {
     type Step = Result<Option<u64>, eth::Error>;
 
     /// Drive `wait_until_mature` with a scripted sequence of mature-height answers. Returns the
-    /// outcome, how many answers were consumed, and how many times the waiter reported waiting.
+    /// outcome and how many answers were consumed.
     async fn run_script(
         token: &CancellationToken,
         target: u64,
         script: Vec<Step>,
-    ) -> (bool, usize, usize) {
+    ) -> (bool, usize) {
         let total = script.len();
         let script = Mutex::new(VecDeque::from(script));
-        let mut waits = 0;
-        let matured = wait_until_mature(
-            token,
-            Duration::from_millis(1),
-            target,
-            || {
-                let next = script.lock().unwrap().pop_front();
-                async move { next.expect("script exhausted before maturity") }
-            },
-            || waits += 1,
-        )
+        let matured = wait_until_mature(token, Duration::from_millis(1), target, || {
+            let next = script.lock().unwrap().pop_front();
+            async move { next.expect("script exhausted before maturity") }
+        })
         .await;
         let consumed = total - script.lock().unwrap().len();
-        (matured, consumed, waits)
+        (matured, consumed)
     }
 
     #[tokio::test]
     async fn mature_genesis_is_released_without_waiting() {
         let token = CancellationToken::new();
-        let (matured, consumed, waits) = run_script(&token, 100, vec![Ok(Some(100))]).await;
-        assert!(matured);
-        assert_eq!((consumed, waits), (1, 0));
+        assert_eq!(
+            run_script(&token, 100, vec![Ok(Some(100))]).await,
+            (true, 1)
+        );
     }
 
     /// A genesis at/above the mature height is waited on, not signed or treated as an init error.
@@ -838,31 +873,27 @@ mod tests {
     async fn unmatured_genesis_is_waited_on_until_it_matures() {
         let token = CancellationToken::new();
         let script = vec![Ok(None), Ok(Some(98)), Ok(Some(99)), Ok(Some(100))];
-        let (matured, consumed, waits) = run_script(&token, 100, script).await;
-        assert!(matured);
-        assert_eq!((consumed, waits), (4, 3));
+        assert_eq!(run_script(&token, 100, script).await, (true, 4));
     }
 
     #[tokio::test]
     async fn unresolvable_mature_height_is_retried() {
         let token = CancellationToken::new();
         let script = vec![Err(eth::Error::FailedToGetBlock(1)), Ok(Some(100))];
-        let (matured, consumed, waits) = run_script(&token, 100, script).await;
-        assert!(matured);
-        assert_eq!((consumed, waits), (2, 1));
+        assert_eq!(run_script(&token, 100, script).await, (true, 2));
     }
 
     #[tokio::test]
     async fn shutdown_ends_the_wait() {
         let token = CancellationToken::new();
         let canceller = token.clone();
-        let matured = wait_until_mature(
-            &token,
-            Duration::from_secs(3600),
-            100,
-            || async { Ok(Some(1)) },
-            move || canceller.cancel(),
-        )
+        tokio::spawn(async move {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+            canceller.cancel();
+        });
+        let matured = wait_until_mature(&token, Duration::from_secs(3600), 100, || async {
+            Ok(Some(1))
+        })
         .await;
         assert!(!matured);
     }
