@@ -1470,13 +1470,13 @@ impl<T: Config> Pallet<T> {
     ///
     /// Returns `Ok(true)` when checkpoints were created; the queued attestations and
     /// `attestation_digest` then join the removal queue and the chain's checkpointing queue is
-    /// cleared.
+    /// cleared. A head that is off the width grid is checkpointed as well.
     #[transactional]
     pub(crate) fn create_checkpoints_from_queue(
         chain_key: ChainKey,
         attestation: &SignedAttestation<T::Hash, T::AccountId>,
         attestation_digest: Digest,
-        mut checkpointing_queue: VecDeque<Digest>,
+        checkpointing_queue: VecDeque<Digest>,
     ) -> Result<bool, DispatchError> {
         let last_checkpoint =
             LastCheckpoint::<T>::get(chain_key).ok_or(Error::<T>::LastCheckpointEmpty)?;
@@ -1572,17 +1572,27 @@ impl<T: Config> Pallet<T> {
 
         // Add attestation to removal queue once if we created any checkpoints from it
         if last_checkpoint_block != last_checkpoint.block_number {
-            // Add all queued attestation digests to removal queue — they've been
-            // consumed by the checkpoint creation above.
-            for queued_digest in checkpointing_queue.drain(..) {
-                attestation_removal_queue.push_back(queued_digest);
+            // The queued attestations and this one are consumed by the checkpoints above.
+            let mut condensed = checkpointing_queue;
+            condensed.push_back(attestation_digest);
+
+            if last_checkpoint_block < head_block {
+                // No later proof reaches back before the head, so also checkpoint the head:
+                // the next boundary then lies above it whatever the width becomes.
+                Self::checkpoint_at_attestation(
+                    chain_key,
+                    head_block,
+                    attestation_digest,
+                    condensed,
+                )?;
+            } else {
+                attestation_removal_queue.extend(condensed);
+                // remove_attestations writes the queue to storage, no need to insert beforehand
+                Self::remove_attestations(chain_key, attestation_removal_queue)?;
+                // Clear any stale entries in CheckpointingQueues — the catch-up path has
+                // advanced LastCheckpoint past them, so they'd be invalid if processed later.
+                CheckpointingQueues::<T>::remove(chain_key);
             }
-            attestation_removal_queue.push_back(attestation_digest);
-            // remove_attestations writes the queue to storage, no need to insert beforehand
-            Self::remove_attestations(chain_key, attestation_removal_queue)?;
-            // Clear any stale entries in CheckpointingQueues — the catch-up path has
-            // advanced LastCheckpoint past them, so they'd be invalid if processed later.
-            CheckpointingQueues::<T>::remove(chain_key);
             return Ok(true);
         }
 
