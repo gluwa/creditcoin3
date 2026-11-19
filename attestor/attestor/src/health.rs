@@ -532,6 +532,19 @@ mod tests {
         assert_eq!(h.observe(now, 0, 0), Liveness::Progressing);
     }
 
+    /// A long wait that signed nothing, ended by the chain attesting without us (adopting a genesis
+    /// peers finalized), looks exactly like an eth stall until the re-arm grants a stall window.
+    #[test]
+    fn revert_recovery_rearm_covers_an_unsigned_wait() {
+        let h = health_at(1);
+        let now = now_unix_ms();
+        h.last_progress_ms.store(now, Ordering::Relaxed);
+        h.last_chain_attested_ms.store(now, Ordering::Relaxed);
+        assert_eq!(h.observe(now, 0, 0), Liveness::Stalled);
+        h.note_revert_recovery();
+        assert_eq!(h.observe(now, 0, 0), Liveness::Progressing);
+    }
+
     #[test]
     fn local_production_keeps_stall_axis_quiet() {
         let start = 0;
