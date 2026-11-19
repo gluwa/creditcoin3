@@ -126,7 +126,12 @@ pub async fn run(
                     tracing::info!("🔌 shutdown while waiting for genesis block maturity");
                     return Ok(());
                 }
-                GenesisWait::Attested(info) => info,
+                GenesisWait::Attested(info) => {
+                    // No local vote was signed during the wait, so the stall axis would read
+                    // "chain attests, we don't". Same re-arm as a revert: a full stall window.
+                    shared.health.note_revert_recovery();
+                    info
+                }
                 GenesisWait::Mature => {
                     tracing::info!(genesis, "👶 generating genesis attestation");
                     let block = shared
