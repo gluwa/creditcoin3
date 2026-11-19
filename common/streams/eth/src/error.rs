@@ -20,6 +20,12 @@ impl Error {
     pub fn is_unrecoverable(&self) -> bool {
         matches!(self, Self::Client(err) if err.is_unrecoverable())
     }
+
+    /// True when the endpoints answered but one block could not be used, as opposed to the
+    /// connection failing; see [`eth::Error::is_block_level`].
+    pub fn is_block_level(&self) -> bool {
+        matches!(self, Self::Client(err) if err.is_block_level())
+    }
 }
 
 impl std::fmt::Display for Error {
