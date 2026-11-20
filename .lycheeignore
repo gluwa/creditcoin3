@@ -39,3 +39,5 @@ https://scout\.docker\.com/(.*)
 https://github\.com/foundry-rs/foundry/releases/download/(.*)
 # Chainstack RPC endpoints require an API key and answer 401 to an anonymous probe
 https://(.*)\.core\.chainstack\.com(.*)
+# QuickNode RPC endpoints carry the API key in the path, which workflows fill in from a secret
+https://(.*)\.quiknode\.pro/(.*)
