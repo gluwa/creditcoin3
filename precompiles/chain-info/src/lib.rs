@@ -200,26 +200,25 @@ fn stable_checkpoint<Runtime: pallet_attestation::Config>(
     )
 }
 
-/// Highest stable checkpoint strictly below `target_height`, walking the checkpoint buckets
-/// downward from the target's.
+/// Highest stable checkpoint at or below `max_height`, walking the checkpoint buckets downward
+/// from `max_height`'s.
 ///
 /// `CheckpointBuckets` mirrors `Checkpoints`, but chain-removal clears advance the two cursors
 /// independently, so a bucket can briefly hold heights whose checkpoint is gone. Orphans are
 /// skipped and probing continues within the bucket, highest first.
-fn highest_checkpoint_below<Runtime: pallet_attestation::Config>(
+fn highest_checkpoint_at_or_below<Runtime: pallet_attestation::Config>(
     handle: &mut impl PrecompileHandle,
     chain_key: ChainKey,
-    target_height: u64,
+    max_height: u64,
 ) -> EvmResult<Option<HeightHashResult>> {
-    let mut block_pivot =
-        PalletAttestationPoc::<Runtime>::compute_block_index_for(target_height.saturating_sub(1));
+    let mut block_pivot = PalletAttestationPoc::<Runtime>::compute_block_index_for(max_height);
 
     // We limit the number of bucket searches to avoid excessive computation.
     for _ in 0..BUCKET_SEARCH_ATTEMPTS {
         handle.record_cost(GAS_STORAGE_LOOKUP)?;
 
         let mut candidates =
-            bucket_heights::<Runtime>(handle, chain_key, block_pivot, |h| h < target_height)?;
+            bucket_heights::<Runtime>(handle, chain_key, block_pivot, |h| h <= max_height)?;
         candidates.sort_unstable_by(|a, b| b.cmp(a));
 
         for block_number in candidates {
@@ -236,7 +235,7 @@ fn highest_checkpoint_below<Runtime: pallet_attestation::Config>(
 }
 
 /// Lowest stable checkpoint at or above `target_height`, walking the checkpoint buckets upward
-/// from the target's. Mirror of [`highest_checkpoint_below`].
+/// from the target's. Mirror of [`highest_checkpoint_at_or_below`].
 fn lowest_checkpoint_from<Runtime: pallet_attestation::Config>(
     handle: &mut impl PrecompileHandle,
     chain_key: ChainKey,
@@ -522,9 +521,13 @@ where
         })?;
 
         let checkpoint = match last_checkpoint_height {
-            Some(last) if last >= target_height => {
-                highest_checkpoint_below::<Runtime>(handle, chain_key, target_height)?
-            }
+            Some(last) if last >= target_height => match target_height.checked_sub(1) {
+                Some(max_height) => {
+                    highest_checkpoint_at_or_below::<Runtime>(handle, chain_key, max_height)?
+                }
+                // Nothing lies below height 0.
+                None => None,
+            },
             // Every checkpoint is below the target, so the last one is the nearest. It is only
             // read when it can matter: an attestation above it wins.
             // `None` while the height's pivot is still being drained post-revert: surfaced as
@@ -623,19 +626,21 @@ where
                 (true, found_next_attestation)
             }
             Some(last_checkpoint_height) if last_checkpoint_height > target_height => {
-                // Previous bound: a stable checkpoint at or below the target (the same candidates
-                // `get_attestation_bounds` accepts, so orphaned or still-draining bucket entries
-                // don't count), else a retained attestation at or below it. The attestation scan
-                // only runs when the checkpoint walk found nothing.
-                let found_prev = highest_checkpoint_below::<Runtime>(
-                    handle,
-                    chain_key,
-                    target_height.saturating_add(1),
-                )?
-                .is_some()
-                    || any_attestation::<Runtime>(handle, chain_key, |height| {
-                        height <= target_height
-                    })?;
+                // Previous bound, cheapest first: a stable checkpoint below the target, found with
+                // the same walk as `get_attestation_bounds` (so orphaned or still-draining bucket
+                // entries don't count and both search the same buckets); a stable checkpoint
+                // exactly at the target; a retained attestation at or below it.
+                let found_prev =
+                    match target_height.checked_sub(1) {
+                        Some(max_height) => highest_checkpoint_at_or_below::<Runtime>(
+                            handle, chain_key, max_height,
+                        )?
+                        .is_some(),
+                        None => false,
+                    } || stable_checkpoint::<Runtime>(handle, chain_key, target_height)?.is_some()
+                        || any_attestation::<Runtime>(handle, chain_key, |height| {
+                            height <= target_height
+                        })?;
 
                 // Since the last checkpoint is above the target height, if we found any checkpoint or attestation below (or at) the target height,
                 // we can be sure that target height is attested.
