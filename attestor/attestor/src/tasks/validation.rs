@@ -361,6 +361,12 @@ async fn handle_submission_result(
         }
     }
 
+    // The runtime rejects every commit while a revert cleanup drains, so hold the stash drain and
+    // the re-injection below until it ends rather than spend a submission and the budget on it.
+    if unlocked {
+        wait_out_cleanup(&shared.token, height, || cleanup_in_progress(shared)).await;
+    }
+
     // Stashed quorums were validated against the threshold / active set *at stash time*; either
     // may have changed while the previous submission was in flight. Revalidate before
     // submitting — a stale aggregate is guaranteed to be rejected at runtime level
@@ -408,9 +414,6 @@ async fn handle_submission_result(
     // validation accepts) can't spin forever; once exhausted we fall back to peer-driven /
     // catch-up recovery. Skipped when the height already finalized (nothing left to reform).
     if unlocked {
-        // The runtime rejects every commit while a revert cleanup drains, so a reinjection before
-        // it ends would spend the budget on a certain rejection.
-        wait_out_cleanup(&shared.token, height, || cleanup_in_progress(shared)).await;
         let finalized = shared
             .latest_finalized_rx
             .borrow()
