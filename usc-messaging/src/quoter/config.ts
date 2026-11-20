@@ -37,6 +37,8 @@ export interface QuoterConfig {
   estimatedDeliverySecs: number;
   /** Overhead buffer in basis points added on top of the raw gas cost (absorbs gas drift). */
   priceBufferBps: bigint;
+  /** Source-chain RPC to time quotes from; unset uses the wall clock. */
+  clockRpcUrl?: string;
   /** block.chainid of the chain the RelayerContract lives on (Creditcoin EVM). Quote domain. */
   sourceChainId: bigint;
   /** RelayerContract address the quote signature binds to (quote domain). Must match the deploy. */
@@ -111,6 +113,7 @@ export function loadConfig(): QuoterConfig {
       process.env.QUOTER_EST_DELIVERY_SECS ?? "120",
     ),
     priceBufferBps: BigInt(process.env.QUOTER_PRICE_BUFFER_BPS ?? "1000"),
+    clockRpcUrl: process.env.QUOTER_CLOCK_RPC_URL || undefined,
     sourceChainId: BigInt(process.env.QUOTER_SOURCE_CHAIN_ID || "42"),
     // Fail loud at boot rather than signing quotes bound to the zero address: an empty
     // QUOTER_RELAYER_CONTRACT (e.g. a copied .env.example) would otherwise mint valid-looking

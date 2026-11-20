@@ -10,6 +10,7 @@
   "include": [
     "scripts/e2e/**/*.mts",
     "scripts/deploy-source-ethers.mts",
+    "scripts/deploy-second-outbox.mts",
     "scripts/deploy-dest-ethers.mts",
     "scripts/publish-fee.mts",
     "scripts/assert-relay-claimed.mts"

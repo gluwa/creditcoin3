@@ -75,6 +75,28 @@ Creditcoin and proof-generator databases; local runs retain those databases too.
   `--seeds-file` option and validate them against the live registry before collecting
   approvals. The fixture avoids the sudo account, which cannot register as an attestor.
 
+Two more scenarios run on demand only. Each needs a manually sealed Creditcoin node
+(`--sealing manual`, archive pruning), where the runner seals and finalizes every block,
+so each must be the only scenario in its run:
+
+- `manual-seal-smoke` settles a message, seals 1200 blocks (the OutboxDiscovery timelock)
+  in about two minutes, then settles another message with the same processes.
+- `outbox-rotation` is the `defaultOutbox` rotation drill. It deploys a second Outbox with
+  its own RelayerContract, AcknowledgmentValidator and quoter, moves the default from A to
+  B with `setDefaultOutbox`, then retires A with `removeOutbox`, each across the real
+  timelock. One publisher follows `defaultOutbox()` and one stays on A; messages are placed
+  in the blocks just before, at and after both effective blocks. The relayer and one
+  attestor are killed and restarted before, between and after the changes. A ledger built
+  from raw source logs collected during the run must then show every authorized message
+  delivered exactly once, acknowledged on its own Outbox and claimed in its own fee
+  ledger; the publications on A at and after its removal block never delivered; and
+  nothing else delivered. It needs a relayer that settles fees per RelayerContract
+  (`relayer_contract_addresses`).
+
+```sh
+npm run e2e -- --scenario outbox-rotation --output-dir /tmp/outbox-rotation-1 --timeout-seconds 1800
+```
+
 `--lookback-blocks` defaults to 2, so the test reaches a genuine out-of-lookback
 publication within a bounded time. The live checkpoint and journal are never
 rewritten, deleted or rewound. A source RPC observer verifies that restarted broad

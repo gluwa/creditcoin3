@@ -31,11 +31,11 @@ name: write-ability-e2e
       relayer-ref:
         description: Full relayer candidate commit SHA
         type: string
-        default: 65d39aaeba706df0eea1f9737620933cdc74d776
+        default: 399b0b1c2842c4ecbaadf865b7f65e24cdfa738c
       contracts-ref:
         description: Full compatible contracts commit SHA
         type: string
-        default: 9cd0c7bcd3d1fb634bb50b3c8a553fa2382293f8
+        default: 55709ffbf238c2ab23fff7355ce0a93fbb65061e
       scenarios:
         description: Comma-separated E2E scenarios
         type: string
@@ -63,10 +63,10 @@ name: write-ability-e2e
         default: gluwa/asc-message-relayer
       relayer-ref:
         type: string
-        default: 65d39aaeba706df0eea1f9737620933cdc74d776
+        default: 399b0b1c2842c4ecbaadf865b7f65e24cdfa738c
       contracts-ref:
         type: string
-        default: 9cd0c7bcd3d1fb634bb50b3c8a553fa2382293f8
+        default: 55709ffbf238c2ab23fff7355ce0a93fbb65061e
       scenarios:
         type: string
         default: happy-path,durable-restart,attestor-rotation
@@ -105,8 +105,8 @@ jobs:
           CREDITCOIN_RUN_ID: ${{ inputs.creditcoin-run-id }}
           CREDITCOIN_ARTIFACT_ID: ${{ inputs.creditcoin-artifact-id }}
           RELAYER_REPOSITORY: ${{ inputs.relayer-repository || 'gluwa/asc-message-relayer' }}
-          RELAYER_REF: ${{ inputs.relayer-ref || '65d39aaeba706df0eea1f9737620933cdc74d776' }}
-          CONTRACTS_REF: ${{ inputs.contracts-ref || '9cd0c7bcd3d1fb634bb50b3c8a553fa2382293f8' }}
+          RELAYER_REF: ${{ inputs.relayer-ref || '399b0b1c2842c4ecbaadf865b7f65e24cdfa738c' }}
+          CONTRACTS_REF: ${{ inputs.contracts-ref || '55709ffbf238c2ab23fff7355ce0a93fbb65061e' }}
           SCENARIOS: ${{ inputs.scenarios || 'happy-path,durable-restart,attestor-rotation' }}
           CONTRACTS_TOKEN: ${{ secrets.GLUWA_BOT_TOKEN }}
         run: |
@@ -131,6 +131,8 @@ jobs:
           for scenario in "${cases[@]}"; do
             case "$scenario" in
               happy-path|durable-restart|attestor-rotation) ;;
+              # On demand only: each needs its own manually sealed stack, so it runs alone.
+              manual-seal-smoke|outbox-rotation) ;;
               *) echo "::error::Unknown scenario: $scenario"; exit 1 ;;
             esac
           done
@@ -250,6 +252,21 @@ jobs:
           ASC_CONTRACTS_DIR: ${{ github.workspace }}/asc-contracts
           ABI_GATE_STRICT: "1"
         run: cargo test --locked -p write-ability --test abi_surface -- --nocapture
+
+      - name: Enforce the shared golden vectors
+        working-directory: candidate
+        env:
+          ASC_CONTRACTS_DIR: ${{ github.workspace }}/asc-contracts
+          ABI_GATE_STRICT: "1"
+          COMPONENT: ${{ matrix.component }}
+        run: |
+          # This workflow also tests relayer revisions from before the shared vectors existed;
+          # those have no such test target. Creditcoin always has it.
+          if [[ "$COMPONENT" == "creditcoin" || -f write-ability/tests/vectors.rs ]]; then
+            cargo test --locked -p write-ability --test vectors -- --nocapture
+          else
+            echo "::warning::The candidate relayer has no shared-vector test; its vectors were not checked."
+          fi
 
   e2e:
     needs: prepare
