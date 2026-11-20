@@ -1781,6 +1781,52 @@ mod retained_attestations_compete_with_checkpoints {
     }
 
     #[test]
+    fn height_check_searches_the_same_bucket_window_as_bounds_for_an_aligned_target() {
+        // The target is the first height of its bucket and the only previous bound sits in the
+        // last bucket the bounds walk visits (five buckets below the target's predecessor).
+        let alice: H160 = Alice.into();
+        let target = 6_000;
+        ExtBuilder::default()
+            .with_balances(vec![(alice.into(), 300)])
+            .build()
+            .execute_with(|| {
+                set_last_checkpoint(9_000);
+                insert_checkpoint(1_500, checkpoint_digest());
+                insert_checkpoint(7_000, checkpoint_digest());
+
+                precompiles()
+                    .prepare_test(
+                        alice,
+                        Precompile,
+                        PCall::get_attestation_bounds {
+                            chain_key: SUPPORTED_CHAIN_KEY,
+                            target_height: target,
+                        },
+                    )
+                    .execute_returns(BoundsCheckResult {
+                        parent: 1_500,
+                        parent_hash: checkpoint_digest(),
+                        parent_is_attestation: false,
+                        child: 7_000,
+                        child_hash: checkpoint_digest(),
+                        child_is_attestation: false,
+                        is_attested: true,
+                    });
+
+                precompiles()
+                    .prepare_test(
+                        alice,
+                        Precompile,
+                        PCall::is_height_attested {
+                            chain_key: SUPPORTED_CHAIN_KEY,
+                            target_height: target,
+                        },
+                    )
+                    .execute_returns(true);
+            });
+    }
+
+    #[test]
     fn height_check_agrees_with_bounds_when_the_parent_is_a_retained_attestation() {
         let alice: H160 = Alice.into();
         ExtBuilder::default()
@@ -1988,6 +2034,7 @@ mod scans_are_metered_per_row {
                     + GAS_STORAGE_LOOKUP
                         * (1 // `LastCheckpoint`
                             + crate::BUCKET_SEARCH_ATTEMPTS as u64 // every bucket empty
+                            + 2 // checkpoint exactly at the target: guard + read
                             + 2 // guard + scan setup
                             + 1) // the matching attestation
             },
