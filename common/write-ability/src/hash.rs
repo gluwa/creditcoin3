@@ -9,8 +9,8 @@
 //! * [`attestor_set_update_digest`] is the raw set-update preimage `submitAttestorSetUpdate`
 //!   recomputes.
 //!
-//! Golden vectors for the message-vote digest live in `vectors/message_vote_eip712.json`; the
-//! asc-contracts Foundry suite and the relayer assert the same file.
+//! Golden vectors for both digests live in `vectors/`. asc-contracts generates them from
+//! Solidity (`npm run vectors`) and the relayer asserts the same files; see `tests/vectors.rs`.
 
 use std::borrow::Cow;
 
@@ -213,7 +213,7 @@ mod tests {
             .expect("vectors file is valid JSON")
     }
 
-    /// The pinned vectors are the cross-repo contract: the Foundry suite in asc-contracts and the
+    /// The pinned vectors are the cross-repo contract: the Hardhat suite in asc-contracts and the
     /// relayer assert the same file, so all three sides agree on every byte of the digest.
     #[test]
     fn message_vote_digest_matches_shared_vectors() {
