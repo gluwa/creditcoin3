@@ -1811,12 +1811,24 @@ mod retained_attestations_compete_with_checkpoints {
     }
 
     #[test]
-    fn highest_prefers_the_attestation_when_both_sit_at_the_same_height() {
+    fn highest_prefers_the_checkpoint_when_both_sit_at_the_same_height() {
+        // Attestations are deleted after the retention period, checkpoints are not.
         assert_returns(highest(), || {
             set_last_checkpoint(LAST_CHECKPOINT);
             let digest = insert_attestation(1400);
             insert_checkpoint(1400, digest);
-            attestation_result(1400, digest)
+            checkpoint_result(1400, digest)
+        });
+    }
+
+    #[test]
+    fn highest_prefers_the_latest_checkpoint_over_an_attestation_at_its_height() {
+        // Latest checkpoint below the target, same height as a retained attestation.
+        assert_returns(highest(), || {
+            set_last_checkpoint(1400);
+            let digest = insert_attestation(1400);
+            insert_checkpoint(1400, digest);
+            checkpoint_result(1400, digest)
         });
     }
 
@@ -1871,12 +1883,12 @@ mod retained_attestations_compete_with_checkpoints {
     }
 
     #[test]
-    fn lowest_prefers_the_attestation_when_both_sit_at_the_same_height() {
+    fn lowest_prefers_the_checkpoint_when_both_sit_at_the_same_height() {
         assert_returns(lowest(), || {
             set_last_checkpoint(LAST_CHECKPOINT);
             let digest = insert_attestation(1600);
             insert_checkpoint(1600, digest);
-            attestation_result(1600, digest)
+            checkpoint_result(1600, digest)
         });
     }
 
@@ -1937,6 +1949,36 @@ mod retained_attestations_compete_with_checkpoints {
             drain_attestations_cursor();
             false
         });
+    }
+
+    #[test]
+    fn height_check_ignores_bucket_entries_without_a_checkpoint() {
+        // A bucket entry whose checkpoint is already gone (chain-removal clears advance the two
+        // maps independently) is not a previous bound, same as for the bounds query.
+        assert_returns(height_check(), || {
+            set_last_checkpoint(LAST_CHECKPOINT);
+            let pivot = AttestationPallet::<Runtime>::compute_block_index_for(800);
+            CheckpointBuckets::<Runtime>::insert((SUPPORTED_CHAIN_KEY, pivot, 800), ());
+            assert!(Checkpoints::<Runtime>::get(SUPPORTED_CHAIN_KEY, 800).is_none());
+            false
+        });
+    }
+
+    #[test]
+    fn height_check_finds_a_checkpoint_exactly_at_a_bucket_aligned_target() {
+        // The target is the first height of its bucket, so the previous bound lives in the
+        // target's own bucket, not the one below it.
+        assert_returns(
+            PCall::is_height_attested {
+                chain_key: SUPPORTED_CHAIN_KEY,
+                target_height: 2_000,
+            },
+            || {
+                set_last_checkpoint(LAST_CHECKPOINT);
+                insert_checkpoint(2_000, checkpoint_digest());
+                true
+            },
+        );
     }
 
     #[test]
@@ -2099,9 +2141,8 @@ mod scans_are_metered_per_row {
     }
 
     #[test]
-    fn height_check_without_checkpoints_charges_each_of_its_three_scans() {
-        // Every attestation is below the target: the exact-height and the "above" scans run to
-        // the end, the "below" scan stops at its first row.
+    fn height_check_without_checkpoints_scans_the_attestations_once() {
+        // Every attestation is below the target, so the single pass visits every row.
         assert_exact_cost_and_out_of_gas_below(
             || PCall::is_height_attested {
                 chain_key: SUPPORTED_CHAIN_KEY,
@@ -2111,9 +2152,25 @@ mod scans_are_metered_per_row {
                 for i in 0..ROWS {
                     insert_attestation(100 + i);
                 }
-                // `LastCheckpoint` read, guard + first scan, one setup lookup for each of the two
-                // later scans, then the rows each scan visited.
-                framework_cost() + GAS_STORAGE_LOOKUP * (1 + 2 + 1 + 1 + ROWS + ROWS + 1)
+                // `LastCheckpoint` read, guard + scan setup, then each row once.
+                framework_cost() + GAS_STORAGE_LOOKUP * (1 + 2 + ROWS)
+            },
+        );
+    }
+
+    #[test]
+    fn height_check_without_checkpoints_stops_once_both_sides_are_found() {
+        // One attestation each side of the target: the pass ends on whichever row comes second,
+        // so both rows are always charged, and a third row (below) would not add to the cost.
+        assert_exact_cost_and_out_of_gas_below(
+            || PCall::is_height_attested {
+                chain_key: SUPPORTED_CHAIN_KEY,
+                target_height: 1_000,
+            },
+            || {
+                insert_attestation(100);
+                insert_attestation(2_000);
+                framework_cost() + GAS_STORAGE_LOOKUP * (1 + 2 + 2)
             },
         );
     }
@@ -2157,6 +2214,93 @@ mod scans_are_metered_per_row {
                             + 1 // bucket 1000: empty
                             + 1 + 1 + 2) // bucket 0: lookup, its one height, the stable read
             },
+        );
+    }
+}
+
+/// Gas metering stops the traversal itself, not just the bill: an underfunded call must read
+/// far less storage than a funded one. Charging after the scan would pass the gas tests above
+/// (it also runs out of gas at "expected - 1") but read every row first, which the recorded
+/// storage proof exposes.
+mod underfunded_scans_read_fewer_rows {
+    use super::{scan_fixtures::*, *};
+    use fp_evm::ExitError;
+
+    const ROWS: u64 = 400;
+    const FUNDED: u64 = 1_000_000_000;
+
+    /// Size of the storage proof recorded while running `call()` with `gas`, on committed state
+    /// prepared by `setup`.
+    fn proof_bytes(
+        setup: impl FnOnce(),
+        call: impl FnOnce() -> PCall,
+        gas: u64,
+        oog: bool,
+    ) -> usize {
+        let alice: H160 = Alice.into();
+        let mut ext = ExtBuilder::default()
+            .with_balances(vec![(alice.into(), 300)])
+            .build();
+        ext.execute_with(setup);
+        ext.commit_all().unwrap();
+
+        let ((), proof) = ext.execute_and_prove(|| {
+            let precompiles = precompiles();
+            let test = precompiles
+                .prepare_test(alice, Precompile, call())
+                .with_target_gas(Some(gas));
+            if oog {
+                test.execute_error(ExitError::OutOfGas);
+            } else {
+                test.execute_some();
+            }
+        });
+        proof.iter_nodes().map(|node| node.len()).sum()
+    }
+
+    fn assert_stops_early(setup: impl Fn(), call: impl Fn() -> PCall, gas_for_one_row: u64) {
+        let funded = proof_bytes(&setup, &call, FUNDED, false);
+        let underfunded = proof_bytes(&setup, &call, gas_for_one_row, true);
+        assert!(
+            underfunded * 4 < funded,
+            "underfunded run read {underfunded} proof bytes, funded run {funded}"
+        );
+    }
+
+    #[test]
+    fn attestation_scan_stops_at_the_first_unaffordable_row() {
+        assert_stops_early(
+            || {
+                for i in 0..ROWS {
+                    insert_attestation(100 + i);
+                }
+            },
+            || PCall::find_highest_attested_before {
+                chain_key: SUPPORTED_CHAIN_KEY,
+                target_height: 10_000,
+            },
+            // `LastCheckpoint`, guard + scan setup, one row; the second row cannot be paid.
+            base_cost() + GAS_STORAGE_LOOKUP * (1 + 2 + 1),
+        );
+    }
+
+    #[test]
+    fn bucket_walk_stops_at_the_first_unaffordable_height() {
+        assert_stops_early(
+            || {
+                set_last_checkpoint(5_000);
+                // Many recorded heights in the target's bucket, none with a checkpoint.
+                for height in 1_000..(1_000 + ROWS) {
+                    CheckpointBuckets::<Runtime>::insert((SUPPORTED_CHAIN_KEY, 1_000, height), ());
+                }
+            },
+            || PCall::find_highest_attested_before {
+                chain_key: SUPPORTED_CHAIN_KEY,
+                target_height: 1_500,
+            },
+            // `LastCheckpoint`, guard + scan setup (no attestations), the bucket lookup, one
+            // height; the second height cannot be paid.
+            base_cost() + GAS_STORAGE_LOOKUP * (1 + 2 + 1 + 1),
         );
     }
 }
