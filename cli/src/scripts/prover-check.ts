@@ -5,7 +5,7 @@ import ChainInfoABI from '@gluwa/attestcoin-sdk/dist/chain-info/chain_info.json'
 import { Contract, JsonRpcProvider, Wallet, WebSocketProvider } from 'ethers';
 import { createClient } from 'graphqurl';
 import axios from 'axios';
-import { retryRateLimited, runProverCheck } from './prover-check-support';
+import { retryRequest, runProverCheck } from './prover-check-support';
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -45,7 +45,7 @@ function toRpcBlockNumber(value: any) {
 
 async function sampleNormalTransaction(provider: JsonRpcProvider, blockNumber: any = 'latest') {
     // `true` requests full transaction objects instead of only hashes.
-    const block = await retryRateLimited('source block RPC', () =>
+    const block = await retryRequest('source block RPC', () =>
         provider.send('eth_getBlockByNumber', [toRpcBlockNumber(blockNumber), true]),
     );
 
@@ -133,7 +133,7 @@ async function getProofForBlock(apiUrl: string, chainKey: number, blockNumber: b
     const url = `${apiUrl}/api/v1/proof/${chainKey}/${blockNumber}/${txIndex}`;
     try {
         // NOTE: throws an exception in case of errors
-        return await retryRateLimited('fetch proof', () => axios.get(url));
+        return await retryRequest('fetch proof', () => axios.get(url));
     } catch (error) {
         // The prover returns HTTP 422 with code 'EmptyBlockTxProof' for blocks
         // that contain no transactions; there is no tx proof to verify, so we
@@ -192,7 +192,7 @@ async function main(
     // NOTE: the SDK does not expose a wrapper for get_latest_checkpoint_height_and_hash yet,
     // so we instantiate the precompile contract directly with the shipped ABI.
     const chainInfoContract = new Contract(chainInfo.CHAIN_INFO_PRECOMPILE_ADDRESS, ChainInfoABI, creditcoinWs);
-    const latestCheckpointRaw = await retryRateLimited('latest checkpoint RPC', () =>
+    const latestCheckpointRaw = await retryRequest('latest checkpoint RPC', () =>
         chainInfoContract.get_latest_checkpoint_height_and_hash(chainKey, { blockTag: 'finalized' }),
     );
     const lastCheckpoint = {
@@ -228,7 +228,7 @@ async function main(
         let afterCursor: string | null = null;
         do {
             // WARNING: this returns max 100 records
-            const response = await retryRateLimited('checkpoint indexer', () =>
+            const response = await retryRequest('checkpoint indexer', () =>
                 fetchCheckpoints(indexerUrl, chainKey, startFrom, lastSourceBlock, afterCursor),
             );
             hasNextPage = response.data.checkpoints.pageInfo.hasNextPage;
@@ -281,7 +281,7 @@ async function main(
     // runtime's configured `BlockGasLimit` (which changes across releases). Frontier reports that
     // configured limit as the block `gasLimit` over the standard eth RPC, so any finalized block
     // carries the current value. Fetched once since it is constant for a given runtime.
-    const latestBlock = await retryRateLimited('block gas limit RPC', () => creditcoinWs.getBlock('finalized'));
+    const latestBlock = await retryRequest('block gas limit RPC', () => creditcoinWs.getBlock('finalized'));
     if (latestBlock === null || latestBlock.gasLimit <= 0n) {
         throw new Error('could not read EVM block gas limit from chain');
     }
@@ -319,7 +319,7 @@ async function main(
         console.log(`    ..... trying to verify proof for ${blockNumber} -> ${proofData.txHash}`);
         writeToDisk(saveProofsTo, proofData);
 
-        const verificationResult = await retryRateLimited('verify proof RPC', () =>
+        const verificationResult = await retryRequest('verify proof RPC', () =>
             prover.verifySingle(
                 proofData.chainKey,
                 proofData.headerNumber,
@@ -337,8 +337,8 @@ async function main(
         // We deliberately call estimateGas rather than submitting the tx so that
         // running prover-check in parallel for the same signer cannot trip on
         // nonce collisions or actually move on-chain state. If estimateGas
-        // fails for anything other than throttling, the run still fails.
-        const estimate = await retryRateLimited('verification gas estimate RPC', () =>
+        // fails for anything other than throttling or a brief outage, the run still fails.
+        const estimate = await retryRequest('verification gas estimate RPC', () =>
             blockProverContractWithSigner
                 .getFunction(verifyAndEmitSingleFragment)
                 .estimateGas(
@@ -364,7 +364,7 @@ async function main(
         if (contract !== undefined) {
             console.log('    ..... trying to decode proof');
             const decoder = contract;
-            const decoded = await retryRateLimited('decoder RPC', () =>
+            const decoded = await retryRequest('decoder RPC', () =>
                 utils.decoder.decodeEvmV1Transaction(proofData.txBytes, decoder, { trackGas: true }),
             );
             gasForDecoding = decoded.gasUsed ?? 0n;
