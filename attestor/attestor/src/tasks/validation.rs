@@ -408,6 +408,9 @@ async fn handle_submission_result(
     // validation accepts) can't spin forever; once exhausted we fall back to peer-driven /
     // catch-up recovery. Skipped when the height already finalized (nothing left to reform).
     if unlocked {
+        // The runtime rejects every commit while a revert cleanup drains, so a reinjection before
+        // it ends would spend the budget on a certain rejection.
+        wait_out_cleanup(&shared.token, height, || cleanup_in_progress(shared)).await;
         let finalized = shared
             .latest_finalized_rx
             .borrow()
@@ -770,6 +773,85 @@ enum Outcome {
 /// fork that passes local validation but is persistently rejected by the runtime (e.g. a
 /// continuity error the local proof check does not catch).
 const MAX_REINJECTS_PER_HEIGHT: u8 = 3;
+
+/// How often to re-read the on-chain cleanup state while waiting for it to drain (~2 blocks).
+const CLEANUP_POLL_INTERVAL: std::time::Duration = std::time::Duration::from_secs(12);
+
+/// Upper bound on one wait for a cleanup to drain, so a read that keeps reporting it can't pin the
+/// validation loop. Cleanup drains a bounded batch per block, so it always ends well within this.
+const CLEANUP_WAIT_CAP: std::time::Duration = std::time::Duration::from_secs(30 * 60);
+
+/// Deadline for one cleanup-state read; a slow node is treated as "not in cleanup".
+const CLEANUP_READ_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
+
+/// Whether the runtime is rejecting this chain's commits because a `revert_to` / removal cleanup
+/// is still draining (mirrors `Pallet::commit_blocked_by_cleanup`). A failed or slow read counts
+/// as "no cleanup", which falls back to retrying immediately.
+async fn cleanup_in_progress(shared: &Shared) -> bool {
+    let read = async {
+        let storage = shared.cc3.api().storage().at_latest().await?;
+        let attestation = cc_client::cc3::storage().attestation();
+        if storage
+            .fetch(&attestation.attestation_clearing_cursors(shared.chain_key))
+            .await?
+            .is_some()
+        {
+            return Ok(true);
+        }
+        let pruning = storage
+            .fetch(&attestation.checkpoint_pruning_states(shared.chain_key))
+            .await?;
+        Ok::<_, subxt::Error>(pruning.is_some())
+    };
+    match tokio::time::timeout(CLEANUP_READ_TIMEOUT, read).await {
+        Ok(Ok(in_progress)) => in_progress,
+        Ok(Err(err)) => {
+            tracing::warn!(?err, "cleanup state read failed — assuming no cleanup");
+            false
+        }
+        Err(_) => {
+            tracing::warn!("cleanup state read timed out — assuming no cleanup");
+            false
+        }
+    }
+}
+
+/// Poll `in_cleanup` until it reports `false`, shutdown is requested, or [`CLEANUP_WAIT_CAP`]
+/// passes. Returns immediately when no cleanup is active.
+async fn wait_out_cleanup<F, Fut>(
+    token: &tokio_util::sync::CancellationToken,
+    height: Height,
+    mut in_cleanup: F,
+) where
+    F: FnMut() -> Fut,
+    Fut: std::future::Future<Output = bool>,
+{
+    let deadline = tokio::time::Instant::now() + CLEANUP_WAIT_CAP;
+    let mut waited = false;
+    while in_cleanup().await {
+        if !waited {
+            tracing::info!(
+                height,
+                "⏸️ commits are blocked by an on-chain cleanup — holding the retry until it drains"
+            );
+            waited = true;
+        }
+        if tokio::time::Instant::now() >= deadline {
+            tracing::warn!(
+                height,
+                "⏰ cleanup still draining after the wait cap — retrying anyway"
+            );
+            return;
+        }
+        tokio::select! {
+            _ = token.cancelled() => return,
+            () = tokio::time::sleep(CLEANUP_POLL_INTERVAL) => {}
+        }
+    }
+    if waited {
+        tracing::info!(height, "▶️ cleanup drained — retrying");
+    }
+}
 
 /// Consume one unit of a height's re-injection budget. Returns `true` while budget remains.
 /// Single-slot by design: heights advance monotonically, so a new height resets the budget and
@@ -1227,9 +1309,53 @@ mod tests {
 
     use super::{
         quorum_anchor, should_unlock_if_unfinalized, take_reinject_budget, validate_proof_chain,
-        Outcome, Preemptable, MAX_REINJECTS_PER_HEIGHT, SUBMISSION_BROADCAST, SUBMISSION_PENDING,
+        wait_out_cleanup, Outcome, Preemptable, CLEANUP_POLL_INTERVAL, CLEANUP_WAIT_CAP,
+        MAX_REINJECTS_PER_HEIGHT, SUBMISSION_BROADCAST, SUBMISSION_PENDING,
     };
     use crate::proof_cache::CachedProof;
+
+    #[tokio::test(start_paused = true)]
+    async fn wait_out_cleanup_returns_at_once_when_no_cleanup_is_active() {
+        let token = tokio_util::sync::CancellationToken::new();
+        let start = tokio::time::Instant::now();
+        wait_out_cleanup(&token, 7, || async { false }).await;
+        assert_eq!(start.elapsed(), std::time::Duration::ZERO);
+    }
+
+    // A cleanup rejection followed by recovery: the retry is held while the cleanup drains and
+    // released on the first read that reports it done.
+    #[tokio::test(start_paused = true)]
+    async fn wait_out_cleanup_holds_the_retry_until_the_cleanup_drains() {
+        let token = tokio_util::sync::CancellationToken::new();
+        let reads = std::sync::atomic::AtomicUsize::new(0);
+        let start = tokio::time::Instant::now();
+        wait_out_cleanup(&token, 7, || {
+            let n = reads.fetch_add(1, Ordering::SeqCst);
+            async move { n < 3 }
+        })
+        .await;
+        assert_eq!(reads.load(Ordering::SeqCst), 4);
+        assert_eq!(start.elapsed(), 3 * CLEANUP_POLL_INTERVAL);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn wait_out_cleanup_gives_up_after_the_cap() {
+        let token = tokio_util::sync::CancellationToken::new();
+        let start = tokio::time::Instant::now();
+        wait_out_cleanup(&token, 7, || async { true }).await;
+        let elapsed = start.elapsed();
+        assert!(elapsed >= CLEANUP_WAIT_CAP);
+        assert!(elapsed < CLEANUP_WAIT_CAP + CLEANUP_POLL_INTERVAL);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn wait_out_cleanup_stops_on_shutdown() {
+        let token = tokio_util::sync::CancellationToken::new();
+        token.cancel();
+        let start = tokio::time::Instant::now();
+        wait_out_cleanup(&token, 7, || async { true }).await;
+        assert_eq!(start.elapsed(), std::time::Duration::ZERO);
+    }
 
     fn cached(prev: Option<Digest>) -> CachedProof {
         CachedProof {
