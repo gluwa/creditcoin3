@@ -108,6 +108,150 @@ fn ensure_chain_supported<Runtime: pallet_supported_chains::Config>(
     Ok(())
 }
 
+/// Visit `(digest, header_number)` for the retained attestations of `chain_key`; `visit` returns
+/// `true` to stop. Each row is charged one lookup *before* its value is read and decoded, so a
+/// call that cannot pay for the traversal stops at the first row it cannot afford.
+///
+/// Visits nothing while a cleanup cursor is draining `chain_key`'s `Attestations`: the cursor
+/// sweeps the prefix in hash order, so any row found could be stale post-revert data. The
+/// `attestations_stable` guard and the first step of the iteration are charged up front.
+fn scan_attestations<Runtime: pallet_attestation::Config>(
+    handle: &mut impl PrecompileHandle,
+    chain_key: ChainKey,
+    mut visit: impl FnMut(H256, u64) -> bool,
+) -> EvmResult<()> {
+    handle.record_cost(GAS_STORAGE_LOOKUP.saturating_mul(2))?;
+    if !PalletAttestationPoc::<Runtime>::attestations_stable(chain_key) {
+        return Ok(());
+    }
+
+    for digest in Attestations::<Runtime>::iter_key_prefix(chain_key) {
+        handle.record_cost(GAS_STORAGE_LOOKUP)?;
+        if let Some(attestation) = Attestations::<Runtime>::get(chain_key, digest) {
+            if visit(digest, attestation.header_number()) {
+                break;
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Whether any retained attestation of `chain_key` has a header number accepted by `matches`.
+fn any_attestation<Runtime: pallet_attestation::Config>(
+    handle: &mut impl PrecompileHandle,
+    chain_key: ChainKey,
+    matches: impl Fn(u64) -> bool,
+) -> EvmResult<bool> {
+    let mut found = false;
+    scan_attestations::<Runtime>(handle, chain_key, |_, height| {
+        found = matches(height);
+        found
+    })?;
+    Ok(found)
+}
+
+/// Heights recorded in the checkpoint bucket at `pivot` that `keep` accepts. Each recorded height
+/// is charged one lookup before it is examined.
+fn bucket_heights<Runtime: pallet_attestation::Config>(
+    handle: &mut impl PrecompileHandle,
+    chain_key: ChainKey,
+    pivot: u64,
+    keep: impl Fn(u64) -> bool,
+) -> EvmResult<Vec<u64>> {
+    let mut heights = Vec::new();
+    for block_number in CheckpointBuckets::<Runtime>::iter_key_prefix((chain_key, pivot)) {
+        handle.record_cost(GAS_STORAGE_LOOKUP)?;
+        if keep(block_number) {
+            heights.push(block_number);
+        }
+    }
+    Ok(heights)
+}
+
+/// The stable checkpoint at `block_number`, as a result entry. Charges the two reads
+/// `checkpoint_if_stable` performs (the `CheckpointPruningStates` guard and `Checkpoints`).
+fn stable_checkpoint<Runtime: pallet_attestation::Config>(
+    handle: &mut impl PrecompileHandle,
+    chain_key: ChainKey,
+    block_number: u64,
+) -> EvmResult<Option<HeightHashResult>> {
+    handle.record_cost(GAS_STORAGE_LOOKUP.saturating_mul(2))?;
+    Ok(
+        PalletAttestationPoc::<Runtime>::checkpoint_if_stable(chain_key, block_number).map(
+            |digest| HeightHashResult {
+                height: block_number,
+                hash: digest,
+                is_attestation: false,
+                exists: true,
+            },
+        ),
+    )
+}
+
+/// Highest stable checkpoint at or below `max_height`, walking the checkpoint buckets downward
+/// from `max_height`'s.
+///
+/// `CheckpointBuckets` mirrors `Checkpoints`, but chain-removal clears advance the two cursors
+/// independently, so a bucket can briefly hold heights whose checkpoint is gone. Orphans are
+/// skipped and probing continues within the bucket, highest first.
+fn highest_checkpoint_at_or_below<Runtime: pallet_attestation::Config>(
+    handle: &mut impl PrecompileHandle,
+    chain_key: ChainKey,
+    max_height: u64,
+) -> EvmResult<Option<HeightHashResult>> {
+    let mut block_pivot = PalletAttestationPoc::<Runtime>::compute_block_index_for(max_height);
+
+    // We limit the number of bucket searches to avoid excessive computation.
+    for _ in 0..BUCKET_SEARCH_ATTEMPTS {
+        handle.record_cost(GAS_STORAGE_LOOKUP)?;
+
+        let mut candidates =
+            bucket_heights::<Runtime>(handle, chain_key, block_pivot, |h| h <= max_height)?;
+        candidates.sort_unstable_by(|a, b| b.cmp(a));
+
+        for block_number in candidates {
+            if let Some(found) = stable_checkpoint::<Runtime>(handle, chain_key, block_number)? {
+                return Ok(Some(found));
+            }
+        }
+
+        // Move to the next bucket
+        block_pivot = block_pivot.saturating_sub(CHECKPOINT_BUCKET_SIZE);
+    }
+
+    Ok(None)
+}
+
+/// Lowest stable checkpoint at or above `target_height`, walking the checkpoint buckets upward
+/// from the target's. Mirror of [`highest_checkpoint_at_or_below`].
+fn lowest_checkpoint_from<Runtime: pallet_attestation::Config>(
+    handle: &mut impl PrecompileHandle,
+    chain_key: ChainKey,
+    target_height: u64,
+) -> EvmResult<Option<HeightHashResult>> {
+    let mut block_pivot = PalletAttestationPoc::<Runtime>::compute_block_index_for(target_height);
+
+    // We limit the number of bucket searches to avoid excessive computation.
+    for _ in 0..BUCKET_SEARCH_ATTEMPTS {
+        handle.record_cost(GAS_STORAGE_LOOKUP)?;
+
+        let mut candidates =
+            bucket_heights::<Runtime>(handle, chain_key, block_pivot, |h| h >= target_height)?;
+        candidates.sort_unstable();
+
+        for block_number in candidates {
+            if let Some(found) = stable_checkpoint::<Runtime>(handle, chain_key, block_number)? {
+                return Ok(Some(found));
+            }
+        }
+
+        // Move to the next bucket
+        block_pivot = block_pivot.saturating_add(CHECKPOINT_BUCKET_SIZE);
+    }
+
+    Ok(None)
+}
+
 #[precompile_utils::precompile]
 impl<Runtime> ChainInfoPrecompile<Runtime>
 where
@@ -245,137 +389,53 @@ where
 
         handle.record_cost(GAS_STORAGE_LOOKUP)?;
 
-        let maybe_last_checkpoint_height =
+        let last_checkpoint_height =
             LastCheckpoint::<Runtime>::get(chain_key).map(|cp| cp.block_number);
 
-        // We first check if the latest checkpoint height is higher or equal to the target height.
-        if matches!(maybe_last_checkpoint_height, Some(height) if height >= target_height) {
-            // If it is search through the checkpoints to find the highest attested height below the target.
-            // We search through the bucket of the block corresponding to target_height - 1 for any checkpoints.
-            let mut block_pivot = PalletAttestationPoc::<Runtime>::compute_block_index_for(
-                target_height.saturating_sub(1),
-            );
-
-            let mut maybe_highest = None;
-
-            // We limit the number of bucket searches to avoid excessive computation.
-            for _ in 0..BUCKET_SEARCH_ATTEMPTS {
-                handle.record_cost(GAS_STORAGE_LOOKUP)?;
-
-                let mut items_processed = 0_u64;
-
-                // Collect this bucket's heights below the target, then probe them from
-                // highest downward. `CheckpointBuckets` is expected to mirror `Checkpoints`
-                // (writes are paired), but the prefix clears in `clear_or_revert.rs` advance
-                // the two maps' cursors independently during chain removal, so a bucket can
-                // transiently hold heights whose checkpoint was already cleared. Skip such
-                // orphans and keep probing *within* the bucket — only fall through to the
-                // next pivot once every height here is exhausted. Probing extremal-first with
-                // an early break keeps the common (no-desync) case at a single lookup.
-                let mut candidates: Vec<u64> =
-                    CheckpointBuckets::<Runtime>::iter_key_prefix((chain_key, block_pivot))
-                        .inspect(|_| {
-                            items_processed += 1;
-                        })
-                        .filter(|block_number| *block_number < target_height)
-                        .collect();
-                handle.record_cost(GAS_STORAGE_LOOKUP * items_processed)?;
-
-                // Highest first.
-                candidates.sort_unstable_by(|a, b| b.cmp(a));
-
-                maybe_highest = None;
-                for block_number in candidates {
-                    // `checkpoint_if_stable` performs up to two storage reads —
-                    // `CheckpointPruningStates::get` followed by `Checkpoints::get` — so charge
-                    // both lookups unconditionally (matches `block-prover::get_checkpoint`).
-                    handle.record_cost(GAS_STORAGE_LOOKUP.saturating_mul(2))?;
-                    if let Some(digest) = PalletAttestationPoc::<Runtime>::checkpoint_if_stable(
-                        chain_key,
-                        block_number,
-                    ) {
-                        maybe_highest = Some(HeightHashResult {
-                            height: block_number,
-                            hash: digest,
-                            is_attestation: false,
-                            exists: true,
-                        });
-                        break;
-                    }
-                }
-
-                if maybe_highest.is_some() {
-                    break;
-                }
-
-                // Move to the next bucket
-                block_pivot = block_pivot.saturating_sub(CHECKPOINT_BUCKET_SIZE);
-            }
-
-            Ok(maybe_highest.unwrap_or_default())
-        } else {
-            // One lookup for the `attestations_stable` guard read, one for the `iter_prefix`
-            // scan that follows it.
-            handle.record_cost(GAS_STORAGE_LOOKUP.saturating_mul(2))?;
-
-            let mut items_processed = 0_u64;
-
-            // If the target height is lower than the last checkpoint height, we first search
-            // through the attestations directly. Skip the scan while a cleanup cursor is
-            // draining `chain_key`'s `Attestations` — any row found could be stale post-revert
-            // data — and fall through to the checkpoint below instead.
-            let highest = if let Some(highest) =
-                PalletAttestationPoc::<Runtime>::attestations_stable(chain_key)
-                    .then(|| {
-                        Attestations::<Runtime>::iter_prefix(chain_key)
-                            .inspect(|_| {
-                                items_processed += 1;
-                            })
-                            .filter(|(_, attestation)| attestation.header_number() < target_height)
-                            .max_by_key(|(_, attestation)| attestation.header_number())
-                            .map(|(hash, attestation)| HeightHashResult {
-                                height: attestation.header_number(),
-                                hash,
-                                is_attestation: true,
-                                exists: true,
-                            })
-                    })
-                    .flatten()
+        // Condensed attestations stay in storage for the retention period, so one can be closer
+        // to the target than the nearest checkpoint: look at both and keep the nearest. A
+        // checkpoint wins a tie, as it outlives the attestation.
+        let mut attestation: Option<HeightHashResult> = None;
+        scan_attestations::<Runtime>(handle, chain_key, |hash, height| {
+            if height < target_height
+                && attestation.as_ref().is_none_or(|best| height > best.height)
             {
-                highest
-            } else if let Some(last_checkpoint_height) = maybe_last_checkpoint_height {
-                // `checkpoint_if_stable` does the `CheckpointPruningStates` guard read plus the
-                // `Checkpoints` read — charge both.
-                handle.record_cost(GAS_STORAGE_LOOKUP.saturating_mul(2))?;
+                attestation = Some(HeightHashResult {
+                    height,
+                    hash,
+                    is_attestation: true,
+                    exists: true,
+                });
+            }
+            false
+        })?;
 
-                // If we didn't find any attestations below the target height, we fall back to
-                // the last checkpoint. `checkpoint_if_stable` returns `None` when the height's
-                // pivot is still being drained post-revert; surface that as `exists: false`
-                // rather than `unwrap_or_default()`-ing to a zero digest with `exists: true`,
-                // which would advertise a stale-but-withheld digest as live data. Matches
-                // `get_checkpoint_for_height`'s behaviour for the same gated read.
-                if let Some(digest) = PalletAttestationPoc::<Runtime>::checkpoint_if_stable(
-                    chain_key,
-                    last_checkpoint_height,
-                ) {
-                    HeightHashResult {
-                        height: last_checkpoint_height,
-                        hash: digest,
-                        is_attestation: false,
-                        exists: true,
-                    }
-                } else {
-                    HeightHashResult::default()
+        let checkpoint = match last_checkpoint_height {
+            Some(last) if last >= target_height => match target_height.checked_sub(1) {
+                Some(max_height) => {
+                    highest_checkpoint_at_or_below::<Runtime>(handle, chain_key, max_height)?
                 }
-            } else {
-                // If there are no attestations and no checkpoints, return default.
-                HeightHashResult::default()
-            };
+                // Nothing lies below height 0.
+                None => None,
+            },
+            // Every checkpoint is below the target, so the last one is the nearest. It is only
+            // read when it can matter: an attestation above it wins.
+            // `None` while the height's pivot is still being drained post-revert: surfaced as
+            // `exists: false`, not a zero digest advertised as live data.
+            Some(last) if attestation.as_ref().is_none_or(|best| best.height <= last) => {
+                stable_checkpoint::<Runtime>(handle, chain_key, last)?
+            }
+            _ => None,
+        };
 
-            handle.record_cost(GAS_STORAGE_LOOKUP * items_processed)?;
-
-            Ok(highest)
-        }
+        Ok(match (attestation, checkpoint) {
+            (Some(attestation), Some(checkpoint)) if attestation.height > checkpoint.height => {
+                attestation
+            }
+            (_, Some(checkpoint)) => checkpoint,
+            (Some(attestation), None) => attestation,
+            (None, None) => HeightHashResult::default(),
+        })
     }
 
     #[precompile::public("find_lowest_attested_after(uint64,uint64)")]
@@ -389,101 +449,41 @@ where
 
         handle.record_cost(GAS_STORAGE_LOOKUP)?;
 
-        let maybe_last_checkpoint_height =
+        let last_checkpoint_height =
             LastCheckpoint::<Runtime>::get(chain_key).map(|cp| cp.block_number);
 
-        // We first check if the latest checkpoint height is higher to the target height.
-        if matches!(maybe_last_checkpoint_height, Some(height) if height > target_height) {
-            // If it is search through the checkpoints to find the lowest attested height above the target.
-
-            // We search through the bucket of the block corresponding to target_height for any checkpoints.
-            let mut block_pivot =
-                PalletAttestationPoc::<Runtime>::compute_block_index_for(target_height);
-
-            let mut maybe_lowest = None;
-
-            // We limit the number of bucket searches to avoid excessive computation.
-            for _ in 0..BUCKET_SEARCH_ATTEMPTS {
-                handle.record_cost(GAS_STORAGE_LOOKUP)?;
-
-                let mut items_processed = 0_u64;
-
-                // See the matching note in `find_highest_attested_before`: probe within the
-                // bucket (lowest first) and skip orphans whose `Checkpoints` entry was already
-                // cleared, only falling through to the next pivot once this bucket is exhausted.
-                let mut candidates: Vec<u64> =
-                    CheckpointBuckets::<Runtime>::iter_key_prefix((chain_key, block_pivot))
-                        .inspect(|_| {
-                            items_processed += 1;
-                        })
-                        .filter(|block_number| *block_number >= target_height)
-                        .collect();
-                handle.record_cost(GAS_STORAGE_LOOKUP * items_processed)?;
-
-                // Lowest first.
-                candidates.sort_unstable();
-
-                maybe_lowest = None;
-                for block_number in candidates {
-                    // See the matching note in `find_highest_attested_before`: the helper does
-                    // up to two storage reads, so charge both lookups unconditionally.
-                    handle.record_cost(GAS_STORAGE_LOOKUP.saturating_mul(2))?;
-                    if let Some(digest) = PalletAttestationPoc::<Runtime>::checkpoint_if_stable(
-                        chain_key,
-                        block_number,
-                    ) {
-                        maybe_lowest = Some(HeightHashResult {
-                            height: block_number,
-                            hash: digest,
-                            is_attestation: false,
-                            exists: true,
-                        });
-                        break;
-                    }
-                }
-
-                if maybe_lowest.is_some() {
-                    break;
-                }
-
-                // Move to the next bucket
-                block_pivot = block_pivot.saturating_add(CHECKPOINT_BUCKET_SIZE);
+        // See `find_highest_attested_before`: retained attestations and checkpoints compete.
+        let mut attestation: Option<HeightHashResult> = None;
+        scan_attestations::<Runtime>(handle, chain_key, |hash, height| {
+            if height >= target_height
+                && attestation.as_ref().is_none_or(|best| height < best.height)
+            {
+                attestation = Some(HeightHashResult {
+                    height,
+                    hash,
+                    is_attestation: true,
+                    exists: true,
+                });
             }
+            false
+        })?;
 
-            Ok(maybe_lowest.unwrap_or_default())
-        } else {
-            // One lookup for the `attestations_stable` guard read, one for the `iter_prefix`
-            // scan that follows it.
-            handle.record_cost(GAS_STORAGE_LOOKUP.saturating_mul(2))?;
+        // A checkpoint can only be at or above the target when the latest one is.
+        let checkpoint = match last_checkpoint_height {
+            Some(last) if last >= target_height => {
+                lowest_checkpoint_from::<Runtime>(handle, chain_key, target_height)?
+            }
+            _ => None,
+        };
 
-            let mut items_processed = 0_u64;
-
-            // Otherwise if the latest checkpoint is below or at the target height, we search
-            // through the attestations directly. Skip the scan while a cleanup cursor is
-            // draining `chain_key`'s `Attestations` — any row found could be stale post-revert
-            // data.
-            let lowest = PalletAttestationPoc::<Runtime>::attestations_stable(chain_key)
-                .then(|| {
-                    Attestations::<Runtime>::iter_prefix(chain_key)
-                        .inspect(|_| {
-                            items_processed += 1;
-                        })
-                        .filter(|(_, attestation)| attestation.header_number() >= target_height)
-                        .min_by_key(|(_, attestation)| attestation.header_number())
-                        .map(|(hash, attestation)| HeightHashResult {
-                            height: attestation.header_number(),
-                            hash,
-                            is_attestation: true,
-                            exists: true,
-                        })
-                })
-                .flatten()
-                .unwrap_or_default();
-
-            handle.record_cost(GAS_STORAGE_LOOKUP * items_processed)?;
-
-            Ok(lowest)
-        }
+        Ok(match (attestation, checkpoint) {
+            (Some(attestation), Some(checkpoint)) if attestation.height < checkpoint.height => {
+                attestation
+            }
+            (_, Some(checkpoint)) => checkpoint,
+            (Some(attestation), None) => attestation,
+            (None, None) => HeightHashResult::default(),
+        })
     }
 
     #[precompile::public("is_height_attested(uint64,uint64)")]
@@ -502,118 +502,59 @@ where
 
         let (found_prev, found_next) = match maybe_last_checkpoint_height {
             Some(last_checkpoint_height) if last_checkpoint_height < target_height => {
-                // One lookup for the `attestations_stable` guard read, one for the
-                // `iter_prefix` scan that follows it.
-                handle.record_cost(GAS_STORAGE_LOOKUP.saturating_mul(2))?;
-
-                let mut items_processed = 0_u64;
-
                 // We check through the attestations for any attestation above (or at) the
                 // target height. Skip while a cleanup cursor is draining `chain_key`'s
                 // `Attestations` — any row found could be stale post-revert data — so we can't
                 // confirm this bound.
                 let found_next_attestation =
-                    PalletAttestationPoc::<Runtime>::attestations_stable(chain_key)
-                        && Attestations::<Runtime>::iter_prefix(chain_key)
-                            .inspect(|_| {
-                                items_processed += 1;
-                            })
-                            .any(|(_, attestation)| attestation.header_number() >= target_height);
-
-                handle.record_cost(GAS_STORAGE_LOOKUP * items_processed)?;
+                    any_attestation::<Runtime>(handle, chain_key, |height| {
+                        height >= target_height
+                    })?;
 
                 // Since the last checkpoint is below the target height, if we found any attestation above (or at) the target height,
                 // we can be sure that target height is attested.
                 (true, found_next_attestation)
             }
             Some(last_checkpoint_height) if last_checkpoint_height > target_height => {
-                // We search through the bucket of the block corresponding to target_height - 1 for any checkpoints.
-                let mut block_pivot = PalletAttestationPoc::<Runtime>::compute_block_index_for(
-                    target_height.saturating_sub(1),
-                );
+                // Previous bound, cheapest first: a stable checkpoint below the target, found with
+                // the same walk as `get_attestation_bounds` (so orphaned or still-draining bucket
+                // entries don't count and both search the same buckets); a stable checkpoint
+                // exactly at the target; a retained attestation at or below it.
+                let found_prev =
+                    match target_height.checked_sub(1) {
+                        Some(max_height) => highest_checkpoint_at_or_below::<Runtime>(
+                            handle, chain_key, max_height,
+                        )?
+                        .is_some(),
+                        None => false,
+                    } || stable_checkpoint::<Runtime>(handle, chain_key, target_height)?.is_some()
+                        || any_attestation::<Runtime>(handle, chain_key, |height| {
+                            height <= target_height
+                        })?;
 
-                let mut found_prev_checkpoint = false;
-
-                // We limit the number of bucket searches to avoid excessive computation.
-                for _ in 0..BUCKET_SEARCH_ATTEMPTS {
-                    handle.record_cost(GAS_STORAGE_LOOKUP)?;
-
-                    let mut items_processed = 0_u64;
-
-                    found_prev_checkpoint =
-                        CheckpointBuckets::<Runtime>::iter_key_prefix((chain_key, block_pivot))
-                            .inspect(|_| {
-                                items_processed += 1;
-                            })
-                            .any(|block_number| block_number <= target_height);
-
-                    handle.record_cost(GAS_STORAGE_LOOKUP * items_processed)?;
-
-                    if found_prev_checkpoint {
-                        break;
-                    }
-
-                    // Move to the next bucket
-                    block_pivot = block_pivot.saturating_sub(CHECKPOINT_BUCKET_SIZE);
-                }
-
-                // Since the last checkpoint is above the target height, if we found any checkpoint below (or at) the target height,
+                // Since the last checkpoint is above the target height, if we found any checkpoint or attestation below (or at) the target height,
                 // we can be sure that target height is attested.
-                (found_prev_checkpoint, true)
+                (found_prev, true)
             }
             Some(_) => {
                 // If the last checkpoint is exactly at the target height, then we know for sure that the target height is attested.
                 (true, true)
             }
             None => {
-                // We have no checkpoints, so we check through the attestations directly. While
-                // a cleanup cursor is draining `chain_key`'s `Attestations`, nothing found there
-                // is trustworthy, so we can't confirm either bound.
-                handle.record_cost(GAS_STORAGE_LOOKUP.saturating_mul(2))?;
-                if !PalletAttestationPoc::<Runtime>::attestations_stable(chain_key) {
-                    return Ok(false);
-                }
+                // We have no checkpoints, so we check through the attestations directly, in a
+                // single pass: an attestation exactly at the target proves it, otherwise we need
+                // one above and one below. Nothing is found while a cleanup cursor is draining.
+                let (mut exact, mut above, mut below) = (false, false, false);
+                scan_attestations::<Runtime>(handle, chain_key, |_, height| {
+                    match height.cmp(&target_height) {
+                        sp_std::cmp::Ordering::Equal => exact = true,
+                        sp_std::cmp::Ordering::Greater => above = true,
+                        sp_std::cmp::Ordering::Less => below = true,
+                    }
+                    exact || (above && below)
+                })?;
 
-                let mut items_processed = 0_u64;
-
-                let found_attestation = Attestations::<Runtime>::iter_prefix(chain_key)
-                    .inspect(|_| {
-                        items_processed += 1;
-                    })
-                    .any(|(_, attestation)| attestation.header_number() == target_height);
-
-                handle.record_cost(GAS_STORAGE_LOOKUP * items_processed)?;
-
-                if found_attestation {
-                    // If we found an attestation exactly at the target height, we can be sure that target height is attested.
-                    return Ok(true);
-                }
-
-                handle.record_cost(GAS_STORAGE_LOOKUP)?;
-                items_processed = 0_u64;
-
-                // We check through the attestations for any attestation above (or at) the target height.
-                let found_next_attestation = Attestations::<Runtime>::iter_prefix(chain_key)
-                    .inspect(|_| {
-                        items_processed += 1;
-                    })
-                    .any(|(_, attestation)| attestation.header_number() > target_height);
-
-                handle.record_cost(GAS_STORAGE_LOOKUP * items_processed)?;
-
-                handle.record_cost(GAS_STORAGE_LOOKUP)?;
-                items_processed = 0_u64;
-
-                // We check through the attestations for any attestation above (or at) the target height.
-                let found_prev_attestation = Attestations::<Runtime>::iter_prefix(chain_key)
-                    .inspect(|_| {
-                        items_processed += 1;
-                    })
-                    .any(|(_, attestation)| attestation.header_number() < target_height);
-
-                handle.record_cost(GAS_STORAGE_LOOKUP * items_processed)?;
-
-                (found_next_attestation, found_prev_attestation)
+                (exact || below, exact || above)
             }
         };
 
@@ -644,6 +585,7 @@ where
             child: next_attestation.height,
             child_hash: next_attestation.hash,
             child_is_attestation: next_attestation.is_attestation,
+            // Two-sided availability: a nearest parent *and* a nearest child were found.
             is_attested: prev_attestation.exists && next_attestation.exists,
         };
 
