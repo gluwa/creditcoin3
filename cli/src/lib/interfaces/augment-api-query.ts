@@ -319,6 +319,20 @@ declare module '@polkadot/api-base/types/storage' {
                 [u64, AccountId32]
             > &
                 QueryableStorageEntry<ApiType, [u64, AccountId32]>;
+            /**
+             * Controllers an operator kicked, mapped to the first era they may register or attest again
+             * (one [`Config::BondingDuration`] after the kick). An elapsed row is dropped by the next
+             * attempt.
+             **/
+            kickedAttestors: AugmentedQuery<
+                ApiType,
+                (
+                    arg1: u64 | AnyNumber | Uint8Array,
+                    arg2: AccountId32 | string | Uint8Array,
+                ) => Observable<Option<u32>>,
+                [u64, AccountId32]
+            > &
+                QueryableStorageEntry<ApiType, [u64, AccountId32]>;
             lastCheckpoint: AugmentedQuery<
                 ApiType,
                 (arg: u64 | AnyNumber | Uint8Array) => Observable<Option<AttestorPrimitivesAttestationCheckpoint>>,

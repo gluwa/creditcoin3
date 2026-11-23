@@ -4163,8 +4163,15 @@ declare module '@polkadot/types/lookup' {
         readonly isInvulnerables: boolean;
         readonly isPeerKeys: boolean;
         readonly isPeerKeyOwners: boolean;
+        readonly isKickedAttestors: boolean;
         readonly type:
-            'ChillAttestors' | 'RetiredKeys' | 'BlsKeyOwners' | 'Invulnerables' | 'PeerKeys' | 'PeerKeyOwners';
+            | 'ChillAttestors'
+            | 'RetiredKeys'
+            | 'BlsKeyOwners'
+            | 'Invulnerables'
+            | 'PeerKeys'
+            | 'PeerKeyOwners'
+            | 'KickedAttestors';
     }
 
     /** @name PalletAttestationClearOrRevertCheckpointPruningState (449) */
@@ -4248,6 +4255,7 @@ declare module '@polkadot/types/lookup' {
         readonly isPeerKeyAlreadyRegistered: boolean;
         readonly isPeerKeyNotRegistered: boolean;
         readonly isPeerKeyRegistrationChanged: boolean;
+        readonly isAttestorKicked: boolean;
         readonly type:
             | 'AlreadyAttestor'
             | 'AttestorListFull'
@@ -4321,7 +4329,8 @@ declare module '@polkadot/types/lookup' {
             | 'InvalidPeerKeyProof'
             | 'PeerKeyAlreadyRegistered'
             | 'PeerKeyNotRegistered'
-            | 'PeerKeyRegistrationChanged';
+            | 'PeerKeyRegistrationChanged'
+            | 'AttestorKicked';
     }
 
     /** @name SupportedChainsPrimitivesSupportedChain (451) */
