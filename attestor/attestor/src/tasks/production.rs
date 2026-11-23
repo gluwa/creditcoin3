@@ -113,30 +113,65 @@ pub async fn run(
     let mut latest_cc3 = if let Some(info) = start_attestation {
         info
     } else {
-        tracing::info!(genesis, "👶 generating genesis attestation");
-        let block = shared
-            .eth
-            .get_block(genesis, shared.encoding)
-            .await
-            .map_err(|e| Error::Init(anyhow::anyhow!("genesis block fetch: {e}")))?;
-        let root_info = stream::util::RootInfo {
-            height: genesis,
-            root: eth::simple_merkle_tree(&block).root(),
-            hash: attestor_primitives::Digest::from(*block.hash()),
-        };
-        let genesis_att = stream_attestation.generate_attestation_genesis(root_info);
-        emit_local(&shared, &genesis_att).await;
+        // The genesis vote is signed from a direct block fetch, outside the maturity-bounded
+        // roots stream, so it waits for its own maturity and for eligibility. cc3 events are
+        // applied meanwhile, and a genesis finalized by peers ends the wait unsigned. Shutdown
+        // exits cleanly like every other task instead of failing startup.
+        tracing::info!(genesis, "⏳ waiting for the genesis block to mature");
+        let info =
+            match wait_for_genesis(&shared, &mut events, &mut stream_attestation, genesis, true)
+                .await?
+            {
+                GenesisWait::Shutdown => {
+                    tracing::info!("🔌 shutdown while waiting for genesis block maturity");
+                    return Ok(());
+                }
+                GenesisWait::Attested(info) => {
+                    // No local vote was signed during the wait, so the stall axis would read
+                    // "chain attests, we don't". Same re-arm as a revert: a full stall window.
+                    shared.health.rearm_stall_window();
+                    info
+                }
+                GenesisWait::Mature => {
+                    tracing::info!(genesis, "👶 generating genesis attestation");
+                    let block = shared
+                        .eth
+                        .get_block(genesis, shared.encoding)
+                        .await
+                        .map_err(|e| Error::Init(anyhow::anyhow!("genesis block fetch: {e}")))?;
+                    let root_info = stream::util::RootInfo {
+                        height: genesis,
+                        root: eth::simple_merkle_tree(&block).root(),
+                        hash: attestor_primitives::Digest::from(*block.hash()),
+                    };
+                    let genesis_att = stream_attestation.generate_attestation_genesis(root_info);
+                    emit_local(&shared, &genesis_att).await;
 
-        // Wait for the genesis BlockAttested on cc3 — we need the *real* digest. `None` means
-        // shutdown was requested while waiting; exit cleanly like every other task does on
-        // cancellation instead of surfacing a spurious startup failure to the supervisor.
-        tracing::info!(genesis, "⏲️ waiting for genesis attestation to finalize");
-        let Some(info) =
-            wait_for_block_attested(&shared, &mut events, &mut stream_attestation, genesis).await?
-        else {
-            tracing::info!("🔌 shutdown while waiting for genesis attestation");
-            return Ok(());
-        };
+                    // Wait for the genesis BlockAttested on cc3 — we need the *real* digest.
+                    tracing::info!(genesis, "⏲️ waiting for genesis attestation to finalize");
+                    match wait_for_genesis(
+                        &shared,
+                        &mut events,
+                        &mut stream_attestation,
+                        genesis,
+                        false,
+                    )
+                    .await?
+                    {
+                        GenesisWait::Attested(info) => info,
+                        GenesisWait::Shutdown => {
+                            tracing::info!("🔌 shutdown while waiting for genesis attestation");
+                            return Ok(());
+                        }
+                        // No gate was requested, so it cannot open.
+                        GenesisWait::Mature => {
+                            return Err(Error::Init(anyhow::anyhow!(
+                                "genesis gate opened without being requested"
+                            )))
+                        }
+                    }
+                }
+            };
         stream_attestation.note_attestation_finalization(stream::util::AttestationInfo {
             height: info.height,
             digest: info.digest,
@@ -653,33 +688,155 @@ async fn handle_one(
             // post-revert emit_local can exceed the stall deadline while peers keep finalizing
             // (uneven recovery), which is exactly axis 2's trigger shape — without this the pod
             // gets restarted mid-catch-up and re-does the same rebuild.
-            shared.health.note_revert_recovery();
+            shared.health.rearm_stall_window();
         }
     }
 
     Ok(())
 }
 
-// --------------------------- [ Helper: wait for a BlockAttested event ] ----------------------- //
-//
-// Drains CC3 events on the production task's own subscription until BlockAttested(height ≥ N)
-// arrives. Returns the real `(height, digest)`, or `None` when shutdown was requested while
-// waiting (an intentional cancellation, not a failure). Used by the genesis bootstrap path to
-// learn the runtime-committed digest before initializing the eth attestation stream's
-// prev-digest.
+// ------------------------------ [ Helper: wait for genesis maturity ] ------------------------- //
 
-async fn wait_for_block_attested(
+/// Block until `genesis` is at or below the source chain's mature height. `false` means shutdown
+/// was requested while waiting.
+async fn wait_for_genesis_maturity(shared: &Shared, genesis: attestor_primitives::Height) -> bool {
+    wait_until_mature(
+        &shared.token,
+        shared.eth_head_poll_interval,
+        genesis,
+        || async {
+            let head = shared.eth.get_last_block().await?;
+            shared.maturity.mature_height(&shared.eth, head).await
+        },
+    )
+    .await
+}
+
+/// Poll `mature_height` every `poll` until it reaches `target`. A genesis above the current tip
+/// is simply not mature yet, and an unresolvable mature height is retried: neither is an init
+/// failure, since a restart loop would only redo the same wait.
+async fn wait_until_mature<F, Fut>(
+    token: &tokio_util::sync::CancellationToken,
+    poll: std::time::Duration,
+    target: attestor_primitives::Height,
+    mut mature_height: F,
+) -> bool
+where
+    F: FnMut() -> Fut,
+    Fut: std::future::Future<Output = Result<Option<attestor_primitives::Height>, eth::Error>>,
+{
+    loop {
+        let resolved = tokio::select! {
+            _ = token.cancelled() => return false,
+            resolved = mature_height() => resolved,
+        };
+        match resolved {
+            Ok(Some(mature)) if mature >= target => return true,
+            Ok(mature) => tracing::info!(
+                target,
+                ?mature,
+                "⏳ genesis block is not mature yet — waiting before signing it"
+            ),
+            Err(err) => tracing::warn!(
+                target,
+                %err,
+                "⏳ could not resolve the mature height — retrying"
+            ),
+        }
+        tokio::select! {
+            _ = token.cancelled() => return false,
+            () = tokio::time::sleep(poll) => {}
+        }
+    }
+}
+
+// ------------------------------ [ Helper: wait for the genesis step ] ------------------------- //
+//
+// Drains CC3 events on the production task's own subscription until the genesis bootstrap can
+// move on. Used by the genesis path to learn the runtime-committed digest before initializing the
+// eth attestation stream's prev-digest, and (with `await_maturity`) to hold the genesis vote back
+// until the block is mature and this attestor eligible, while still applying committee / config
+// events, noticing a genesis that peers finalized, and failing if the genesis height is re-set.
+
+/// Why [`wait_for_genesis`] returned.
+enum GenesisWait {
+    /// The first `BlockAttested` at/above genesis: the real `(height, digest)`.
+    Attested(AttestationInfo),
+    /// The genesis block is mature and this attestor may attest (only with `await_maturity`).
+    Mature,
+    /// Shutdown was requested while waiting (an intentional cancellation, not a failure).
+    Shutdown,
+}
+
+/// What one cc3 event means to the genesis wait.
+enum GenesisStep {
+    /// A `BlockAttested` at/above genesis: the real `(height, digest)`.
+    Adopt(AttestationInfo),
+    /// A `BlockAttested` below genesis: nothing to apply.
+    Ignore,
+    /// The chain's genesis height was re-set, so this wait is for a stale target.
+    GenesisChanged(attestor_primitives::Height),
+    /// Everything else (elections, chill/kick, config changes) goes through `handle_one`.
+    Apply(CcEvent),
+}
+
+fn genesis_step(
+    event: CcEvent,
+    target: attestor_primitives::Height,
+    chain_key: attestor_primitives::ChainKey,
+) -> GenesisStep {
+    match event {
+        CcEvent::BlockAttested(att) if att.header_number >= target => {
+            GenesisStep::Adopt(AttestationInfo {
+                height: att.header_number,
+                digest: att.digest,
+            })
+        }
+        CcEvent::BlockAttested(_) => GenesisStep::Ignore,
+        CcEvent::AttestationChainGenesisBlockNumberSet(key, new)
+            if key == chain_key && new != target =>
+        {
+            GenesisStep::GenesisChanged(new)
+        }
+        other => GenesisStep::Apply(other),
+    }
+}
+
+/// Resolve once `can_attest` is true; `false` only if its sender is gone. A chilled, kicked or
+/// still-warming-up attestor must not sign: peers drop votes they cannot yet verify, and
+/// gossipsub never redelivers them.
+async fn wait_until_eligible(can_attest: &mut tokio::sync::watch::Receiver<bool>) -> bool {
+    if !*can_attest.borrow() {
+        tracing::info!(
+            "⏳ genesis block is mature but this attestor is not eligible to attest yet"
+        );
+    }
+    can_attest.wait_for(|eligible| *eligible).await.is_ok()
+}
+
+async fn wait_for_genesis(
     shared: &Arc<Shared>,
     events: &mut stream::cc3::StreamCC3,
     stream_attestation: &mut stream::attestation::StreamAttestation,
     target: attestor_primitives::Height,
-) -> Result<Option<AttestationInfo>, Error> {
-    use cc_client::attestation::CcEvent;
+    await_maturity: bool,
+) -> Result<GenesisWait, Error> {
     use futures::{StreamExt as _, TryStreamExt as _};
 
-    // Scratch finalized cursor for `handle_one`. Only its `BlockAttested` / reversion arms
-    // read or write `latest_cc3`, and we never route those through it here — every event we do
-    // route (elections, chill/kick, config changes) leaves it untouched. The caller keeps the
+    // Without `await_maturity` the gate never opens. Polled alongside the events below, so a long
+    // wait neither starves the cc3 stream nor is restarted by each batch. Eligibility is read
+    // after maturity: chill/kick/election events applied during the wait may have changed it.
+    let gate = async {
+        if await_maturity {
+            wait_for_genesis_maturity(shared, target).await
+                && wait_until_eligible(&mut shared.can_attest_rx.clone()).await
+        } else {
+            std::future::pending().await
+        }
+    };
+    tokio::pin!(gate);
+
+    // Scratch cursor for `handle_one`'s `BlockAttested` / reversion arms; the caller keeps the
     // authoritative `latest_cc3` from this function's return value.
     let mut scratch = AttestationInfo::default();
 
@@ -695,19 +852,10 @@ async fn wait_for_block_attested(
     let mut waited_secs: u64 = 0;
     loop {
         tokio::select! {
-            _ = shared.token.cancelled() => return Ok(None),
-            _ = tick.tick() => {
-                waited_secs += TICK_SECS;
-                if waited_secs >= ESCALATE_AFTER_SECS && waited_secs % 60 == 0 {
-                    tracing::error!(
-                        target,
-                        waited_secs,
-                        "⏲️ genesis BlockAttested still missing after prolonged waiting — the attestation chain is not bootstrapping. Check that a quorum of attestors for this chain key is running and meshed (each re-gossips its genesis vote every 30s, so a healthy quorum recovers in under a minute)"
-                    );
-                } else {
-                    tracing::info!(target, waited_secs, "⏲️ still waiting for genesis BlockAttested...");
-                }
-            }
+            // Biased, events before the gate: a genesis that peers already finalized must win
+            // over signing a stale vote.
+            biased;
+            _ = shared.token.cancelled() => return Ok(GenesisWait::Shutdown),
             maybe_batch = events.next() => {
                 // Stream end = permanent backfill error (see the main-loop arm) — fail fast.
                 let Some(mut batch) = maybe_batch else {
@@ -718,41 +866,36 @@ async fn wait_for_block_attested(
                 shared.health.note_progress();
                 let finalized_number = batch.block_number();
                 let mut registry_changed = false;
+                let mut adopted = None;
                 while let Some(event) = batch.try_next().await? {
                     registry_changed |= crate::peer_registry::affects_registry(&event);
-                    match event {
-                        // The genesis terminator: the first BlockAttested at/above the genesis
-                        // height carries the runtime-committed digest the caller needs. Return it
-                        // and let the caller run the finalization bookkeeping (it does more than
+                    match genesis_step(event, target, shared.chain_key) {
+                        // The first BlockAttested at/above genesis carries the runtime-committed
+                        // digest the caller needs. The rest of the block is still applied below,
+                        // then the caller runs the finalization bookkeeping (it does more than
                         // `handle_one`'s BlockAttested arm — pool floor, proof cache, watchdog).
-                        CcEvent::BlockAttested(att) if att.header_number >= target => {
-                            tracing::info!(
-                                height = att.header_number,
-                                digest = ?att.digest,
-                                "✅ genesis attestation finalized on-chain"
-                            );
-                            // This early return does not drain the rest of the block. Reload
-                            // its complete registry so a later key/policy event is still covered.
-                            crate::peer_registry::request_refresh(
-                                &shared.peer_registry_refresh_tx,
-                                finalized_number,
-                                shared.cc3.reconnect_success_count(),
-                                true,
-                            );
-                            return Ok(Some(AttestationInfo {
-                                height: att.header_number,
-                                digest: att.digest,
-                            }));
+                        GenesisStep::Adopt(info) => {
+                            if adopted.is_none() {
+                                tracing::info!(
+                                    height = info.height,
+                                    digest = ?info.digest,
+                                    "✅ genesis attestation finalized on-chain"
+                                );
+                                adopted = Some(info);
+                            }
                         }
-                        // A sub-genesis BlockAttested shouldn't occur; ignore it rather than feed
-                        // a below-genesis finalization into `handle_one`.
-                        CcEvent::BlockAttested(_) => {}
-                        // Every other event (committee election, chill/kick, target-sample-size /
-                        // max-catchup / interval changes) must still be applied while we wait —
-                        // dropping them left `bls_store`, pool membership, and threshold config
-                        // stale until a later duplicate event. Route them through the same handler
-                        // the steady-state loop uses.
-                        other => {
+                        GenesisStep::Ignore => {}
+                        // A re-set genesis makes this wait stale and `shared.genesis` is fixed at
+                        // startup: fail so the supervisor restarts the process, which re-reads it.
+                        GenesisStep::GenesisChanged(new) => {
+                            return Err(Error::Init(anyhow::anyhow!(
+                                "attestation genesis changed from {target} to {new} while bootstrapping"
+                            )));
+                        }
+                        // Committee, chill/kick and config changes must still be applied while we
+                        // wait — dropping them left `bls_store`, pool membership and threshold
+                        // config stale. Same handler as the steady-state loop.
+                        GenesisStep::Apply(other) => {
                             handle_one(shared, stream_attestation, &mut scratch, other, finalized_number).await?;
                         }
                     }
@@ -763,6 +906,28 @@ async fn wait_for_block_attested(
                     shared.cc3.reconnect_success_count(),
                     registry_changed,
                 );
+                if let Some(info) = adopted {
+                    return Ok(GenesisWait::Attested(info));
+                }
+            }
+            matured = &mut gate => {
+                return Ok(if matured { GenesisWait::Mature } else { GenesisWait::Shutdown });
+            }
+            _ = tick.tick() => {
+                waited_secs += TICK_SECS;
+                // The maturity wait logs its own progress and can take minutes; the stuck-
+                // bootstrap escalation only applies once our genesis vote is out.
+                if !await_maturity {
+                    if waited_secs >= ESCALATE_AFTER_SECS && waited_secs % 60 == 0 {
+                        tracing::error!(
+                            target,
+                            waited_secs,
+                            "⏲️ genesis BlockAttested still missing after prolonged waiting — the attestation chain is not bootstrapping. Check that a quorum of attestors for this chain key is running and meshed (each re-gossips its genesis vote every 30s, so a healthy quorum recovers in under a minute)"
+                        );
+                    } else {
+                        tracing::info!(target, waited_secs, "⏲️ still waiting for genesis BlockAttested...");
+                    }
+                }
             }
         }
     }
@@ -770,7 +935,155 @@ async fn wait_for_block_attested(
 
 #[cfg(test)]
 mod tests {
-    use super::{eligibility_action, EligibilityAction};
+    use super::{
+        eligibility_action, genesis_step, wait_until_eligible, wait_until_mature,
+        EligibilityAction, GenesisStep,
+    };
+    use attestor_primitives::Digest;
+    use cc_client::attestation::{BlockAttestedMetadata, CcEvent};
+    use std::collections::VecDeque;
+    use std::sync::Mutex;
+    use std::time::Duration;
+    use tokio_util::sync::CancellationToken;
+
+    type Step = Result<Option<u64>, eth::Error>;
+
+    const CHAIN: u64 = 7;
+
+    fn attested(height: u64) -> CcEvent {
+        CcEvent::BlockAttested(BlockAttestedMetadata {
+            chain_key: CHAIN,
+            header_number: height,
+            digest: Digest::repeat_byte(9),
+        })
+    }
+
+    #[test]
+    fn genesis_step_adopts_attestations_at_or_above_genesis() {
+        for height in [100, 101, 5_000] {
+            match genesis_step(attested(height), 100, CHAIN) {
+                GenesisStep::Adopt(info) => {
+                    assert_eq!((info.height, info.digest), (height, Digest::repeat_byte(9)));
+                }
+                _ => panic!("an attestation at {height} must end the wait"),
+            }
+        }
+    }
+
+    #[test]
+    fn genesis_step_ignores_attestations_below_genesis() {
+        assert!(matches!(
+            genesis_step(attested(99), 100, CHAIN),
+            GenesisStep::Ignore
+        ));
+    }
+
+    #[test]
+    fn genesis_step_flags_a_reset_genesis_height() {
+        let set = |key, height| CcEvent::AttestationChainGenesisBlockNumberSet(key, height);
+        assert!(matches!(
+            genesis_step(set(CHAIN, 250), 100, CHAIN),
+            GenesisStep::GenesisChanged(250)
+        ));
+        // Re-setting the same height, or another chain's genesis, changes nothing for this wait.
+        assert!(matches!(
+            genesis_step(set(CHAIN, 100), 100, CHAIN),
+            GenesisStep::Apply(_)
+        ));
+        assert!(matches!(
+            genesis_step(set(CHAIN + 1, 250), 100, CHAIN),
+            GenesisStep::Apply(_)
+        ));
+    }
+
+    #[test]
+    fn genesis_step_applies_everything_else() {
+        let event = CcEvent::AttestationIntervalChanged(CHAIN, 10);
+        assert!(matches!(
+            genesis_step(event, 100, CHAIN),
+            GenesisStep::Apply(CcEvent::AttestationIntervalChanged(CHAIN, 10))
+        ));
+    }
+
+    #[tokio::test]
+    async fn eligible_attestor_is_released_at_once() {
+        let (_tx, mut rx) = tokio::sync::watch::channel(true);
+        assert!(wait_until_eligible(&mut rx).await);
+    }
+
+    /// A chilled, kicked or warming-up attestor holds its genesis vote until eligible again.
+    #[tokio::test]
+    async fn ineligible_attestor_holds_until_eligible() {
+        let (tx, mut rx) = tokio::sync::watch::channel(false);
+        let held = tokio::time::timeout(Duration::from_millis(30), wait_until_eligible(&mut rx));
+        assert!(held.await.is_err());
+        tx.send(true).unwrap();
+        assert!(wait_until_eligible(&mut rx).await);
+    }
+
+    #[tokio::test]
+    async fn eligibility_wait_ends_when_the_sender_is_gone() {
+        let (tx, mut rx) = tokio::sync::watch::channel(false);
+        drop(tx);
+        assert!(!wait_until_eligible(&mut rx).await);
+    }
+
+    /// Drive `wait_until_mature` with a scripted sequence of mature-height answers. Returns the
+    /// outcome and how many answers were consumed.
+    async fn run_script(
+        token: &CancellationToken,
+        target: u64,
+        script: Vec<Step>,
+    ) -> (bool, usize) {
+        let total = script.len();
+        let script = Mutex::new(VecDeque::from(script));
+        let matured = wait_until_mature(token, Duration::from_millis(1), target, || {
+            let next = script.lock().unwrap().pop_front();
+            async move { next.expect("script exhausted before maturity") }
+        })
+        .await;
+        let consumed = total - script.lock().unwrap().len();
+        (matured, consumed)
+    }
+
+    #[tokio::test]
+    async fn mature_genesis_is_released_without_waiting() {
+        let token = CancellationToken::new();
+        assert_eq!(
+            run_script(&token, 100, vec![Ok(Some(100))]).await,
+            (true, 1)
+        );
+    }
+
+    /// A genesis at/above the mature height is waited on, not signed or treated as an init error.
+    #[tokio::test]
+    async fn unmatured_genesis_is_waited_on_until_it_matures() {
+        let token = CancellationToken::new();
+        let script = vec![Ok(None), Ok(Some(98)), Ok(Some(99)), Ok(Some(100))];
+        assert_eq!(run_script(&token, 100, script).await, (true, 4));
+    }
+
+    #[tokio::test]
+    async fn unresolvable_mature_height_is_retried() {
+        let token = CancellationToken::new();
+        let script = vec![Err(eth::Error::FailedToGetBlock(1)), Ok(Some(100))];
+        assert_eq!(run_script(&token, 100, script).await, (true, 2));
+    }
+
+    #[tokio::test]
+    async fn shutdown_ends_the_wait() {
+        let token = CancellationToken::new();
+        let canceller = token.clone();
+        tokio::spawn(async move {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+            canceller.cancel();
+        });
+        let matured = wait_until_mature(&token, Duration::from_secs(3600), 100, || async {
+            Ok(Some(1))
+        })
+        .await;
+        assert!(!matured);
+    }
 
     /// The full eligibility transition matrix. Regression pin for the warm-up logic: the bug that
     /// motivated the target guard was unrelated `AttestorKicked` events (target unchanged) being

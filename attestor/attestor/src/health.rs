@@ -219,13 +219,17 @@ impl Health {
             .store(now_unix_ms(), Ordering::Relaxed);
     }
 
-    /// Re-arm axis 2 after an attestation-chain reversion. A deep revert clears the proof cache
-    /// and rolls the source stream back; rebuilding to the first post-revert `emit_local` can
-    /// legitimately exceed `STALL_DEADLINE_MS` while *peers* keep finalizing (uneven recovery) —
-    /// exactly axis 2's trigger shape. Stamping the local-attested clock grants recovery one
-    /// full stall window before it can be flagged, instead of the pod being restarted (and
-    /// re-starting the same rebuild) mid-catch-up.
-    pub fn note_revert_recovery(&self) {
+    /// Re-arm axis 2 by granting the eth pipeline one full stall window. Used when the chain
+    /// attests without us for a legitimate reason and our local pipeline must rebuild first:
+    ///
+    /// * after an attestation-chain reversion: a deep revert clears the proof cache and rolls the
+    ///   source stream back, and rebuilding to the first post-revert `emit_local` can exceed
+    ///   `STALL_DEADLINE_MS` while *peers* keep finalizing (uneven recovery);
+    /// * after adopting a genesis that peers finalized during our (unsigned) maturity wait.
+    ///
+    /// Both are exactly axis 2's trigger shape; without the re-arm the pod is restarted
+    /// mid-rebuild and re-does the same work.
+    pub fn rearm_stall_window(&self) {
         self.last_local_attested_ms
             .store(now_unix_ms(), Ordering::Relaxed);
     }
@@ -529,6 +533,19 @@ mod tests {
         // cc3 batches keep flowing but nobody (us included) attests: the source chain is down
         // for everyone — a restart would not help, so this must stay alive.
         h.last_progress_ms.store(now, Ordering::Relaxed);
+        assert_eq!(h.observe(now, 0, 0), Liveness::Progressing);
+    }
+
+    /// A long wait that signed nothing, ended by the chain attesting without us (adopting a genesis
+    /// peers finalized), looks exactly like an eth stall until the re-arm grants a stall window.
+    #[test]
+    fn stall_window_rearm_covers_an_unsigned_wait() {
+        let h = health_at(1);
+        let now = now_unix_ms();
+        h.last_progress_ms.store(now, Ordering::Relaxed);
+        h.last_chain_attested_ms.store(now, Ordering::Relaxed);
+        assert_eq!(h.observe(now, 0, 0), Liveness::Stalled);
+        h.rearm_stall_window();
         assert_eq!(h.observe(now, 0, 0), Liveness::Progressing);
     }
 
