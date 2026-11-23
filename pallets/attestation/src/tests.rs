@@ -11376,6 +11376,81 @@ mod prevalidate_attestation_commit_extension {
             );
         })
     }
+
+    /// The race seen on mainnet: quorums for two heights form on the same anchor and both reach
+    /// the pool. Once the lower one lands, the higher one no longer extends the latest digest and
+    /// can only fail in dispatch, so it must be rejected before fees, both on pool revalidation
+    /// and during block building.
+    #[test]
+    fn prevalidate_rejects_a_rival_built_on_a_superseded_anchor() {
+        ExtBuilder.build_and_execute(|| {
+            let (attestor, genesis) = setup_attesting_chain();
+            System::set_block_number(System::block_number() + 1);
+            let attestation = |header: u64, prev: &SignedAttestation<H256, u64>| {
+                create_signed_attestation(
+                    vec![attestor.clone()],
+                    SUPPORTED_CHAIN_KEY,
+                    header,
+                    Some(prev.digest()),
+                    Some(construct_fragment(
+                        Some(prev.digest()),
+                        RangeInclusive::new(prev.header_number() + 1, header - 1),
+                    )),
+                )
+            };
+            let validate = |attestation: &SignedAttestation<H256, u64>, source| {
+                let call = RuntimeCall::Attestation(crate::Call::commit_attestation {
+                    attestation: attestation.clone(),
+                });
+                let info = call.get_dispatch_info();
+                PrevalidateAttestationCommit::<Test>::new()
+                    .validate(
+                        RuntimeOrigin::signed(attestor.attestor_id),
+                        &call,
+                        &info,
+                        0,
+                        (),
+                        &TxBaseImplication(call.clone()),
+                        source,
+                    )
+                    .map(|(valid, _, _)| valid)
+            };
+
+            let lower = attestation(10, &genesis);
+            let rival = attestation(20, &genesis);
+            assert!(
+                !validate(&rival, TransactionSource::External)
+                    .expect("both rivals are valid before either lands")
+                    .provides
+                    .is_empty(),
+                "precondition: the rival passes full validation while its anchor is the latest"
+            );
+
+            assert_ok!(Attestation::commit_attestation(
+                attestor.attestor_origin.clone(),
+                lower.clone()
+            ));
+
+            for source in [TransactionSource::External, TransactionSource::InBlock] {
+                assert_eq!(
+                    validate(&rival, source).unwrap_err(),
+                    TransactionValidityError::Invalid(InvalidTransaction::Stale),
+                    "a rival on a superseded anchor must be dropped before fees ({source:?})"
+                );
+            }
+
+            // Control: the same height built on the new head is admitted and commits.
+            let rebuilt = attestation(20, &lower);
+            assert!(!validate(&rebuilt, TransactionSource::External)
+                .expect("a quorum on the latest digest is admitted")
+                .provides
+                .is_empty());
+            assert_ok!(Attestation::commit_attestation(
+                attestor.attestor_origin.clone(),
+                rebuilt
+            ));
+        })
+    }
 }
 
 #[cfg(test)]
