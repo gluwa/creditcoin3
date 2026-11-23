@@ -108,7 +108,7 @@ pub struct Config {
     pub finalization_lag_override: Option<u64>,
 
     /// How often, in seconds, to read the latest attested height from Creditcoin while following
-    /// the tip. Every second of staleness comes out of the head start that following inclusion
+    /// the tip. Every second of polling delay reduces the head start that following inclusion
     /// gives the archiver over proof-gen, which only sees an attestation once it is finalized;
     /// one storage read per poll is cheap, so keep this short.
     #[arg(long, env = "ATTESTED_POLL_SECS", default_value = "2")]

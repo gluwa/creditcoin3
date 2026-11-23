@@ -159,6 +159,11 @@ pub struct ProofGenMetrics {
     requests_in_flight: Gauge<i64, AtomicI64>,
     requests_rejected: Family<labels::LabelRejection, Counter<u64, AtomicU64>>,
 
+    // Roots built from the source RPC because the archiver could not serve them, by reason.
+    // Any reason other than `CatchingUp` is the archiver failing; steady `CatchingUp` growth
+    // means it keeps losing the race to the prover after each attestation.
+    archiver_rpc_fallbacks: Family<labels::LabelArchiverFallback, Counter<u64, AtomicU64>>,
+
     // Hardware metrics
     cpu_usage_percent: Gauge<f64, AtomicU64>,
     memory_usage_bytes: Gauge<f64, AtomicU64>,
@@ -339,6 +344,13 @@ impl ProofGenMetrics {
             requests_rejected.clone(),
         );
 
+        let archiver_rpc_fallbacks = Family::default();
+        registry.register(
+            "proof_gen_archiver_rpc_fallbacks",
+            "Continuity ranges built from the source RPC because the archiver could not serve them, by reason and outcome",
+            archiver_rpc_fallbacks.clone(),
+        );
+
         let thread_count = Gauge::default();
         registry.register(
             "proof_gen_thread_count",
@@ -384,8 +396,25 @@ impl ProofGenMetrics {
             memory_usage_bytes,
             requests_in_flight,
             requests_rejected,
+            archiver_rpc_fallbacks,
             thread_count,
         }
+    }
+
+    /// The archiver could not serve a range, so its roots were built from the source RPC.
+    pub fn archiver_rpc_fallback(
+        &self,
+        chain_key: u64,
+        reason: labels::FallbackReason,
+        outcome: labels::FallbackOutcome,
+    ) {
+        self.archiver_rpc_fallbacks
+            .get_or_create(&labels::LabelArchiverFallback {
+                chain_key,
+                reason,
+                outcome,
+            })
+            .inc();
     }
 
     /// A proof request passed admission and started running.
@@ -733,6 +762,59 @@ pub mod labels {
     #[derive(Clone, Debug, Hash, PartialEq, Eq, EncodeLabelSet)]
     pub struct LabelRejection {
         pub reason: Rejection,
+    }
+
+    /// How a source-RPC fallback for roots the archiver had not stored yet ended.
+    #[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, EncodeLabelValue)]
+    pub enum FallbackOutcome {
+        /// The missing roots were built from the source RPC and the request was served.
+        Served,
+        /// The source RPC failed too; the caller got the archiver's error.
+        Failed,
+    }
+
+    impl From<continuity::archiver::RpcFallbackOutcome> for FallbackOutcome {
+        fn from(outcome: continuity::archiver::RpcFallbackOutcome) -> Self {
+            match outcome {
+                continuity::archiver::RpcFallbackOutcome::Served => Self::Served,
+                continuity::archiver::RpcFallbackOutcome::Failed => Self::Failed,
+            }
+        }
+    }
+
+    /// Why roots were built from the source RPC instead of the archiver. Everything other than
+    /// `CatchingUp` is the archiver failing.
+    #[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, EncodeLabelValue)]
+    pub enum FallbackReason {
+        CatchingUp,
+        Hole,
+        Stalled,
+        UnknownHeight,
+        ArchiverFault,
+        Unreachable,
+        BadResponse,
+    }
+
+    impl From<continuity::archiver::RpcFallbackReason> for FallbackReason {
+        fn from(reason: continuity::archiver::RpcFallbackReason) -> Self {
+            use continuity::archiver::RpcFallbackReason as R;
+            match reason {
+                R::CatchingUp => Self::CatchingUp,
+                R::Hole => Self::Hole,
+                R::Stalled => Self::Stalled,
+                R::UnknownHeight => Self::UnknownHeight,
+                R::ArchiverFault => Self::ArchiverFault,
+                R::Unreachable => Self::Unreachable,
+                R::BadResponse => Self::BadResponse,
+            }
+        }
+    }
+
+    #[derive(Clone, Debug, Hash, PartialEq, Eq, EncodeLabelSet)]
+    pub struct LabelArchiverFallback {
+        pub chain_key: u64,
+        pub reason: FallbackReason,
+        pub outcome: FallbackOutcome,
     }
 }
 

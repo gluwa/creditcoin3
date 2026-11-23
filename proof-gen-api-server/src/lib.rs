@@ -103,6 +103,7 @@ impl Server {
                 chain,
                 &checkpoint_intervals,
                 &last_checkpoint_blocks,
+                &prom_metrics,
             )
             .await?;
             builders.push(builder);
@@ -128,6 +129,7 @@ impl Server {
         chain: &ChainConfig,
         checkpoint_intervals: &Arc<RwLock<HashMap<u64, u64>>>,
         last_checkpoint_blocks: &Arc<RwLock<HashMap<u64, u64>>>,
+        prom_metrics: &Arc<ProofGenMetrics>,
     ) -> Result<(
         Arc<ContinuityBuilder>,
         Option<Arc<eth::mem_block_cache::MemBlockCache>>,
@@ -247,20 +249,31 @@ impl Server {
             continuity::rpc::ReconnectingEthRpcProvider::new(eth_client, chain_encoding),
         );
 
-        let eth_provider: continuity::rpc::SharedEthProvider =
-            if let Some(ref archiver_url) = chain.archiver_url {
-                debug!(
-                    chain_key,
-                    archiver_url = %redact_url_query(archiver_url),
-                    "🚀 [startup] wrapping ETH client with archiver HTTP provider"
-                );
-                Arc::new(continuity::archiver::ArchiverEthProvider::new(
-                    archiver_url.clone(),
-                    reconnecting,
-                ))
-            } else {
-                reconnecting
-            };
+        // Counts the ranges the archiver could not serve, so they were built from the source
+        // RPC instead, by reason and outcome.
+        let metrics = prom_metrics.clone();
+        let fallback_observer: continuity::archiver::RpcFallbackObserver = Arc::new(
+            move |reason: continuity::archiver::RpcFallbackReason,
+                  outcome: continuity::archiver::RpcFallbackOutcome| {
+                metrics.archiver_rpc_fallback(chain_key, reason.into(), outcome.into());
+            },
+        );
+
+        let eth_provider: continuity::rpc::SharedEthProvider = if let Some(ref archiver_url) =
+            chain.archiver_url
+        {
+            debug!(
+                chain_key,
+                archiver_url = %redact_url_query(archiver_url),
+                "🚀 [startup] wrapping ETH client with archiver HTTP provider"
+            );
+            Arc::new(
+                continuity::archiver::ArchiverEthProvider::new(archiver_url.clone(), reconnecting)
+                    .with_fallback_observer(fallback_observer),
+            )
+        } else {
+            reconnecting
+        };
 
         debug!(
             chain_key,
