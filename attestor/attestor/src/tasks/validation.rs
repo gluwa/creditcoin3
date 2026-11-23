@@ -816,12 +816,32 @@ fn cleanup_marker(
     })
 }
 
-/// Read the cleanup marker of this chain. A failed or slow read counts as "no cleanup", which
-/// falls back to retrying immediately.
+/// Run one cleanup-state read under [`CLEANUP_READ_TIMEOUT`]. A failure or timeout is logged with
+/// the consequence in `fallback` and yields `None`.
+async fn bounded_read<T>(
+    fallback: &str,
+    read: impl std::future::Future<Output = Result<T, subxt::Error>>,
+) -> Option<T> {
+    match tokio::time::timeout(CLEANUP_READ_TIMEOUT, read).await {
+        Ok(Ok(value)) => Some(value),
+        Ok(Err(err)) => {
+            tracing::warn!(?err, "cleanup state read failed — {fallback}");
+            None
+        }
+        Err(_) => {
+            tracing::warn!("cleanup state read timed out — {fallback}");
+            None
+        }
+    }
+}
+
+/// Read the cleanup marker of this chain. If this chain's own state cannot be read the result is
+/// `None` ("no cleanup", so the retry is not held). The queue heads only add a progress signal, so
+/// failing to read them keeps the marker and waits on this chain's own state alone.
 async fn read_cleanup_marker(shared: &Shared) -> Option<CleanupMarker> {
-    let read = async {
+    let attestation = cc_client::cc3::storage().attestation();
+    let (storage, cursor, pruning) = bounded_read("assuming no cleanup", async {
         let storage = shared.cc3.api().storage().at_latest().await?;
-        let attestation = cc_client::cc3::storage().attestation();
         let cursor = storage
             .fetch(&attestation.attestation_clearing_cursors(shared.chain_key))
             .await?;
@@ -829,37 +849,34 @@ async fn read_cleanup_marker(shared: &Shared) -> Option<CleanupMarker> {
             .fetch(&attestation.checkpoint_pruning_states(shared.chain_key))
             .await?
             .map(|state| state.next_pivot);
-        // Only a pending cleanup needs the queue heads.
-        let (mut clearing_head, mut pruning_head) = (None, None);
-        if cursor.is_some() || pruning.is_some() {
-            clearing_head = storage
+        Ok((storage, cursor, pruning))
+    })
+    .await?;
+    // Only a pending cleanup needs the queue heads.
+    if cursor.is_none() && pruning.is_none() {
+        return None;
+    }
+    let (clearing_head, pruning_head) =
+        bounded_read("waiting on this chain's state alone", async {
+            let clearing_head = storage
                 .iter(attestation.attestation_clearing_cursors_iter())
                 .await?
                 .next()
                 .await
                 .transpose()?
                 .map(|entry| entry.value);
-            pruning_head = storage
+            let pruning_head = storage
                 .iter(attestation.checkpoint_pruning_states_iter())
                 .await?
                 .next()
                 .await
                 .transpose()?
                 .map(|entry| entry.value.next_pivot);
-        }
-        Ok::<_, subxt::Error>(cleanup_marker(cursor, pruning, clearing_head, pruning_head))
-    };
-    match tokio::time::timeout(CLEANUP_READ_TIMEOUT, read).await {
-        Ok(Ok(marker)) => marker,
-        Ok(Err(err)) => {
-            tracing::warn!(?err, "cleanup state read failed — assuming no cleanup");
-            None
-        }
-        Err(_) => {
-            tracing::warn!("cleanup state read timed out — assuming no cleanup");
-            None
-        }
-    }
+            Ok((clearing_head, pruning_head))
+        })
+        .await
+        .unwrap_or((None, None));
+    cleanup_marker(cursor, pruning, clearing_head, pruning_head)
 }
 
 /// Poll `read_marker` until it reports no cleanup, shutdown is requested, or the marker has not
@@ -1389,6 +1406,13 @@ mod tests {
         assert_ne!(before, marker(&[1, 3], Some(1000), &[7], Some(9)));
         assert_ne!(before, marker(&[1, 2], Some(2000), &[7], Some(9)));
         assert_ne!(before, marker(&[1, 2], None, &[7], Some(9)));
+    }
+
+    // Failing to read the queue heads must not turn a pending cleanup into "drained".
+    #[test]
+    fn cleanup_marker_stays_pending_when_the_queue_heads_are_unknown() {
+        assert!(cleanup_marker(Some(vec![1]), None, None, None).is_some());
+        assert!(cleanup_marker(None, Some(1000), None, None).is_some());
     }
 
     // A chain queued behind another keeps its own state still while the head drains.
