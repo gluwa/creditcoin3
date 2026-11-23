@@ -794,17 +794,25 @@ struct CleanupMarker {
     clearing_cursor: Option<Vec<u8>>,
     /// `CheckpointPruningStates::next_pivot`: moves once per cleared bucket.
     pruning_next_pivot: Option<u64>,
+    /// The first entry of each queue. The pallet drains one chain per block, so this chain's own
+    /// state stays still while it waits behind another; the head is what moves meanwhile.
+    clearing_head: Option<Vec<u8>>,
+    pruning_head: Option<u64>,
 }
 
-/// `None` when neither cleanup is pending. Mirrors `Pallet::commit_blocked_by_cleanup`, so a third
-/// blocking condition added there must be added here too.
+/// `None` when this chain has no cleanup pending. Mirrors `Pallet::commit_blocked_by_cleanup`, so
+/// a third blocking condition added there must be added here too.
 fn cleanup_marker(
     clearing_cursor: Option<Vec<u8>>,
     pruning_next_pivot: Option<u64>,
+    clearing_head: Option<Vec<u8>>,
+    pruning_head: Option<u64>,
 ) -> Option<CleanupMarker> {
     (clearing_cursor.is_some() || pruning_next_pivot.is_some()).then_some(CleanupMarker {
         clearing_cursor,
         pruning_next_pivot,
+        clearing_head,
+        pruning_head,
     })
 }
 
@@ -819,11 +827,27 @@ async fn read_cleanup_marker(shared: &Shared) -> Option<CleanupMarker> {
             .await?;
         let pruning = storage
             .fetch(&attestation.checkpoint_pruning_states(shared.chain_key))
-            .await?;
-        Ok::<_, subxt::Error>(cleanup_marker(
-            cursor,
-            pruning.map(|state| state.next_pivot),
-        ))
+            .await?
+            .map(|state| state.next_pivot);
+        // Only a pending cleanup needs the queue heads.
+        let (mut clearing_head, mut pruning_head) = (None, None);
+        if cursor.is_some() || pruning.is_some() {
+            clearing_head = storage
+                .iter(attestation.attestation_clearing_cursors_iter())
+                .await?
+                .next()
+                .await
+                .transpose()?
+                .map(|entry| entry.value);
+            pruning_head = storage
+                .iter(attestation.checkpoint_pruning_states_iter())
+                .await?
+                .next()
+                .await
+                .transpose()?
+                .map(|entry| entry.value.next_pivot);
+        }
+        Ok::<_, subxt::Error>(cleanup_marker(cursor, pruning, clearing_head, pruning_head))
     };
     match tokio::time::timeout(CLEANUP_READ_TIMEOUT, read).await {
         Ok(Ok(marker)) => marker,
@@ -1340,21 +1364,47 @@ mod tests {
     use crate::proof_cache::CachedProof;
 
     #[test]
-    fn cleanup_marker_is_none_only_when_neither_cleanup_is_pending() {
-        assert_eq!(cleanup_marker(None, None), None);
-        assert!(cleanup_marker(Some(vec![1]), None).is_some());
-        assert!(cleanup_marker(None, Some(0)).is_some());
+    fn cleanup_marker_is_none_only_when_this_chain_has_no_cleanup_pending() {
+        assert_eq!(cleanup_marker(None, None, None, None), None);
+        // Another chain's cleanup does not block this chain's commits.
+        assert_eq!(cleanup_marker(None, None, Some(vec![1]), Some(5)), None);
+        assert!(cleanup_marker(Some(vec![1]), None, None, None).is_some());
+        assert!(cleanup_marker(None, Some(0), None, None).is_some());
         // An empty cursor is still a pending cleanup.
-        assert!(cleanup_marker(Some(vec![]), None).is_some());
+        assert!(cleanup_marker(Some(vec![]), None, None, None).is_some());
     }
 
     #[test]
     fn cleanup_marker_changes_exactly_when_the_cleanup_moves() {
-        let before = cleanup_marker(Some(vec![1, 2]), Some(1000));
-        assert_eq!(before, cleanup_marker(Some(vec![1, 2]), Some(1000)));
-        assert_ne!(before, cleanup_marker(Some(vec![1, 3]), Some(1000)));
-        assert_ne!(before, cleanup_marker(Some(vec![1, 2]), Some(2000)));
-        assert_ne!(before, cleanup_marker(Some(vec![1, 2]), None));
+        let marker = |cursor: &[u8], pivot, head: &[u8], head_pivot| {
+            cleanup_marker(
+                Some(cursor.to_vec()),
+                pivot,
+                Some(head.to_vec()),
+                head_pivot,
+            )
+        };
+        let before = marker(&[1, 2], Some(1000), &[7], Some(9));
+        assert_eq!(before, marker(&[1, 2], Some(1000), &[7], Some(9)));
+        assert_ne!(before, marker(&[1, 3], Some(1000), &[7], Some(9)));
+        assert_ne!(before, marker(&[1, 2], Some(2000), &[7], Some(9)));
+        assert_ne!(before, marker(&[1, 2], None, &[7], Some(9)));
+    }
+
+    // A chain queued behind another keeps its own state still while the head drains.
+    #[test]
+    fn cleanup_marker_changes_when_only_the_queue_head_moves() {
+        let queued = |head: &[u8], head_pivot| {
+            cleanup_marker(
+                Some(vec![1, 2]),
+                Some(1000),
+                Some(head.to_vec()),
+                head_pivot,
+            )
+        };
+        assert_ne!(queued(&[7], Some(9)), queued(&[8], Some(9)));
+        assert_ne!(queued(&[7], Some(9)), queued(&[7], Some(10)));
+        assert_eq!(queued(&[7], Some(9)), queued(&[7], Some(9)));
     }
 
     #[tokio::test(start_paused = true)]
