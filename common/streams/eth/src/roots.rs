@@ -47,11 +47,11 @@ pub struct Config {
     #[default(DEFAULT_RPC_CALL_TIMEOUT)]
     pub rpc_call_timeout: std::time::Duration,
 
-    /// End the stream instead of reconnecting when a block fetch fails in a way no retry can
-    /// fix ([`eth::Error::is_unrecoverable`]: the node lacks the RPC method, or serves a block
-    /// this client cannot decode). Reconnecting would fetch the same height and fail the same
-    /// way, forever. The error is then available from [`StreamRoots::unrecoverable_slot`]. Off by
-    /// default; whoever turns it on must read the slot when the stream ends.
+    /// End the stream instead of reconnecting when a block fetch fails in a way no retry can fix
+    /// ([`eth::Error::is_unrecoverable`]), or keeps failing at the same height
+    /// ([`MAX_STALLED_FAILURES`] block-level failures in a row). Reconnecting would only repeat
+    /// it. The error is then available from [`StreamRoots::unrecoverable_slot`]. Off by default;
+    /// whoever turns it on must read the slot when the stream ends.
     #[default(false)]
     pub stop_on_unrecoverable: bool,
 }
@@ -99,9 +99,36 @@ impl UnrecoverableSlot {
 }
 
 /// Times one height is fetched again after the endpoints answered but the block was unusable,
-/// before the error is handed up.
+/// before the error is handed up. Each fetch already retries across endpoints for about two
+/// minutes, so this multiplies the wait for a stuck height; the delay only spaces the attempts.
 const HEIGHT_RETRIES: usize = 2;
 const HEIGHT_RETRY_DELAY: std::time::Duration = std::time::Duration::from_secs(2);
+
+/// Block-level failures in a row at the same height after which the stream gives up under
+/// [`Config::stop_on_unrecoverable`]: about 20 minutes with the retries above.
+const MAX_STALLED_FAILURES: usize = 3;
+
+/// Counts block-level failures in a row while waiting for the same next height.
+#[derive(Default)]
+struct Stall {
+    height: u64,
+    failures: usize,
+}
+
+impl Stall {
+    /// Record a block-level failure while waiting for `next`. True once it is
+    /// [`MAX_STALLED_FAILURES`] in a row without `next` having moved.
+    fn record(&mut self, next: u64) -> bool {
+        if self.failures == 0 || self.height != next {
+            *self = Stall {
+                height: next,
+                failures: 0,
+            };
+        }
+        self.failures += 1;
+        self.failures >= MAX_STALLED_FAILURES
+    }
+}
 
 /// The upper bound of the heights this stream fetches, and where it comes from.
 ///
@@ -169,6 +196,7 @@ impl StreamRoots {
         let mut stream_blocks = stream_rpc(config.clone()).await;
 
         let mut next = start_height;
+        let mut stall = Stall::default();
         let mut roots = tokio::task::JoinSet::<stream_util::RootInfo>::new();
         let mut heap = std::collections::BinaryHeap::with_capacity(max_parallelism);
 
@@ -252,6 +280,16 @@ impl StreamRoots {
                                 // Regenerate the stream. A block-level error only gets here after
                                 // `retry_block_level` or when no retry can help; anything else is
                                 // taken to be a dead connection.
+                                if stop_on_unrecoverable && err.is_block_level() && stall.record(next) {
+                                    tracing::error!(
+                                        %err,
+                                        height = next,
+                                        "⛔ Eth block keeps failing at the same height; ending the root stream"
+                                    );
+                                    abort_roots(&mut roots).await;
+                                    unrecoverable_slot.set(err);
+                                    return;
+                                }
                                 if err.is_block_level() {
                                     tracing::error!(
                                         %err,
@@ -1289,6 +1327,28 @@ mod tests {
         let (result, calls, waited) = run_scripted(vec![Err(Interrupt::Stop)]).await;
         assert!(matches!(result, Err(Interrupt::Stop)));
         assert_eq!((calls, waited), (1, std::time::Duration::ZERO));
+    }
+
+    #[test]
+    fn a_height_that_keeps_failing_ends_the_stream_and_progress_resets_the_count() {
+        let mut stall = Stall::default();
+        for _ in 1..MAX_STALLED_FAILURES {
+            assert!(!stall.record(7));
+        }
+        assert!(
+            stall.record(7),
+            "the last allowed failure at one height gives up"
+        );
+
+        // The next height moved on, so a different block is failing: counted afresh.
+        let mut stall = Stall::default();
+        for _ in 1..MAX_STALLED_FAILURES {
+            assert!(!stall.record(7));
+        }
+        for _ in 1..MAX_STALLED_FAILURES {
+            assert!(!stall.record(8), "progress resets the count");
+        }
+        assert!(stall.record(8));
     }
 
     #[test]

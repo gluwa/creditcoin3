@@ -146,9 +146,9 @@ pub enum Error {
     },
     #[error("Failed to get chain id, Error: {0}")]
     FailedToGetChainId(String),
-    #[error("Ethereum RPC error {}", redact_urls_in_text(&.0.to_string()))]
+    #[error("Ethereum RPC error {}", redact_bounded(&.0.to_string()))]
     EthError(#[from] alloy::transports::RpcError<TransportErrorKind>),
-    #[error("Client error {}", redact_urls_in_text(&.0.to_string()))]
+    #[error("Client error {}", redact_bounded(&.0.to_string()))]
     ClientError(#[from] anyhow::Error),
     #[error("Transaction conversion {0}")]
     TransactionConversion(ConversionError),
@@ -272,11 +272,12 @@ impl Error {
                 | Error::DecreasingCumulativeGas { .. }
                 | Error::TransactionHashMismatch { .. }
                 | Error::BlockPayloadTooLarge { .. }
-        ) || self.is_oversized_response()
+        )
     }
 
     /// True when an HTTP reply was dropped for exceeding [`HTTP_MAX_RESPONSE_SIZE`]. The endpoint
-    /// answered, so another one may serve the same request.
+    /// answered, so another one may serve it. Not a block-payload inconsistency: the cap applies
+    /// to every HTTP call, not only block fetches.
     pub fn is_oversized_response(&self) -> bool {
         use alloy::transports::RpcError;
         matches!(
@@ -290,6 +291,7 @@ impl Error {
     /// served yet, or undecodable), as opposed to a failing connection that a reconnect may fix.
     pub fn is_block_level(&self) -> bool {
         self.inconsistent_block_payload_for_fallback()
+            || self.is_oversized_response()
             || self.is_unrecoverable()
             || matches!(
                 self,
@@ -1194,12 +1196,33 @@ impl CappedHttp {
         if !status.is_success() {
             return Err(TransportErrorKind::http_error(
                 status.as_u16(),
-                String::from_utf8_lossy(&body).into_owned(),
+                body_text(&body),
             ));
         }
         serde_json::from_slice(&body)
-            .map_err(|err| TransportError::deser_err(err, String::from_utf8_lossy(&body)))
+            .map_err(|err| TransportError::deser_err(err, body_text(&body)))
     }
+}
+
+/// Longest error text rendered into a message or log line; the rest is cut. Text a provider
+/// controls (an error body, a JSON-RPC error message) can be as long as the response cap.
+const MAX_ERROR_TEXT: usize = 4096;
+
+/// The start of a response body, as text, for an error: at most [`MAX_ERROR_TEXT`] bytes.
+fn body_text(body: &[u8]) -> String {
+    let cut = &body[..body.len().min(MAX_ERROR_TEXT)];
+    let mut text = match std::str::from_utf8(cut) {
+        Ok(text) => text.to_owned(),
+        // A character cut in half at the end is dropped; invalid bytes elsewhere are replaced.
+        Err(e) if e.error_len().is_none() => {
+            String::from_utf8_lossy(&cut[..e.valid_up_to()]).into_owned()
+        }
+        Err(_) => String::from_utf8_lossy(cut).into_owned(),
+    };
+    if cut.len() < body.len() {
+        text.push('…');
+    }
+    text
 }
 
 impl tower::Service<RequestPacket> for CappedHttp {
@@ -1797,7 +1820,10 @@ impl Client {
                     // The endpoint answered, but with a payload this client refuses to use (an
                     // oversized reply, a block over the count limits, or counts that disagree):
                     // fail over exactly as for a payload that fails verification.
-                    Err(e) if e.inconsistent_block_payload_for_fallback() => {
+                    Err(e)
+                        if e.inconsistent_block_payload_for_fallback()
+                            || e.is_oversized_response() =>
+                    {
                         tracing::warn!(
                             provider = %label,
                             block_number = number,
@@ -2627,22 +2653,52 @@ pub fn redact_url_query(url: &str) -> String {
 /// Transport errors (reqwest's `error sending request for url (...)`) carry the full request URL,
 /// API key included, so any error rendered into a log line goes through this.
 pub fn redact_urls_in_text(text: &str) -> String {
-    const SCHEMES: [&str; 4] = ["https://", "http://", "wss://", "ws://"];
+    // At most one of these ends right before a given `://`.
+    const SCHEMES: [&str; 4] = ["https", "http", "wss", "ws"];
 
     let mut out = String::with_capacity(text.len());
     let mut rest = text;
-    while let Some(start) = SCHEMES.iter().filter_map(|s| rest.find(s)).min() {
-        let (head, tail) = rest.split_at(start);
+    // Where to look for the next `://` in `rest`: one forward pass, however many URLs there are.
+    let mut from = 0;
+    while let Some(offset) = rest[from..].find("://") {
+        let colon = from + offset;
+        let Some(scheme) = SCHEMES.iter().find(|s| rest[..colon].ends_with(**s)) else {
+            from = colon + "://".len();
+            continue;
+        };
+        let (head, tail) = rest.split_at(colon - scheme.len());
         out.push_str(head);
-        let end = tail
-            .find(|c: char| {
-                c.is_whitespace() || matches!(c, ')' | '"' | '\'' | '\\' | '<' | '>' | ',' | '`')
-            })
-            .unwrap_or(tail.len());
+        let end = tail.find(ends_url).unwrap_or(tail.len());
         out.push_str(&redact_url_query(&tail[..end]));
         rest = &tail[end..];
+        from = 0;
     }
     out.push_str(rest);
+    out
+}
+
+fn ends_url(c: char) -> bool {
+    c.is_whitespace() || matches!(c, ')' | '"' | '\'' | '\\' | '<' | '>' | ',' | '`')
+}
+
+/// [`redact_urls_in_text`] on at most [`MAX_ERROR_TEXT`] bytes of `text`, so neither the work nor
+/// the log line grows with a provider's reply.
+fn redact_bounded(text: &str) -> String {
+    if text.len() <= MAX_ERROR_TEXT {
+        return redact_urls_in_text(text);
+    }
+    let mut end = MAX_ERROR_TEXT;
+    while !text.is_char_boundary(end) {
+        end -= 1;
+    }
+    // Cut after a delimiter: half of a URL would slip past the redaction heuristics.
+    let end = text[..end]
+        .char_indices()
+        .rev()
+        .find(|(_, c)| ends_url(*c))
+        .map_or(end, |(i, c)| i + c.len_utf8());
+    let mut out = redact_urls_in_text(&text[..end]);
+    out.push('…');
     out
 }
 
@@ -2689,7 +2745,8 @@ pub fn simple_merkle_tree(block: &OrderedBlock) -> merkle::KeccakMerkleTree {
 #[cfg(test)]
 mod provider_lookup_tests {
     use super::{
-        merge_provider_lookup, redact_url_query, redact_urls_in_text, Error, LookupOutcome,
+        merge_provider_lookup, redact_bounded, redact_url_query, redact_urls_in_text, Error,
+        LookupOutcome, MAX_ERROR_TEXT,
     };
 
     fn err(msg: &str) -> Error {
@@ -2716,6 +2773,33 @@ mod provider_lookup_tests {
             redacted,
             r#"a wss://node.example.io/v2/…, b http://x.io/p?… and \"https://y.io/…\" end"#
         );
+    }
+
+    #[test]
+    fn redacting_many_urls_takes_linear_time() {
+        // ~1.1 MiB, 131k URLs. The search used to restart for every scheme on every URL.
+        let text = "http://a ".repeat(1 << 17);
+        let start = std::time::Instant::now();
+        assert_eq!(redact_urls_in_text(&text), text);
+        assert!(start.elapsed() < std::time::Duration::from_secs(10));
+    }
+
+    #[test]
+    fn error_text_is_cut_before_redaction_and_never_through_a_url() {
+        // The 4096-byte cut falls inside the key of this URL; no fragment of it may survive.
+        let text = format!(
+            "{} https://rpc.example.io/v2/KEYKEYKEYKEYKEYKEYKEY0123456789 tail",
+            "a ".repeat(2028)
+        );
+        let out = redact_bounded(&text);
+        assert!(!out.contains("KEY"), "{out}");
+        assert!(out.ends_with('…') && out.len() <= MAX_ERROR_TEXT + '…'.len_utf8());
+
+        // A long provider message costs a bounded, short line.
+        let long = Error::ClientError(anyhow::anyhow!("x".repeat(1 << 20))).to_string();
+        assert!(long.len() < 2 * MAX_ERROR_TEXT);
+        // And short text is unchanged.
+        assert_eq!(redact_bounded("plain"), "plain");
     }
 
     #[test]
@@ -3934,8 +4018,12 @@ mod raw_rlp_tests {
         );
         let err = request_against(reply).await.unwrap_err();
         assert!(err.is_oversized_response(), "{err}");
-        assert!(err.inconsistent_block_payload_for_fallback());
+        // Not a verdict on a block: the cap covers every HTTP call.
+        assert!(!err.inconsistent_block_payload_for_fallback());
         assert!(err.is_block_level() && !err.is_rate_limited());
+        assert!(!anyhow_chain_is_inconsistent_block_payload(
+            &anyhow::Error::new(err)
+        ));
     }
 
     #[tokio::test]
@@ -3969,6 +4057,16 @@ mod raw_rlp_tests {
         .unwrap_err();
         assert!(err.is_rate_limited(), "{err}");
         assert!(!err.is_oversized_response());
+    }
+
+    #[test]
+    fn error_bodies_are_cut_to_a_few_kib_without_splitting_a_character() {
+        // 3-byte characters: the cut at 4096 bytes lands in the middle of one.
+        let body = "€".repeat(MAX_ERROR_TEXT);
+        let text = body_text(body.as_bytes());
+        assert!(text.ends_with('…') && text.len() <= MAX_ERROR_TEXT + '…'.len_utf8());
+        assert!(!text.contains('\u{fffd}'));
+        assert_eq!(body_text(b"short"), "short");
     }
 
     #[test]
