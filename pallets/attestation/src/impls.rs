@@ -51,6 +51,29 @@ impl<T: Config> Pallet<T> {
         });
     }
 
+    /// Hold a kicked controller out of `register_attestor` and `attest` for one bonding duration.
+    pub(crate) fn start_kick_cooldown(chain_key: ChainKey, attestor_id: &T::AccountId) {
+        // A removed chain's cleanup may already be past the `KickedAttestors` phase.
+        if !T::SupportedChains::is_chain_supported(chain_key) {
+            return;
+        }
+        let until = Self::current_era().saturating_add(T::BondingDuration::get());
+        KickedAttestors::<T>::insert(chain_key, attestor_id, until);
+    }
+
+    /// Rejects a controller still inside its kick cooldown and drops the row once it has elapsed.
+    pub(crate) fn ensure_not_kicked(
+        chain_key: ChainKey,
+        attestor_id: &T::AccountId,
+    ) -> DispatchResult {
+        let Some(until) = KickedAttestors::<T>::get(chain_key, attestor_id) else {
+            return Ok(());
+        };
+        ensure!(Self::current_era() >= until, Error::<T>::AttestorKicked);
+        KickedAttestors::<T>::remove(chain_key, attestor_id);
+        Ok(())
+    }
+
     /// Drop this controller's own retired BLS key row so a new registration can use the slot.
     ///
     /// Rejects when a live retired entry for the controller is owned by a *different* stash:
@@ -170,6 +193,8 @@ impl<T: Config> Pallet<T> {
             !Self::attestor_is_registered(chain_key, &attestor_id),
             Error::<T>::AlreadyAttestor
         );
+
+        Self::ensure_not_kicked(chain_key, &attestor_id)?;
 
         Self::clear_retired_bls_entry_for_controller(chain_key, &attestor_id, &stash)?;
 
@@ -514,6 +539,8 @@ impl<T: Config> Pallet<T> {
         let mut attestor =
             Attestors::<T>::get(chain_key, &attestor_id).ok_or(Error::<T>::AddressNotAttestor)?;
 
+        Self::ensure_not_kicked(chain_key, &attestor_id)?;
+
         // Check if attestor has already been registered and if they're not already waiting/active
         if attestor.bls_public_key.is_some() {
             ensure!(
@@ -724,7 +751,8 @@ impl<T: Config> Pallet<T> {
 
     /// Elect the active attestor set for a single chain.
     ///
-    /// All attestors with `Active` status are selected.
+    /// Attestors with `Active` status are selected, except that under `AuthorizedOnly` one whose
+    /// authorization was revoked becomes `Idle`.
     /// Attestors with `Waiting` status are selected based on the chain's election policy.
     /// Attestors with `Leaving` status become `Idle` and are not selected (deferred voluntary chill).
     ///
@@ -740,7 +768,24 @@ impl<T: Config> Pallet<T> {
             .into_iter()
             .filter_map(|(account, mut attestor)| {
                 match attestor.status {
-                    AttestorStatus::Active => Some(account),
+                    AttestorStatus::Active => {
+                        if chain_election_policy == AttestorElectionPolicy::AuthorizedOnly
+                            && !AuthorizedAttestors::<T>::contains_key(chain_key, &account)
+                        {
+                            debug!(
+                                "Removing attestor {account:?} from chain {chain_key} as they are no longer authorized",
+                            );
+                            attestor.status = AttestorStatus::Idle;
+                            Attestors::<T>::insert(chain_key, &account, attestor);
+                            Self::deposit_event(Event::<T>::AttestorChilled(
+                                chain_key,
+                                account.clone(),
+                            ));
+                            None
+                        } else {
+                            Some(account)
+                        }
+                    }
                     AttestorStatus::Waiting => {
                         match chain_election_policy {
                             AttestorElectionPolicy::OpenToAny => {
