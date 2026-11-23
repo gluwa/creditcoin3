@@ -158,6 +158,10 @@ impl<T: Config> Pallet<T> {
         // The proof must extend the latest finalized digest. Proofs of consecutive attestations
         // then never overlap, which bounds the roots a commit walks when it condenses the
         // checkpointing queue (see `CommitAttestationWeight`).
+        //
+        // Honest attestors lose races against this rule all the time, so it is mirrored in the
+        // pool by `extends_stale_digest` / `PrevalidateAttestationCommit`; change both together
+        // (see the maintenance notes in `extensions.rs`).
         ensure!(
             tail_prev_digest == last_finalized_digest,
             Error::<T>::InvalidAttestationContinuityProofTail

@@ -60,6 +60,39 @@ use crate::pallet::{Call, Config, MaxCatchup, Pallet};
 /// Other calls are passed through untouched. The extension carries no implicit payload and no
 /// state between `validate` and dispatch, so `Implicit`, `Val` and `Pre` are all `()` and all the
 /// logic lives in `validate`.
+///
+/// # Maintaining this extension (read before editing, including AI assistants)
+///
+/// This extension decides who pays for a failed `commit_attestation`, and mistakes here cost
+/// attestors real money. #1445 tightened the continuity rule in dispatch without mirroring it
+/// here, so lost races were included, failed with `InvalidAttestationContinuityProofTail`, and
+/// paid the full fee, which steadily drained honest attestors' balances.
+///
+/// Invariants to keep:
+///
+/// 1. **Mirror every race-loser rule.** Any dispatch check that an *honest, active* attestor can
+///    fail just by losing a submission race (already-attested digest, height at or below
+///    `LastDigest`, proof built on a superseded anchor) must also reject here with
+///    `InvalidTransaction::Stale`. When you tighten `validate_attestation` or
+///    `validate_attestation_continuity`, ask whether a race loser can now hit the new error; if
+///    yes, add the cheap check here. Call a pallet helper rather than reimplementing the rule, so
+///    the two sides cannot drift.
+/// 2. **Cheap checks run for every source, including `InBlock`.** That is what lets the block
+///    builder skip a loser once the winner is applied earlier in the same block. Do not gate them
+///    on `source`.
+/// 3. **Expensive checks stay out of `InBlock`.** The extension declares zero weight; the full
+///    `validate_attestation` (BLS aggregate) is pool-only and must not make a transaction invalid,
+///    only withhold the tag.
+/// 4. **Non-active signers are never rejected before dispatch.** They must reach dispatch and pay,
+///    otherwise anyone could spam the pool for free. Keep the race-loser rejections behind
+///    `is_active`.
+///
+/// Tests that pin this behaviour; do not weaken them to make a change pass:
+/// * unit: `prevalidate_attestation_commit_extension` in `tests.rs`, especially
+///   `prevalidate_rejects_a_rival_built_on_a_superseded_anchor`;
+/// * integration: `cli/src/test/blockchain-tests/pallets/attestation/commit-attestation-pool-tag`
+///   and `commit-attestation-stale-anchor` (`.test.ts`), which run against a real node and check
+///   the attestor's balance.
 #[derive(Encode, Decode, DecodeWithMemTracking, Clone, Eq, PartialEq, TypeInfo)]
 #[scale_info(skip_type_params(T))]
 pub struct PrevalidateAttestationCommit<T>(PhantomData<fn(T)>);
