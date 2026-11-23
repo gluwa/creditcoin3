@@ -7,7 +7,7 @@ use frame_support::assert_ok;
 use frame_support::traits::OriginTrait;
 use scale_info::prelude::string::String;
 use sp_core::H160;
-use supported_chains_primitives::{MATURITY_EVM_FINALIZED, MATURITY_EVM_SAFE};
+use supported_chains_primitives::{WriteAbilityConfig, MATURITY_EVM_FINALIZED, MATURITY_EVM_SAFE};
 
 #[benchmarks]
 mod benchmarks {
@@ -160,6 +160,16 @@ mod benchmarks {
         let root_origin = <T as frame_system::Config>::RuntimeOrigin::root();
         // In mock.rs we set up a single supported chain with chain_key 1
         let chain_key: ChainKey = 1;
+        // Worst case: re-key a disabled chain, so the old owner entry is released and a new one
+        // claimed.
+        WriteAbilityConfigs::<T>::insert(
+            chain_key,
+            WriteAbilityConfig {
+                write_ability_chain_key: [2u8; 32],
+                message_attestation_enabled: false,
+            },
+        );
+        WriteAbilityChainKeyOwners::<T>::insert([2u8; 32], chain_key);
 
         #[extrinsic_call]
         _(

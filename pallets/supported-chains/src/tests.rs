@@ -1,9 +1,10 @@
 use crate::{
-    self as pallet, mock, mock::SupportedChain, mock::*, CoreFees, Error, OutboxDiscoveries,
-    OutboxFactories, SupportedChains, WriteAbilityConfigs,
+    self as pallet, migrations::IndexWriteAbilityChainKeys, mock, mock::SupportedChain, mock::*,
+    CoreFees, Error, OutboxDiscoveries, OutboxFactories, SupportedChains,
+    WriteAbilityChainKeyOwners, WriteAbilityConfigs,
 };
 use attestor_primitives::ChainEncodingVersion;
-use frame_support::{assert_noop, assert_ok};
+use frame_support::{assert_noop, assert_ok, traits::OnRuntimeUpgrade};
 use rstest::rstest;
 use sp_core::{H160, U256};
 use sp_runtime::{traits::BadOrigin, BuildStorage};
@@ -931,6 +932,269 @@ fn set_write_ability_config_should_error_when_write_ability_key_is_zero() {
     });
 }
 
+/// Registers a second chain next to the one `ExtBuilder` seeds and returns its chain key.
+fn register_second_chain() -> u64 {
+    assert_ok!(SupportedChain::register_chain(
+        RuntimeOrigin::root(),
+        201,
+        "Other".to_string(),
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        ChainEncodingVersion::V1,
+        None,
+    ));
+    SupportedChain::chain_key_value() - 1
+}
+
+#[test]
+fn set_write_ability_config_should_error_when_key_is_used_by_another_chain() {
+    ExtBuilder.build_and_execute(|| {
+        let first = SUPPORTED_CHAIN_KEY;
+        let second = register_second_chain();
+        let key = [0x22u8; 32];
+
+        assert_ok!(SupportedChain::set_write_ability_config(
+            RuntimeOrigin::root(),
+            first,
+            key,
+            false,
+        ));
+        assert_eq!(WriteAbilityChainKeyOwners::<Test>::get(key), Some(first));
+
+        assert_noop!(
+            SupportedChain::set_write_ability_config(RuntimeOrigin::root(), second, key, true),
+            Error::<Test>::WriteAbilityChainKeyInUse
+        );
+        assert_eq!(WriteAbilityConfigs::<Test>::get(second), None);
+        assert_eq!(WriteAbilityChainKeyOwners::<Test>::get(key), Some(first));
+    });
+}
+
+#[test]
+fn set_write_ability_config_can_resubmit_the_current_key_while_enabled() {
+    ExtBuilder.build_and_execute(|| {
+        let chain_key = SUPPORTED_CHAIN_KEY;
+        let key = [0x22u8; 32];
+
+        for enabled in [true, true, false, true] {
+            assert_ok!(SupportedChain::set_write_ability_config(
+                RuntimeOrigin::root(),
+                chain_key,
+                key,
+                enabled,
+            ));
+            assert_eq!(
+                WriteAbilityChainKeyOwners::<Test>::get(key),
+                Some(chain_key)
+            );
+        }
+    });
+}
+
+#[test]
+fn set_write_ability_config_should_error_when_changing_key_while_enabled() {
+    ExtBuilder.build_and_execute(|| {
+        let chain_key = SUPPORTED_CHAIN_KEY;
+        let (old_key, new_key) = ([0x22u8; 32], [0x23u8; 32]);
+
+        assert_ok!(SupportedChain::set_write_ability_config(
+            RuntimeOrigin::root(),
+            chain_key,
+            old_key,
+            true,
+        ));
+
+        // Rejected even when the same call disables attestation.
+        for enabled in [true, false] {
+            assert_noop!(
+                SupportedChain::set_write_ability_config(
+                    RuntimeOrigin::root(),
+                    chain_key,
+                    new_key,
+                    enabled,
+                ),
+                Error::<Test>::WriteAbilityChainKeyLocked
+            );
+        }
+        assert_eq!(
+            WriteAbilityConfigs::<Test>::get(chain_key),
+            Some(WriteAbilityConfig {
+                write_ability_chain_key: old_key,
+                message_attestation_enabled: true,
+            })
+        );
+        assert_eq!(WriteAbilityChainKeyOwners::<Test>::get(new_key), None);
+    });
+}
+
+#[test]
+fn set_write_ability_config_can_change_key_once_disabled_and_frees_the_old_one() {
+    ExtBuilder.build_and_execute(|| {
+        let first = SUPPORTED_CHAIN_KEY;
+        let second = register_second_chain();
+        let (old_key, new_key) = ([0x22u8; 32], [0x23u8; 32]);
+
+        assert_ok!(SupportedChain::set_write_ability_config(
+            RuntimeOrigin::root(),
+            first,
+            old_key,
+            true,
+        ));
+        assert_ok!(SupportedChain::set_write_ability_config(
+            RuntimeOrigin::root(),
+            first,
+            old_key,
+            false,
+        ));
+        assert_ok!(SupportedChain::set_write_ability_config(
+            RuntimeOrigin::root(),
+            first,
+            new_key,
+            true,
+        ));
+
+        assert_eq!(WriteAbilityChainKeyOwners::<Test>::get(old_key), None);
+        assert_eq!(
+            WriteAbilityChainKeyOwners::<Test>::get(new_key),
+            Some(first)
+        );
+        // The released key is now free for another chain.
+        assert_ok!(SupportedChain::set_write_ability_config(
+            RuntimeOrigin::root(),
+            second,
+            old_key,
+            true,
+        ));
+        assert_eq!(
+            WriteAbilityChainKeyOwners::<Test>::get(old_key),
+            Some(second)
+        );
+    });
+}
+
+#[test]
+fn remove_chain_releases_its_write_ability_chain_key() {
+    ExtBuilder.build_and_execute(|| {
+        let first = SUPPORTED_CHAIN_KEY;
+        let second = register_second_chain();
+        let key = [0x22u8; 32];
+
+        assert_ok!(SupportedChain::set_write_ability_config(
+            RuntimeOrigin::root(),
+            first,
+            key,
+            true,
+        ));
+        assert_ok!(SupportedChain::remove_chain(
+            RuntimeOrigin::root(),
+            first,
+            false
+        ));
+        assert_eq!(WriteAbilityChainKeyOwners::<Test>::get(key), None);
+
+        assert_ok!(SupportedChain::set_write_ability_config(
+            RuntimeOrigin::root(),
+            second,
+            key,
+            true,
+        ));
+    });
+}
+
+/// Chains configured before the index existed can share a key. Removing one must not free the
+/// key for the chain that does own it, and each can re-key once it is disabled.
+#[test]
+fn pre_index_duplicate_keys_do_not_trap_or_release_the_owner() {
+    ExtBuilder.build_and_execute(|| {
+        let first = SUPPORTED_CHAIN_KEY;
+        let second = register_second_chain();
+        let (shared, other) = ([0x22u8; 32], [0x23u8; 32]);
+        for chain_key in [first, second] {
+            WriteAbilityConfigs::<Test>::insert(
+                chain_key,
+                WriteAbilityConfig {
+                    write_ability_chain_key: shared,
+                    message_attestation_enabled: true,
+                },
+            );
+        }
+        IndexWriteAbilityChainKeys::<Test>::on_runtime_upgrade();
+        assert_eq!(WriteAbilityChainKeyOwners::<Test>::get(shared), Some(first));
+
+        // The unindexed chain is not stuck: it can disable under its current key, then re-key.
+        assert_ok!(SupportedChain::set_write_ability_config(
+            RuntimeOrigin::root(),
+            second,
+            shared,
+            false,
+        ));
+        assert_ok!(SupportedChain::set_write_ability_config(
+            RuntimeOrigin::root(),
+            second,
+            other,
+            true,
+        ));
+        assert_eq!(WriteAbilityChainKeyOwners::<Test>::get(shared), Some(first));
+        assert_eq!(WriteAbilityChainKeyOwners::<Test>::get(other), Some(second));
+    });
+
+    ExtBuilder.build_and_execute(|| {
+        let first = SUPPORTED_CHAIN_KEY;
+        let second = register_second_chain();
+        let shared = [0x22u8; 32];
+        for chain_key in [first, second] {
+            WriteAbilityConfigs::<Test>::insert(
+                chain_key,
+                WriteAbilityConfig {
+                    write_ability_chain_key: shared,
+                    message_attestation_enabled: true,
+                },
+            );
+        }
+        IndexWriteAbilityChainKeys::<Test>::on_runtime_upgrade();
+
+        assert_ok!(SupportedChain::remove_chain(
+            RuntimeOrigin::root(),
+            second,
+            false
+        ));
+        assert_eq!(WriteAbilityChainKeyOwners::<Test>::get(shared), Some(first));
+    });
+}
+
+#[test]
+fn index_write_ability_chain_keys_is_idempotent_and_lowest_chain_key_wins() {
+    ExtBuilder.build_and_execute(|| {
+        let first = SUPPORTED_CHAIN_KEY;
+        let second = register_second_chain();
+        let (shared, unique) = ([0x22u8; 32], [0x24u8; 32]);
+        let config = |write_ability_chain_key| WriteAbilityConfig {
+            write_ability_chain_key,
+            message_attestation_enabled: true,
+        };
+        // Insert the higher chain key first: the winner must not depend on insertion order.
+        WriteAbilityConfigs::<Test>::insert(second, config(shared));
+        WriteAbilityConfigs::<Test>::insert(first, config(shared));
+        WriteAbilityConfigs::<Test>::insert(3, config(unique));
+
+        IndexWriteAbilityChainKeys::<Test>::on_runtime_upgrade();
+        IndexWriteAbilityChainKeys::<Test>::on_runtime_upgrade();
+
+        assert_eq!(WriteAbilityChainKeyOwners::<Test>::get(shared), Some(first));
+        assert_eq!(WriteAbilityChainKeyOwners::<Test>::get(unique), Some(3));
+        assert_eq!(WriteAbilityChainKeyOwners::<Test>::iter().count(), 2);
+        // The duplicate's config is left as it was.
+        assert_eq!(
+            WriteAbilityConfigs::<Test>::get(second),
+            Some(config(shared))
+        );
+    });
+}
+
 #[test]
 fn genesis_seeds_write_ability_configs() {
     let mut storage = frame_system::GenesisConfig::<Test>::default()
@@ -961,7 +1225,41 @@ fn genesis_seeds_write_ability_configs() {
                 message_attestation_enabled: true,
             })
         );
+        assert_eq!(
+            WriteAbilityChainKeyOwners::<Test>::get(write_ability_chain_key),
+            Some(1)
+        );
     });
+}
+
+#[test]
+#[should_panic(expected = "repeats a write_ability_chain_key")]
+fn genesis_rejects_a_write_ability_chain_key_shared_by_two_chains() {
+    let mut storage = frame_system::GenesisConfig::<Test>::default()
+        .build_storage()
+        .unwrap();
+
+    let pallet_genesis = crate::pallet::GenesisConfig::<Test> {
+        supported_chains: vec![
+            (
+                200,
+                "Ethereum".as_bytes().to_vec(),
+                ChainEncodingVersion::V1,
+                MATURITY_FIXED_DELAY_10.to_string(),
+            ),
+            (
+                201,
+                "Other".as_bytes().to_vec(),
+                ChainEncodingVersion::V1,
+                MATURITY_FIXED_DELAY_10.to_string(),
+            ),
+        ],
+        write_ability_configs: vec![(1, [0x44u8; 32], true), (2, [0x44u8; 32], true)],
+        outbox_factories: Default::default(),
+        outbox_discoveries: Default::default(),
+        _phantom: Default::default(),
+    };
+    let _ = pallet_genesis.assimilate_storage(&mut storage);
 }
 
 #[test]

@@ -12,8 +12,9 @@ describeIf(process.env.SKIP_ON_PURPOSE === undefined, 'SetWriteAbilityConfig', (
     const chainName = `Test Chain ${chainId}`;
     const encoding = 'V1';
 
-    // 32-byte write-ability chain key (bytes32)
-    const writeAbilityChainKey = '0x' + '11'.repeat(32);
+    // 32-byte write-ability chain key (bytes32). Keys are unique across chains, so derive it from
+    // the per-run chain id rather than reusing a fixed value that a rerun would collide with.
+    const writeAbilityChainKey = '0x' + chainId.toString(16).padStart(64, '0');
     const messageAttestationEnabled = true;
 
     beforeAll(async () => {
