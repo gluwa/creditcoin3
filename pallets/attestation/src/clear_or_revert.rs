@@ -36,6 +36,7 @@ pub enum RemovedChainCleanupPhase {
     // Append to preserve the encoding of cleanup cursors already stored on-chain.
     PeerKeys,
     PeerKeyOwners,
+    KickedAttestors,
 }
 
 #[derive(Encode, Decode, Clone, PartialEq, Eq, RuntimeDebug, TypeInfo, MaxEncodedLen)]
@@ -293,9 +294,17 @@ impl<T: Config> Pallet<T> {
                 }
                 RemovedChainCleanupPhase::PeerKeyOwners => {
                     let cleared = PeerKeyOwner::<T>::clear_prefix(chain_key, budget, None);
+                    budget = budget.saturating_sub(cleared.unique);
+                    if cleared.maybe_cursor.is_some() {
+                        return Some(RemovedChainCleanupPhase::PeerKeyOwners);
+                    }
+                    RemovedChainCleanupPhase::KickedAttestors
+                }
+                RemovedChainCleanupPhase::KickedAttestors => {
+                    let cleared = KickedAttestors::<T>::clear_prefix(chain_key, budget, None);
                     return cleared
                         .maybe_cursor
-                        .map(|_| RemovedChainCleanupPhase::PeerKeyOwners);
+                        .map(|_| RemovedChainCleanupPhase::KickedAttestors);
                 }
             };
         }

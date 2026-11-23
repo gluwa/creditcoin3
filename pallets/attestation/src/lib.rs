@@ -661,7 +661,8 @@ pub mod pallet {
     #[pallet::getter(fn authorized_attestors)]
     #[allow(clippy::unused_unit)]
     // Operator-authorized attestor controller accounts: (1) required before `register_attestor` when
-    // the election policy is `AuthorizedOnly`; (2) used at election time to promote waiting attestors.
+    // the election policy is `AuthorizedOnly`; (2) used at election time to promote waiting attestors
+    // and to keep sitting ones.
     pub type AuthorizedAttestors<T: Config> = StorageDoubleMap<
         _,
         Blake2_128Concat,
@@ -670,6 +671,20 @@ pub mod pallet {
         T::AccountId,
         AuthorizationValue,
         ValueQuery,
+    >;
+
+    /// Controllers an operator kicked, mapped to the first era they may register or attest again
+    /// (one [`Config::BondingDuration`] after the kick). An elapsed row is dropped by the next
+    /// attempt.
+    #[pallet::storage]
+    pub type KickedAttestors<T: Config> = StorageDoubleMap<
+        _,
+        Twox64Concat,
+        ChainKey,
+        Blake2_128Concat,
+        T::AccountId,
+        u32,
+        OptionQuery,
     >;
 
     /// The in-code storage version.
@@ -1036,6 +1051,9 @@ pub mod pallet {
         PeerKeyAlreadyRegistered,
         PeerKeyNotRegistered,
         PeerKeyRegistrationChanged,
+        /// The controller was kicked by an operator and cannot register or attest again until its
+        /// cooldown ends.
+        AttestorKicked,
     }
 
     #[pallet::hooks]
@@ -1637,6 +1655,7 @@ pub mod pallet {
                 .ok_or(Error::<T>::AddressNotAttestor)?;
 
             Self::do_chill_attestor_immediate(chain_key, attestor_id.clone());
+            Self::start_kick_cooldown(chain_key, &attestor_id);
 
             if unregister {
                 // If unregister is true, also remove the attestor from the attestor list
