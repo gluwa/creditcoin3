@@ -364,7 +364,11 @@ async fn handle_submission_result(
     // The runtime rejects every commit while a revert cleanup drains, so hold the stash drain and
     // the re-injection below until it ends rather than spend a submission and the budget on it.
     if unlocked {
-        wait_out_cleanup(&shared.token, height, || read_cleanup_marker(shared)).await;
+        let last_heads = parking_lot::Mutex::new(None);
+        wait_out_cleanup(&shared.token, height, || {
+            read_cleanup_marker(shared, &last_heads)
+        })
+        .await;
     }
 
     // Stashed quorums were validated against the threshold / active set *at stash time*; either
@@ -787,6 +791,14 @@ const CLEANUP_NO_PROGRESS_TIMEOUT: std::time::Duration = std::time::Duration::fr
 /// Deadline for one cleanup-state read; a slow node is treated as "not in cleanup".
 const CLEANUP_READ_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
 
+/// The first entry of each cleanup queue. The pallet drains one chain per block, so a chain
+/// waiting behind another keeps its own state still while these move.
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct QueueHeads {
+    clearing: Option<Vec<u8>>,
+    pruning: Option<u64>,
+}
+
 /// Where a draining cleanup stands. Two equal markers mean it made no progress in between.
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct CleanupMarker {
@@ -794,10 +806,8 @@ struct CleanupMarker {
     clearing_cursor: Option<Vec<u8>>,
     /// `CheckpointPruningStates::next_pivot`: moves once per cleared bucket.
     pruning_next_pivot: Option<u64>,
-    /// The first entry of each queue. The pallet drains one chain per block, so this chain's own
-    /// state stays still while it waits behind another; the head is what moves meanwhile.
-    clearing_head: Option<Vec<u8>>,
-    pruning_head: Option<u64>,
+    /// `None` until the heads have been read once.
+    queue_heads: Option<QueueHeads>,
 }
 
 /// `None` when this chain has no cleanup pending. Mirrors `Pallet::commit_blocked_by_cleanup`, so
@@ -805,15 +815,26 @@ struct CleanupMarker {
 fn cleanup_marker(
     clearing_cursor: Option<Vec<u8>>,
     pruning_next_pivot: Option<u64>,
-    clearing_head: Option<Vec<u8>>,
-    pruning_head: Option<u64>,
+    queue_heads: Option<QueueHeads>,
 ) -> Option<CleanupMarker> {
     (clearing_cursor.is_some() || pruning_next_pivot.is_some()).then_some(CleanupMarker {
         clearing_cursor,
         pruning_next_pivot,
-        clearing_head,
-        pruning_head,
+        queue_heads,
     })
+}
+
+/// Keep the last heads that were read when a read fails, so a failure is never mistaken for the
+/// heads moving.
+fn carry_heads(
+    read: Option<QueueHeads>,
+    last_known: &parking_lot::Mutex<Option<QueueHeads>>,
+) -> Option<QueueHeads> {
+    let mut last_known = last_known.lock();
+    if read.is_some() {
+        *last_known = read;
+    }
+    last_known.clone()
 }
 
 /// Run one cleanup-state read under [`CLEANUP_READ_TIMEOUT`]. A failure or timeout is logged with
@@ -837,8 +858,11 @@ async fn bounded_read<T>(
 
 /// Read the cleanup marker of this chain. If this chain's own state cannot be read the result is
 /// `None` ("no cleanup", so the retry is not held). The queue heads only add a progress signal, so
-/// failing to read them keeps the marker and waits on this chain's own state alone.
-async fn read_cleanup_marker(shared: &Shared) -> Option<CleanupMarker> {
+/// when they cannot be read the last known ones are kept and the wait goes on.
+async fn read_cleanup_marker(
+    shared: &Shared,
+    last_heads: &parking_lot::Mutex<Option<QueueHeads>>,
+) -> Option<CleanupMarker> {
     let attestation = cc_client::cc3::storage().attestation();
     let (storage, cursor, pruning) = bounded_read("assuming no cleanup", async {
         let storage = shared.cc3.api().storage().at_latest().await?;
@@ -856,27 +880,25 @@ async fn read_cleanup_marker(shared: &Shared) -> Option<CleanupMarker> {
     if cursor.is_none() && pruning.is_none() {
         return None;
     }
-    let (clearing_head, pruning_head) =
-        bounded_read("waiting on this chain's state alone", async {
-            let clearing_head = storage
-                .iter(attestation.attestation_clearing_cursors_iter())
-                .await?
-                .next()
-                .await
-                .transpose()?
-                .map(|entry| entry.value);
-            let pruning_head = storage
-                .iter(attestation.checkpoint_pruning_states_iter())
-                .await?
-                .next()
-                .await
-                .transpose()?
-                .map(|entry| entry.value.next_pivot);
-            Ok((clearing_head, pruning_head))
-        })
-        .await
-        .unwrap_or((None, None));
-    cleanup_marker(cursor, pruning, clearing_head, pruning_head)
+    let heads = bounded_read("keeping the last known queue heads", async {
+        let clearing = storage
+            .iter(attestation.attestation_clearing_cursors_iter())
+            .await?
+            .next()
+            .await
+            .transpose()?
+            .map(|entry| entry.value);
+        let pruning = storage
+            .iter(attestation.checkpoint_pruning_states_iter())
+            .await?
+            .next()
+            .await
+            .transpose()?
+            .map(|entry| entry.value.next_pivot);
+        Ok(QueueHeads { clearing, pruning })
+    })
+    .await;
+    cleanup_marker(cursor, pruning, carry_heads(heads, last_heads))
 }
 
 /// Poll `read_marker` until it reports no cleanup, shutdown is requested, or the marker has not
@@ -1374,61 +1396,66 @@ mod tests {
     use attestor_primitives::Digest;
 
     use super::{
-        cleanup_marker, quorum_anchor, should_unlock_if_unfinalized, take_reinject_budget,
-        validate_proof_chain, wait_out_cleanup, Outcome, Preemptable, CLEANUP_NO_PROGRESS_TIMEOUT,
-        CLEANUP_POLL_INTERVAL, MAX_REINJECTS_PER_HEIGHT, SUBMISSION_BROADCAST, SUBMISSION_PENDING,
+        carry_heads, cleanup_marker, quorum_anchor, should_unlock_if_unfinalized,
+        take_reinject_budget, validate_proof_chain, wait_out_cleanup, Outcome, Preemptable,
+        QueueHeads, CLEANUP_NO_PROGRESS_TIMEOUT, CLEANUP_POLL_INTERVAL, MAX_REINJECTS_PER_HEIGHT,
+        SUBMISSION_BROADCAST, SUBMISSION_PENDING,
     };
     use crate::proof_cache::CachedProof;
 
+    fn heads(clearing: &[u8], pruning: u64) -> Option<QueueHeads> {
+        Some(QueueHeads {
+            clearing: Some(clearing.to_vec()),
+            pruning: Some(pruning),
+        })
+    }
+
     #[test]
     fn cleanup_marker_is_none_only_when_this_chain_has_no_cleanup_pending() {
-        assert_eq!(cleanup_marker(None, None, None, None), None);
+        assert_eq!(cleanup_marker(None, None, None), None);
         // Another chain's cleanup does not block this chain's commits.
-        assert_eq!(cleanup_marker(None, None, Some(vec![1]), Some(5)), None);
-        assert!(cleanup_marker(Some(vec![1]), None, None, None).is_some());
-        assert!(cleanup_marker(None, Some(0), None, None).is_some());
+        assert_eq!(cleanup_marker(None, None, heads(&[1], 5)), None);
+        assert!(cleanup_marker(Some(vec![1]), None, None).is_some());
+        assert!(cleanup_marker(None, Some(0), None).is_some());
         // An empty cursor is still a pending cleanup.
-        assert!(cleanup_marker(Some(vec![]), None, None, None).is_some());
+        assert!(cleanup_marker(Some(vec![]), None, None).is_some());
     }
 
     #[test]
     fn cleanup_marker_changes_exactly_when_the_cleanup_moves() {
-        let marker = |cursor: &[u8], pivot, head: &[u8], head_pivot| {
-            cleanup_marker(
-                Some(cursor.to_vec()),
-                pivot,
-                Some(head.to_vec()),
-                head_pivot,
-            )
-        };
-        let before = marker(&[1, 2], Some(1000), &[7], Some(9));
-        assert_eq!(before, marker(&[1, 2], Some(1000), &[7], Some(9)));
-        assert_ne!(before, marker(&[1, 3], Some(1000), &[7], Some(9)));
-        assert_ne!(before, marker(&[1, 2], Some(2000), &[7], Some(9)));
-        assert_ne!(before, marker(&[1, 2], None, &[7], Some(9)));
-    }
-
-    // Failing to read the queue heads must not turn a pending cleanup into "drained".
-    #[test]
-    fn cleanup_marker_stays_pending_when_the_queue_heads_are_unknown() {
-        assert!(cleanup_marker(Some(vec![1]), None, None, None).is_some());
-        assert!(cleanup_marker(None, Some(1000), None, None).is_some());
+        let marker = |cursor: &[u8], pivot| cleanup_marker(Some(cursor.to_vec()), pivot, None);
+        let before = marker(&[1, 2], Some(1000));
+        assert_eq!(before, marker(&[1, 2], Some(1000)));
+        assert_ne!(before, marker(&[1, 3], Some(1000)));
+        assert_ne!(before, marker(&[1, 2], Some(2000)));
+        assert_ne!(before, marker(&[1, 2], None));
     }
 
     // A chain queued behind another keeps its own state still while the head drains.
     #[test]
     fn cleanup_marker_changes_when_only_the_queue_head_moves() {
-        let queued = |head: &[u8], head_pivot| {
-            cleanup_marker(
-                Some(vec![1, 2]),
-                Some(1000),
-                Some(head.to_vec()),
-                head_pivot,
-            )
-        };
-        assert_ne!(queued(&[7], Some(9)), queued(&[8], Some(9)));
-        assert_ne!(queued(&[7], Some(9)), queued(&[7], Some(10)));
-        assert_eq!(queued(&[7], Some(9)), queued(&[7], Some(9)));
+        let queued = |heads| cleanup_marker(Some(vec![1, 2]), Some(1000), heads);
+        assert_ne!(queued(heads(&[7], 9)), queued(heads(&[8], 9)));
+        assert_ne!(queued(heads(&[7], 9)), queued(heads(&[7], 10)));
+        assert_eq!(queued(heads(&[7], 9)), queued(heads(&[7], 9)));
+    }
+
+    // A failed head read must neither end the wait nor look like the heads moving.
+    #[test]
+    fn a_failed_head_read_keeps_the_last_known_heads() {
+        let last = parking_lot::Mutex::new(None);
+        // Nothing known yet: a failure stays unknown.
+        assert_eq!(carry_heads(None, &last), None);
+        assert_eq!(carry_heads(heads(&[7], 9), &last), heads(&[7], 9));
+        // A failure after a success carries the last heads forward...
+        assert_eq!(carry_heads(None, &last), heads(&[7], 9));
+        // ...so the marker equals the one from the successful read, and a real move still shows.
+        let marker = |heads| cleanup_marker(Some(vec![1]), None, heads);
+        assert_eq!(marker(carry_heads(None, &last)), marker(heads(&[7], 9)));
+        assert_ne!(
+            marker(carry_heads(heads(&[8], 9), &last)),
+            marker(heads(&[7], 9))
+        );
     }
 
     #[tokio::test(start_paused = true)]
