@@ -124,19 +124,39 @@ impl Store {
 
     fn save_record(&self, message: &IndexedMessage) -> Result<()> {
         let path = self.path(&Key::from(message));
-        if path.try_exists()? {
-            return Ok(());
-        }
         let domain = path
             .parent()
             .expect("pending message has a domain directory");
         std::fs::create_dir_all(domain)?;
         // Persist the domain directory entry before a cursor can reference any of its files.
-        std::fs::File::open(&self.dir)?.sync_all()?;
+        super::cursor::sync_dir(&self.dir)?;
         if let Some(parent) = self.dir.parent() {
-            std::fs::File::open(parent)?.sync_all()?;
+            super::cursor::sync_dir(parent)?;
+        }
+        if self.holds_valid_record(&path, message)? {
+            // A call whose directory sync failed, or a crashed process, may have left the record
+            // in place unsynced. Success means durable, not merely present.
+            std::fs::File::open(&path)?.sync_all()?;
+            return super::cursor::sync_dir(domain);
         }
         super::cursor::atomic_write(&path, &serde_json::to_vec(message)?)
+    }
+
+    /// Whether `path` already holds exactly `message`. A missing file is `false`; an unparsable or
+    /// different record is `false` too, so the caller replaces it instead of trusting it.
+    fn holds_valid_record(&self, path: &std::path::Path, message: &IndexedMessage) -> Result<bool> {
+        let raw = match std::fs::read(path) {
+            Ok(raw) => raw,
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(false),
+            Err(err) => return Err(err.into()),
+        };
+        match self.parse_pending(path, &raw) {
+            Ok(existing) if existing == *message => Ok(true),
+            outcome => {
+                tracing::warn!(path = %path.display(), valid = outcome.is_ok(), "replacing pending record that does not match the message being saved");
+                Ok(false)
+            }
+        }
     }
 
     /// Copy legacy work for this signer without modifying records another signer still needs.
@@ -195,13 +215,16 @@ impl Store {
             Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(None),
             Err(err) => return Err(err.into()),
         };
-        let message: IndexedMessage = serde_json::from_slice(&raw)
+        self.parse_pending(path, &raw).map(Some)
+    }
+    fn parse_pending(&self, path: &std::path::Path, raw: &[u8]) -> Result<IndexedMessage> {
+        let message: IndexedMessage = serde_json::from_slice(raw)
             .with_context(|| format!("invalid pending message {}", path.display()))?;
         anyhow::ensure!(
             self.path(&Key::from(&message)) == path,
             "pending-message identity mismatch"
         );
-        Ok(Some(message))
+        Ok(message)
     }
     pub fn acknowledge(&self, key: Key) {
         // A full queue retains the file for replay. Disk latency never blocks the swarm.
@@ -329,6 +352,75 @@ mod tests {
         std::fs::write(&dir, b"not a directory").unwrap();
         assert!(store.save(original).await.is_err());
         std::fs::remove_file(dir).unwrap();
+    }
+
+    #[test]
+    fn retry_after_failed_directory_sync_is_not_reported_durable() {
+        let dir = dir("failed-sync");
+        let store = Store::new(&dir, 7);
+        let original = message();
+        let domain = store.path(&(&original).into()).parent().unwrap().to_owned();
+
+        // The rename lands but the directory sync fails: the caller gets an error.
+        super::super::cursor::FAIL_SYNC_DIR.set(Some(domain));
+        assert!(store.save_record(&original).is_err());
+        assert!(store.path(&(&original).into()).exists());
+        // The record is present, yet a retry must not mistake that for durability.
+        assert!(store.save_record(&original).is_err());
+
+        super::super::cursor::FAIL_SYNC_DIR.set(None);
+        store.save_record(&original).unwrap();
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[tokio::test]
+    async fn invalid_existing_record_is_replaced_not_trusted() {
+        let dir = dir("replace");
+        let store = Store::new(&dir, 7);
+        let original = message();
+        let path = store.path(&(&original).into());
+        store.save(original.clone()).await.unwrap();
+
+        // Unparsable: would otherwise halt replay with a fail-closed `batch`.
+        std::fs::write(&path, b"bad json").unwrap();
+        store.save(original.clone()).await.unwrap();
+        let replayed = store.batch(original.destination_chain_key).await.unwrap();
+        assert_eq!(replayed, [original.clone()]);
+
+        // Parsable but not the message being saved.
+        let mut other = original.clone();
+        other.outbox = alloy::primitives::Address::repeat_byte(9);
+        std::fs::write(&path, serde_json::to_vec(&other).unwrap()).unwrap();
+        store.save(original.clone()).await.unwrap();
+        let replayed = store.batch(original.destination_chain_key).await.unwrap();
+        assert_eq!(replayed, [original.clone()]);
+
+        // A matching record is left as it is.
+        store.save(original.clone()).await.unwrap();
+        assert_eq!(
+            store.batch(original.destination_chain_key).await.unwrap(),
+            [original]
+        );
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[tokio::test]
+    async fn import_repairs_an_invalid_record_already_in_the_target() {
+        let base = dir("import-base");
+        let target = dir("import-target");
+        let original = message();
+        Store::new(&base, 7).save(original.clone()).await.unwrap();
+        let store = Store::new(&target, 7);
+        store.save(original.clone()).await.unwrap();
+        std::fs::write(store.path(&(&original).into()), b"bad json").unwrap();
+
+        assert!(store.import_legacy(&base).unwrap());
+        assert_eq!(
+            store.batch(original.destination_chain_key).await.unwrap(),
+            [original]
+        );
+        std::fs::remove_dir_all(base).unwrap();
+        std::fs::remove_dir_all(target).unwrap();
     }
 
     #[tokio::test]

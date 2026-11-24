@@ -139,7 +139,7 @@ fn pick_to_block(
 }
 
 /// A finalized `MessagePublished` the attestor should vote on.
-#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct IndexedMessage {
     /// Outbox `messageId`. Already cryptographically bound to the
     /// emitter/outbox/sequence/payload/sourceChainId by `OutboxTypes.computeMessageId` at emission
