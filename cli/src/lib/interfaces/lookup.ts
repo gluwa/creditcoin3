@@ -3702,6 +3702,9 @@ export default {
             'ZeroOutboxDiscoveryAddress',
             'ChainNameUnchanged',
             'TooManyChains',
+            'WriteAbilityChainKeyInUse',
+            'WriteAbilityChainKeyLocked',
+            'WriteAbilityChainKeyReserved',
         ],
     },
     /**

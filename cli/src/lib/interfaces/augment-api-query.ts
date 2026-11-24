@@ -1927,6 +1927,18 @@ declare module '@polkadot/api-base/types/storage' {
             supportedChainsCount: AugmentedQuery<ApiType, () => Observable<u32>, []> &
                 QueryableStorageEntry<ApiType, []>;
             /**
+             * The chain each `write_ability_chain_key` is bound to. Attestor EVM keys are shared across
+             * chains, so two chains on one key would accept each other's message-attestation quorums.
+             * A binding is permanent: it outlives a re-key or `remove_chain`, so a key a chain once used
+             * is never handed to another chain, whatever the old quorums signed under it could do there.
+             **/
+            writeAbilityChainKeyOwners: AugmentedQuery<
+                ApiType,
+                (arg: U8aFixed | string | Uint8Array) => Observable<Option<u64>>,
+                [U8aFixed]
+            > &
+                QueryableStorageEntry<ApiType, [U8aFixed]>;
+            /**
              * Per-chain USC write-ability metadata
              **/
             writeAbilityConfigs: AugmentedQuery<
