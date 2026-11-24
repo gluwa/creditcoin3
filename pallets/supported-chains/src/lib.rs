@@ -20,7 +20,9 @@ pub mod weights;
 
 /// The write-ability chain key an attestor derives for a chain with no config: the chain key as a
 /// big-endian `u64` in the low 8 bytes (`chain_key_to_bytes32` in `common/write-ability`).
-pub fn default_write_ability_chain_key(chain_key: attestor_primitives::ChainKey) -> [u8; 32] {
+pub(crate) fn default_write_ability_chain_key(
+    chain_key: attestor_primitives::ChainKey,
+) -> [u8; 32] {
     let mut key = [0u8; 32];
     key[24..].copy_from_slice(&chain_key.to_be_bytes());
     key
@@ -28,7 +30,7 @@ pub fn default_write_ability_chain_key(chain_key: attestor_primitives::ChainKey)
 
 /// Whether `key` is in the default-key range (24 leading zero bytes) without being `chain_key`'s
 /// own default. A chain without a config runs on its default, so that key is another chain's.
-pub fn is_reserved_for_another_chain(
+pub(crate) fn is_reserved_for_another_chain(
     key: &[u8; 32],
     chain_key: attestor_primitives::ChainKey,
 ) -> bool {
