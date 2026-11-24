@@ -3559,6 +3559,7 @@ export default {
             Invulnerables: 'Null',
             EvmAddresses: 'Null',
             EvmAddressOwners: 'Null',
+            KickedAttestors: 'Null',
         },
     },
     /**
@@ -3645,6 +3646,7 @@ export default {
             'AttestationCleanupInProgress',
             'TooManyAttestationsInBlock',
             'InvalidMaxInvulnerables',
+            'AttestorKicked',
         ],
     },
     /**
