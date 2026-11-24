@@ -17,6 +17,9 @@ interface QuoteRequestBody {
 
 export function buildServer(cfg: QuoterConfig): express.Express {
   const wallet = new ethers.Wallet(cfg.privateKey);
+  const clock = cfg.clockRpcUrl
+    ? new ethers.JsonRpcProvider(cfg.clockRpcUrl)
+    : undefined;
   const app = express();
   app.use(helmet());
   app.use(express.json());
@@ -68,7 +71,12 @@ export function buildServer(cfg: QuoterConfig): express.Express {
       const requiresAck = Boolean(body.requiresAck);
       const fee = await priceFee(chain, cfg, gasLimit, requiresAck);
 
-      const now = BigInt(Math.floor(Date.now() / 1000));
+      // The RelayerContract judges `expiry` and `expectedCompletion` against the source chain's
+      // block timestamp. A chain whose clock is not the wall clock (a manually sealed test chain
+      // that fast-forwards) needs quotes timed from its own latest block.
+      const now = clock
+        ? BigInt((await clock.getBlock("latest"))!.timestamp)
+        : BigInt(Math.floor(Date.now() / 1000));
       const fields: QuoteFields = {
         coreFee: fee.coreFee,
         relayPrice: fee.relayPrice,
