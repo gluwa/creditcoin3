@@ -249,16 +249,6 @@ impl Server {
             continuity::rpc::ReconnectingEthRpcProvider::new(eth_client, chain_encoding),
         );
 
-        // Counts the ranges the archiver could not serve, so they were built from the source
-        // RPC instead, by reason and outcome.
-        let metrics = prom_metrics.clone();
-        let fallback_observer: continuity::archiver::RpcFallbackObserver = Arc::new(
-            move |reason: continuity::archiver::RpcFallbackReason,
-                  outcome: continuity::archiver::RpcFallbackOutcome| {
-                metrics.archiver_rpc_fallback(chain_key, reason.into(), outcome.into());
-            },
-        );
-
         let eth_provider: continuity::rpc::SharedEthProvider = if let Some(ref archiver_url) =
             chain.archiver_url
         {
@@ -267,9 +257,11 @@ impl Server {
                 archiver_url = %redact_url_query(archiver_url),
                 "🚀 [startup] wrapping ETH client with archiver HTTP provider"
             );
+            // Counts the requests the archiver could not serve, so their ranges were built from
+            // the source RPC instead, by reason and outcome.
             Arc::new(
                 continuity::archiver::ArchiverEthProvider::new(archiver_url.clone(), reconnecting)
-                    .with_fallback_observer(fallback_observer),
+                    .with_fallback_observer(prom_metrics.archiver_fallback_observer(chain_key)),
             )
         } else {
             reconnecting

@@ -347,7 +347,7 @@ impl ProofGenMetrics {
         let archiver_rpc_fallbacks = Family::default();
         registry.register(
             "proof_gen_archiver_rpc_fallbacks",
-            "Continuity ranges built from the source RPC because the archiver could not serve them, by reason and outcome",
+            "Proof requests whose continuity range was built from the source RPC because the archiver could not serve it, by reason and outcome",
             archiver_rpc_fallbacks.clone(),
         );
 
@@ -401,7 +401,7 @@ impl ProofGenMetrics {
         }
     }
 
-    /// The archiver could not serve a range, so its roots were built from the source RPC.
+    /// The archiver could not serve a request's range, so its roots were built from the source RPC.
     pub fn archiver_rpc_fallback(
         &self,
         chain_key: u64,
@@ -415,6 +415,21 @@ impl ProofGenMetrics {
                 outcome,
             })
             .inc();
+    }
+
+    /// An observer for `chain_key`'s `ArchiverEthProvider` that counts its source-RPC fallbacks
+    /// in [`Self::archiver_rpc_fallback`].
+    pub fn archiver_fallback_observer(
+        self: &Arc<Self>,
+        chain_key: u64,
+    ) -> continuity::archiver::RpcFallbackObserver {
+        let metrics = Arc::clone(self);
+        Arc::new(
+            move |reason: continuity::archiver::RpcFallbackReason,
+                  outcome: continuity::archiver::RpcFallbackOutcome| {
+                metrics.archiver_rpc_fallback(chain_key, reason.into(), outcome.into());
+            },
+        )
     }
 
     /// A proof request passed admission and started running.
@@ -853,5 +868,30 @@ mod tests {
         assert!(body.contains(
             r#"proof_gen_requests_total{endpoint="ProofWithTx",status="ServerError",http_status="503"} 2"#
         ));
+    }
+
+    #[test]
+    fn archiver_fallback_observer_counts_each_fallback_by_chain_reason_and_outcome() {
+        use continuity::archiver::{RpcFallbackOutcome, RpcFallbackReason};
+
+        let metrics = Arc::new(ProofGenMetrics::new(&[2]));
+        let observer = metrics.archiver_fallback_observer(2);
+        observer(RpcFallbackReason::Unreachable, RpcFallbackOutcome::Served);
+        observer(RpcFallbackReason::Unreachable, RpcFallbackOutcome::Served);
+        observer(RpcFallbackReason::CatchingUp, RpcFallbackOutcome::Failed);
+
+        let body = metrics.encode();
+        assert!(
+            body.contains(
+                r#"proof_gen_archiver_rpc_fallbacks_total{chain_key="2",reason="Unreachable",outcome="Served"} 2"#
+            ),
+            "{body}"
+        );
+        assert!(
+            body.contains(
+                r#"proof_gen_archiver_rpc_fallbacks_total{chain_key="2",reason="CatchingUp",outcome="Failed"} 1"#
+            ),
+            "{body}"
+        );
     }
 }

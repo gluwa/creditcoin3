@@ -7,25 +7,42 @@
 //! When the archiver cannot serve a range, the provider builds it from the source RPC instead of
 //! failing the request: only the missing tail while the archiver is still storing the newest
 //! attested blocks (see [`ArchiverStatusError::is_catching_up_at_tip`]), the whole range for any
-//! other archiver failure. Only a range rejection is passed through to the caller. Fallbacks that
-//! cover for a failed archiver are logged at ERROR, so it still gets fixed.
+//! other archiver failure. Only a range rejection is passed through to the caller. The first
+//! fallback that covers for a failed archiver is logged at ERROR, so it still gets fixed; the rest
+//! of the outage logs at WARN until the archiver serves a range again.
 
 use anyhow::{Context, Result};
 use async_trait::async_trait;
 use attestor_primitives::block::Block;
 use sp_core::H256;
-use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
-use std::time::Instant;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
+use std::time::{Duration, Instant};
 use tracing::{debug, error, info, warn};
 
 use crate::rpc::{EthRpcProvider, SharedEthProvider};
+
+/// How long to wait for a TCP connection to the archiver.
+const ARCHIVER_CONNECT_TIMEOUT: Duration = Duration::from_secs(2);
+
+/// How long a `/roots` or `/roots/latest` request may take in all.
+///
+/// The archiver answers these from its local store, in milliseconds even for its largest range,
+/// and a request that misses this deadline is built from the source RPC instead. A short deadline
+/// keeps a hung archiver from adding its whole wait to every proof request before that fallback
+/// starts.
+const ARCHIVER_ROOTS_TIMEOUT: Duration = Duration::from_secs(5);
+
+/// How long any other archiver request (`/status`) may take in all.
+const ARCHIVER_REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// HTTP client for the archiver API.
 #[derive(Clone)]
 pub struct ArchiverClient {
     base_url: String,
     http: reqwest::Client,
+    /// Deadline for `/roots` and `/roots/latest`; see [`ARCHIVER_ROOTS_TIMEOUT`].
+    roots_timeout: Duration,
 }
 
 /// Response from `GET /roots?from=X&to=Y`.
@@ -137,10 +154,15 @@ impl ArchiverClient {
     /// Create a new archiver client pointing at the given base URL (e.g. `http://localhost:8080`).
     pub fn new(base_url: String) -> Self {
         let http = reqwest::Client::builder()
-            .timeout(std::time::Duration::from_secs(30))
+            .connect_timeout(ARCHIVER_CONNECT_TIMEOUT)
+            .timeout(ARCHIVER_REQUEST_TIMEOUT)
             .build()
             .expect("failed to build HTTP client");
-        Self { base_url, http }
+        Self {
+            base_url,
+            http,
+            roots_timeout: ARCHIVER_ROOTS_TIMEOUT,
+        }
     }
 
     /// Fetch merkle roots for an inclusive block range [from, to].
@@ -156,18 +178,24 @@ impl ArchiverClient {
         );
 
         let started = Instant::now();
-        let response = self.http.get(&url).send().await.with_context(|| {
-            let elapsed_ms = started.elapsed().as_millis();
-            warn!(
-                archiver_url = %self.base_url,
-                from,
-                to,
-                span,
-                duration_ms = elapsed_ms,
-                "📡 ❌ archiver GET /roots transport error"
-            );
-            "archiver request failed"
-        })?;
+        let response = self
+            .http
+            .get(&url)
+            .timeout(self.roots_timeout)
+            .send()
+            .await
+            .with_context(|| {
+                let elapsed_ms = started.elapsed().as_millis();
+                warn!(
+                    archiver_url = %self.base_url,
+                    from,
+                    to,
+                    span,
+                    duration_ms = elapsed_ms,
+                    "📡 ❌ archiver GET /roots transport error"
+                );
+                "archiver request failed"
+            })?;
 
         let status = response.status();
         if !status.is_success() {
@@ -261,6 +289,7 @@ impl ArchiverClient {
         let response = self
             .http
             .get(&url)
+            .timeout(self.roots_timeout)
             .send()
             .await
             .context("archiver request failed")?
@@ -322,9 +351,10 @@ pub enum RpcFallbackOutcome {
     Failed,
 }
 
-/// Called once per source-RPC fallback with its reason and outcome, so the embedding service can
-/// count them. A request that succeeds through the fallback still means the archiver did not
-/// serve it, and a steady rate of `CatchingUp` means it keeps losing the race to the prover.
+/// Called once per request that falls back to the source RPC, with its reason and outcome, so the
+/// embedding service can count them. A request that succeeds through the fallback still means the
+/// archiver did not serve it, and a steady rate of `CatchingUp` means it keeps losing the race to
+/// the prover.
 pub type RpcFallbackObserver = Arc<dyn Fn(RpcFallbackReason, RpcFallbackOutcome) + Send + Sync>;
 
 /// Which archiver failure `err` is, or `None` when the source RPC must not cover it.
@@ -361,24 +391,15 @@ fn fallback_reason(err: &anyhow::Error) -> Option<RpcFallbackReason> {
     })
 }
 
-/// Identifies one source-RPC build: the same range chained from the same digest always yields
-/// the same blocks, so concurrent requests for it can share one fetch.
-type FetchKey = (u64, u64, H256);
-
-/// The shared result of one source-RPC build. The error is kept as text: every waiter only logs it,
-/// and the error the caller sees is the archiver's own.
-type FetchResult = std::result::Result<Vec<Block>, String>;
-
 /// An `EthRpcProvider` that fetches block roots from the archiver and delegates
 /// transaction-level operations to a real Ethereum client.
 pub struct ArchiverEthProvider {
     archiver: ArchiverClient,
     eth_fallback: SharedEthProvider,
-    /// Source-RPC builds in flight, keyed by range and lower digest. Right after an attestation,
-    /// or while the archiver is down, many requests need the same range at once; without this
-    /// each would fetch the same blocks from the source RPC in parallel.
-    source_fetches_in_flight: Mutex<HashMap<FetchKey, Arc<tokio::sync::OnceCell<FetchResult>>>>,
     fallback_observer: Option<RpcFallbackObserver>,
+    /// Set by the first request the archiver fails, cleared by the next one it serves, so an
+    /// outage logs one ERROR when it starts rather than one per request.
+    archiver_failing: AtomicBool,
 }
 
 impl ArchiverEthProvider {
@@ -386,8 +407,8 @@ impl ArchiverEthProvider {
         Self {
             archiver: ArchiverClient::new(archiver_url),
             eth_fallback,
-            source_fetches_in_flight: Mutex::new(HashMap::new()),
             fallback_observer: None,
+            archiver_failing: AtomicBool::new(false),
         }
     }
 
@@ -400,6 +421,23 @@ impl ArchiverEthProvider {
     fn observe_fallback(&self, reason: RpcFallbackReason, outcome: RpcFallbackOutcome) {
         if let Some(observer) = &self.fallback_observer {
             observer(reason, outcome);
+        }
+    }
+
+    /// Record that the archiver failed a request; true if it was serving until now, so this is
+    /// the start of an outage.
+    fn archiver_started_failing(&self) -> bool {
+        !self.archiver_failing.swap(true, Ordering::Relaxed)
+    }
+
+    /// Record that the archiver answered as it should (a served range, or catching up at the
+    /// tip), logging the end of an outage.
+    fn archiver_answered(&self) {
+        if self.archiver_failing.swap(false, Ordering::Relaxed) {
+            info!(
+                archiver_url = %self.archiver.base_url,
+                "🔧 ✅ archiver is serving roots again"
+            );
         }
     }
 
@@ -460,11 +498,16 @@ impl ArchiverEthProvider {
         Ok(blocks)
     }
 
-    /// Build `start..=end` from the source RPC, sharing one fetch between concurrent callers that
-    /// ask for the same range chained from the same digest, and checking that it holds exactly
-    /// the blocks asked for, in order.
+    /// Build `start..=end` from the source RPC, checking that it holds exactly the blocks asked
+    /// for, in order.
+    ///
+    /// Requests for the same range are not merged here: the eth client's block cache serves the
+    /// blocks to every request after the first that fetched them.
     async fn source_blocks(&self, lower_digest: H256, start: u64, end: u64) -> Result<Vec<Block>> {
-        let blocks = self.shared_source_fetch(lower_digest, start, end).await?;
+        let blocks = self
+            .eth_fallback
+            .build_continuity_blocks(lower_digest, start, end)
+            .await?;
         let expected = (end - start + 1) as usize;
         anyhow::ensure!(
             blocks.len() == expected,
@@ -481,53 +524,6 @@ impl ArchiverEthProvider {
             );
         }
         Ok(blocks)
-    }
-
-    /// One source-RPC build of `start..=end` per key at a time: concurrent callers wait for the
-    /// fetch already running instead of starting their own.
-    async fn shared_source_fetch(
-        &self,
-        lower_digest: H256,
-        start: u64,
-        end: u64,
-    ) -> Result<Vec<Block>> {
-        let key = (start, end, lower_digest);
-        let cell = self
-            .source_fetches_in_flight
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .entry(key)
-            .or_default()
-            .clone();
-
-        // `get_or_init` runs one initializer at a time; the other callers wait for its result.
-        // If the caller running it is cancelled, the next waiter takes over the fetch.
-        let result = cell
-            .get_or_init(|| async {
-                self.eth_fallback
-                    .build_continuity_blocks(lower_digest, start, end)
-                    .await
-                    .map_err(|e| format!("{e:#}"))
-            })
-            .await
-            .clone();
-
-        // Drop the entry once settled, so a failed fetch is retried by the next request and
-        // finished results are not kept. Only remove our own entry: a later request may already
-        // have started a fresh fetch under the same key.
-        let mut in_flight = self
-            .source_fetches_in_flight
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
-        if in_flight
-            .get(&key)
-            .is_some_and(|current| Arc::ptr_eq(current, &cell))
-        {
-            in_flight.remove(&key);
-        }
-        drop(in_flight);
-
-        result.map_err(|e| anyhow::anyhow!(e))
     }
 }
 
@@ -595,6 +591,7 @@ impl EthRpcProvider for ArchiverEthProvider {
             .and_then(|roots| blocks_from_roots(lower_digest, start, end, roots))
         {
             Ok(blocks) => {
+                self.archiver_answered();
                 info!(
                     count = blocks.len(),
                     start = blocks.first().map(|b| b.n()),
@@ -613,6 +610,14 @@ impl EthRpcProvider for ArchiverEthProvider {
         };
         let latest_archived =
             anyhow_chain_archiver_status(&archiver_err).and_then(|status| status.latest_archived);
+        // Only an archiver failure counts toward an outage; catching up at the tip is the archiver
+        // answering as designed.
+        let outage_started = if reason.is_archiver_failure() {
+            self.archiver_started_failing()
+        } else {
+            self.archiver_answered();
+            false
+        };
 
         // Catching up, only the blocks the archiver has not stored yet come from the source RPC.
         // Any other failure leaves nothing in the archiver's answer to trust, so the whole range
@@ -628,16 +633,26 @@ impl EthRpcProvider for ArchiverEthProvider {
         match result {
             Ok(blocks) => {
                 self.observe_fallback(reason, RpcFallbackOutcome::Served);
-                if reason.is_archiver_failure() {
+                if outage_started {
                     // ERROR, as an archiver failure was before the fallback existed: the request
-                    // is served, but the archiver is broken and someone must look at it.
+                    // is served, but the archiver is broken and someone must look at it. Once per
+                    // outage, not per request: the fallback counter tracks how many it covers.
                     error!(
                         ?reason,
                         start,
                         end,
                         ?latest_archived,
                         archiver_err = %format!("{archiver_err:#}"),
-                        "🔧 ⚠️ archiver failed; served the range from the source RPC instead"
+                        "🔧 ⚠️ archiver failed; serving ranges from the source RPC until it recovers"
+                    );
+                } else if reason.is_archiver_failure() {
+                    warn!(
+                        ?reason,
+                        start,
+                        end,
+                        ?latest_archived,
+                        archiver_err = %format!("{archiver_err:#}"),
+                        "🔧 ⚠️ archiver still failing; served the range from the source RPC instead"
                     );
                 } else {
                     info!(
@@ -652,6 +667,7 @@ impl EthRpcProvider for ArchiverEthProvider {
             Err(fallback_err) => {
                 self.observe_fallback(reason, RpcFallbackOutcome::Failed);
                 if reason.is_archiver_failure() {
+                    // ERROR on every request: this one fails, as it did before the fallback.
                     error!(
                         ?reason,
                         start,
@@ -765,7 +781,7 @@ fn parse_h256(s: &str) -> Result<H256> {
 mod tests {
     use super::*;
     use std::sync::atomic::{AtomicUsize, Ordering};
-    use std::sync::Arc;
+    use std::sync::{Arc, Mutex};
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
     /// A one-route-per-path HTTP/1.1 server: `/roots?…` answers `roots_status` with `roots_body`,
@@ -775,36 +791,18 @@ mod tests {
         roots_body: &'static str,
         latest: Option<u64>,
     ) -> (String, Arc<AtomicUsize>) {
-        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let url = format!("http://{}", listener.local_addr().unwrap());
         let latest_hits = Arc::new(AtomicUsize::new(0));
         let hits = latest_hits.clone();
-        tokio::spawn(async move {
-            loop {
-                let Ok((mut stream, _)) = listener.accept().await else {
-                    return;
-                };
-                let hits = hits.clone();
-                tokio::spawn(async move {
-                    let mut buf = vec![0u8; 4096];
-                    let n = stream.read(&mut buf).await.unwrap_or(0);
-                    let request = String::from_utf8_lossy(&buf[..n]);
-                    let path = request.split_whitespace().nth(1).unwrap_or("");
-                    let (status, body) = if path.starts_with("/roots/latest") {
-                        hits.fetch_add(1, Ordering::SeqCst);
-                        let latest = latest.map_or("null".to_owned(), |h| h.to_string());
-                        (200, format!("{{\"latest_block\":{latest}}}"))
-                    } else {
-                        (roots_status, roots_body.to_owned())
-                    };
-                    let response = format!(
-                        "HTTP/1.1 {status} X\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
-                        body.len()
-                    );
-                    let _ = stream.write_all(response.as_bytes()).await;
-                });
+        let url = serve(Arc::new(move |path: &str| -> (u16, String) {
+            if path.starts_with("/roots/latest") {
+                hits.fetch_add(1, Ordering::SeqCst);
+                let latest = latest.map_or("null".to_owned(), |h| h.to_string());
+                (200, format!("{{\"latest_block\":{latest}}}"))
+            } else {
+                (roots_status, roots_body.to_owned())
             }
-        });
+        }))
+        .await;
         (url, latest_hits)
     }
 
@@ -949,6 +947,19 @@ mod tests {
         serve(Arc::new(move |_: &str| (status, body.to_owned()))).await
     }
 
+    /// An archiver that accepts connections and never answers.
+    async fn hung_archiver() -> String {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let url = format!("http://{}", listener.local_addr().unwrap());
+        tokio::spawn(async move {
+            let mut open = Vec::new();
+            while let Ok((stream, _)) = listener.accept().await {
+                open.push(stream);
+            }
+        });
+        url
+    }
+
     /// A URL nothing listens on: the port was bound and released, so connecting is refused.
     async fn unreachable_archiver() -> String {
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -958,11 +969,10 @@ mod tests {
     }
 
     /// A source RPC that builds the same chain as [`MockEthRpcProvider`], counting the ranges it
-    /// is asked for, optionally slowly or failing.
+    /// is asked for, optionally failing.
     #[derive(Default)]
     struct CountingSource {
         ranges: Mutex<Vec<(u64, u64)>>,
-        delay: Duration,
         fail: bool,
     }
 
@@ -981,7 +991,6 @@ mod tests {
             end: u64,
         ) -> Result<Vec<Block>> {
             self.ranges.lock().unwrap().push((start, end));
-            tokio::time::sleep(self.delay).await;
             anyhow::ensure!(!self.fail, "source RPC unavailable");
             MockEthRpcProvider
                 .build_continuity_blocks(lower_digest, start, end)
@@ -1168,6 +1177,28 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn a_hung_archiver_times_out_and_is_covered_by_the_source_rpc() {
+        let source = Arc::new(CountingSource::default());
+        let (mut provider, seen) = provider(hung_archiver().await, source.clone());
+        provider.archiver.roots_timeout = Duration::from_millis(200);
+
+        let blocks = tokio::time::timeout(
+            Duration::from_secs(10),
+            provider.build_continuity_blocks(LOWER, START, END),
+        )
+        .await
+        .expect("the roots deadline cuts the archiver off")
+        .unwrap();
+
+        assert_eq!(digests(&blocks), all_from_source().await);
+        assert_eq!(source.ranges(), vec![(START, END)]);
+        assert_eq!(
+            observed(&seen),
+            vec![(RpcFallbackReason::Unreachable, RpcFallbackOutcome::Served)]
+        );
+    }
+
+    #[tokio::test]
     async fn an_unparseable_archiver_response_is_covered_by_the_source_rpc() {
         let url = archiver_answering(200, "<html>bad gateway</html>").await;
         assert_whole_range_from_source(url, RpcFallbackReason::BadResponse).await;
@@ -1247,53 +1278,5 @@ mod tests {
             observed(&seen),
             vec![(RpcFallbackReason::ArchiverFault, RpcFallbackOutcome::Failed)]
         );
-    }
-
-    #[tokio::test]
-    async fn concurrent_requests_for_the_same_range_share_one_source_fetch() {
-        let url = archiver_storing_up_to(1_752, Some(1_752)).await;
-        let source = Arc::new(CountingSource {
-            // Long enough that every caller reaches the fetch while the first still runs.
-            delay: Duration::from_millis(500),
-            ..Default::default()
-        });
-        let (provider, seen) = provider(url, source.clone());
-
-        let (a, b, c, d) = tokio::join!(
-            provider.build_continuity_blocks(LOWER, START, END),
-            provider.build_continuity_blocks(LOWER, START, END),
-            provider.build_continuity_blocks(LOWER, START, END),
-            provider.build_continuity_blocks(LOWER, START, END),
-        );
-
-        let expected = all_from_source().await;
-        for blocks in [a, b, c, d] {
-            assert_eq!(digests(&blocks.unwrap()), expected);
-        }
-        assert_eq!(source.ranges(), vec![(1_753, END)], "one shared fetch");
-        assert_eq!(observed(&seen).len(), 4);
-        assert!(
-            provider.source_fetches_in_flight.lock().unwrap().is_empty(),
-            "settled fetches must not be kept"
-        );
-    }
-
-    #[tokio::test]
-    async fn a_failed_source_fetch_is_retried_by_the_next_request() {
-        let url = archiver_storing_up_to(1_752, Some(1_752)).await;
-        let source = Arc::new(CountingSource {
-            fail: true,
-            ..Default::default()
-        });
-        let (provider, _) = provider(url, source.clone());
-
-        for _ in 0..2 {
-            provider
-                .build_continuity_blocks(LOWER, START, END)
-                .await
-                .expect_err("source RPC fails");
-        }
-
-        assert_eq!(source.ranges(), vec![(1_753, END), (1_753, END)]);
     }
 }
