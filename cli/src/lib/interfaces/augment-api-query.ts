@@ -342,9 +342,11 @@ declare module '@polkadot/api-base/types/storage' {
             > &
                 QueryableStorageEntry<ApiType, [u64, AccountId32]>;
             /**
-             * Controllers an operator kicked, mapped to the first era they may register or attest again
-             * (one [`Config::BondingDuration`] after the kick). An elapsed row is dropped by the next
-             * attempt.
+             * Controllers an operator kicked, mapped to the first era they may register or attest again:
+             * [`Config::BondingDuration`] eras after the kick (2 on the current runtime). A kick of an
+             * idle or waiting attestor counts too. An elapsed row is dropped when the controller
+             * succeeds in registering or attesting, or when the chain is removed, so one that never
+             * returns keeps its row.
              **/
             kickedAttestors: AugmentedQuery<
                 ApiType,
