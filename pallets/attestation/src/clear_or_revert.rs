@@ -38,6 +38,7 @@ pub enum RemovedChainCleanupPhase {
     PeerKeyOwners,
     EvmAddresses,
     EvmAddressOwners,
+    KickedAttestors,
 }
 
 #[derive(Encode, Decode, Clone, PartialEq, Eq, RuntimeDebug, TypeInfo, MaxEncodedLen)]
@@ -311,9 +312,17 @@ impl<T: Config> Pallet<T> {
                 }
                 RemovedChainCleanupPhase::EvmAddressOwners => {
                     let cleared = EvmAddressOwner::<T>::clear_prefix(chain_key, budget, None);
+                    budget = budget.saturating_sub(cleared.unique);
+                    if cleared.maybe_cursor.is_some() {
+                        return Some(RemovedChainCleanupPhase::EvmAddressOwners);
+                    }
+                    RemovedChainCleanupPhase::KickedAttestors
+                }
+                RemovedChainCleanupPhase::KickedAttestors => {
+                    let cleared = KickedAttestors::<T>::clear_prefix(chain_key, budget, None);
                     return cleared
                         .maybe_cursor
-                        .map(|_| RemovedChainCleanupPhase::EvmAddressOwners);
+                        .map(|_| RemovedChainCleanupPhase::KickedAttestors);
                 }
             };
         }

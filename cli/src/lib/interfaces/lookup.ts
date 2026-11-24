@@ -3571,6 +3571,7 @@ export default {
             PeerKeyOwners: 'Null',
             EvmAddresses: 'Null',
             EvmAddressOwners: 'Null',
+            KickedAttestors: 'Null',
         },
     },
     /**
@@ -3661,6 +3662,7 @@ export default {
             'PeerKeyAlreadyRegistered',
             'PeerKeyNotRegistered',
             'PeerKeyRegistrationChanged',
+            'AttestorKicked',
         ],
     },
     /**

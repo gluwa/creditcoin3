@@ -51,6 +51,46 @@ impl<T: Config> Pallet<T> {
         });
     }
 
+    /// Hold a kicked controller out of `register_attestor` and `attest` for
+    /// [`Config::BondingDuration`] eras (2 on the current runtime, about 24 to 48 hours on prod).
+    pub(crate) fn start_kick_cooldown(chain_key: ChainKey, attestor_id: &T::AccountId) {
+        // A removed chain's cleanup may already be past the `KickedAttestors` phase.
+        if !T::SupportedChains::is_chain_supported(chain_key) {
+            return;
+        }
+        let until = Self::current_era().saturating_add(T::BondingDuration::get());
+        KickedAttestors::<T>::insert(chain_key, attestor_id, until);
+    }
+
+    /// Rejects a controller still inside its kick cooldown. Reads only: the elapsed row is
+    /// dropped by the caller once its own checks have passed.
+    pub(crate) fn ensure_not_kicked(
+        chain_key: ChainKey,
+        attestor_id: &T::AccountId,
+    ) -> DispatchResult {
+        if let Some(until) = KickedAttestors::<T>::get(chain_key, attestor_id) {
+            ensure!(Self::current_era() >= until, Error::<T>::AttestorKicked);
+        }
+        Ok(())
+    }
+
+    /// Under `AuthorizedOnly`, take a controller whose authorization was removed out of the
+    /// committee: a waiting attestor now, an active one at the next election.
+    pub(crate) fn chill_if_unauthorized(chain_key: ChainKey, attestor_id: &T::AccountId) {
+        if ChainElectionPolicy::<T>::get(chain_key) != AttestorElectionPolicy::AuthorizedOnly {
+            return;
+        }
+        match Attestors::<T>::get(chain_key, attestor_id).map(|attestor| attestor.status) {
+            Some(AttestorStatus::Waiting) => {
+                Self::do_chill_attestor_immediate(chain_key, attestor_id.clone())
+            }
+            Some(AttestorStatus::Active) => {
+                Self::schedule_voluntary_chill(chain_key, attestor_id.clone())
+            }
+            _ => {}
+        }
+    }
+
     /// Drop this controller's own retired BLS key row so a new registration can use the slot.
     ///
     /// Rejects when a live retired entry for the controller is owned by a *different* stash:
@@ -171,6 +211,8 @@ impl<T: Config> Pallet<T> {
             Error::<T>::AlreadyAttestor
         );
 
+        Self::ensure_not_kicked(chain_key, &attestor_id)?;
+
         Self::clear_retired_bls_entry_for_controller(chain_key, &attestor_id, &stash)?;
 
         ensure!(
@@ -180,6 +222,8 @@ impl<T: Config> Pallet<T> {
 
         // Can't select same account as the attestor
         ensure!(attestor_id != stash, Error::<T>::InvalidAttestorAccount);
+
+        KickedAttestors::<T>::remove(chain_key, &attestor_id);
 
         // Insert attestor with status Idle
         Attestors::<T>::insert(
@@ -520,6 +564,7 @@ impl<T: Config> Pallet<T> {
                 || AttestorPeerKeys::<T>::contains_key(chain_key, &attestor_id),
             Error::<T>::PeerKeyNotRegistered
         );
+        Self::ensure_not_kicked(chain_key, &attestor_id)?;
 
         // Check if attestor has already been registered and if they're not already waiting/active
         if attestor.bls_public_key.is_some() {
@@ -582,6 +627,7 @@ impl<T: Config> Pallet<T> {
         }
 
         BlsKeyOwner::<T>::insert(chain_key, bls_public_key, &attestor_id);
+        KickedAttestors::<T>::remove(chain_key, &attestor_id);
 
         // Set status to Waiting until next epoch rotation
         attestor.status = AttestorStatus::Waiting;

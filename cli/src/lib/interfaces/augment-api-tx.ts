@@ -191,6 +191,10 @@ declare module '@polkadot/api-base/types/submittable' {
                 ) => SubmittableExtrinsic<ApiType>,
                 [u64, Vec<AttestorPrimitivesAttestationCheckpoint>]
             >;
+            /**
+             * Chill an attestor whatever its status and hold its controller out of `register_attestor`
+             * and `attest` for [`Config::BondingDuration`] eras. With `unregister`, also unregister it.
+             **/
             kickActiveAttestor: AugmentedSubmittable<
                 (
                     chainKey: u64 | AnyNumber | Uint8Array,
@@ -213,6 +217,10 @@ declare module '@polkadot/api-base/types/submittable' {
                 ) => SubmittableExtrinsic<ApiType>,
                 [u64, AccountId32]
             >;
+            /**
+             * Under `AuthorizedOnly`, also chills the attestor: a waiting one at once, an active one
+             * at the next election.
+             **/
             removeAuthorizedAttestor: AugmentedSubmittable<
                 (
                     chainKey: u64 | AnyNumber | Uint8Array,

@@ -45,6 +45,11 @@ declare module '@polkadot/api-base/types/errors' {
              **/
             AttestorChillAlreadyScheduled: AugmentedError<ApiType>;
             /**
+             * The controller was kicked by an operator and cannot register or attest again until its
+             * cooldown ends.
+             **/
+            AttestorKicked: AugmentedError<ApiType>;
+            /**
              * The attestor list is at the max size allowed by the current configuration
              **/
             AttestorListFull: AugmentedError<ApiType>;

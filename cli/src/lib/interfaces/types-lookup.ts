@@ -4233,6 +4233,7 @@ declare module '@polkadot/types/lookup' {
         readonly isPeerKeyOwners: boolean;
         readonly isEvmAddresses: boolean;
         readonly isEvmAddressOwners: boolean;
+        readonly isKickedAttestors: boolean;
         readonly type:
             | 'ChillAttestors'
             | 'RetiredKeys'
@@ -4241,7 +4242,8 @@ declare module '@polkadot/types/lookup' {
             | 'PeerKeys'
             | 'PeerKeyOwners'
             | 'EvmAddresses'
-            | 'EvmAddressOwners';
+            | 'EvmAddressOwners'
+            | 'KickedAttestors';
     }
 
     /** @name PalletAttestationClearOrRevertCheckpointPruningState (450) */
@@ -4328,6 +4330,7 @@ declare module '@polkadot/types/lookup' {
         readonly isPeerKeyAlreadyRegistered: boolean;
         readonly isPeerKeyNotRegistered: boolean;
         readonly isPeerKeyRegistrationChanged: boolean;
+        readonly isAttestorKicked: boolean;
         readonly type:
             | 'AlreadyAttestor'
             | 'AttestorListFull'
@@ -4404,7 +4407,8 @@ declare module '@polkadot/types/lookup' {
             | 'InvalidPeerKeyProof'
             | 'PeerKeyAlreadyRegistered'
             | 'PeerKeyNotRegistered'
-            | 'PeerKeyRegistrationChanged';
+            | 'PeerKeyRegistrationChanged'
+            | 'AttestorKicked';
     }
 
     /** @name SupportedChainsPrimitivesSupportedChain (452) */
