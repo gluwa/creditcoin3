@@ -751,6 +751,12 @@ mod tests {
                     hash: Default::default(),
                 },
             },
+            eth::Error::BlockPayloadTooLarge {
+                number: 16,
+                what: "logs",
+                count: 2,
+                limit: 1,
+            },
         ] {
             let block = variant
                 .inconsistent_block_number_hint()
