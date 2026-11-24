@@ -11,7 +11,9 @@
 //!   transaction types `0x0`–`0x4` appear.
 //! - [`ChainFamily::OpStack`]: OP-Stack rollups (Base, OP Mainnet and their Sepolia testnets).
 //!   Every block opens with a type `0x7e` **deposit** transaction carrying the L1 attributes, and
-//!   deposit receipts carry extra RLP fields. See [`crate::op_stack`].
+//!   deposit receipts carry extra RLP fields. See [`crate::op_stack`]. Supported: blocks before
+//!   the Lagoon upgrade. Its `0x7d` post-execution transaction is not parsed yet, so a block that
+//!   contains one is refused with [`crate::Error::PostExecTransactionUnsupported`].
 //!
 //! The family is an **off-chain** setting: it changes how an attestor *reads* a block, not what
 //! it attests to. Two attestors that disagree on the family for a chain would compute different
@@ -105,6 +107,9 @@ mod tests {
         assert!(!ChainFamily::Ethereum.supports_tx_type(0x7e));
         assert!(ChainFamily::OpStack.supports_tx_type(0x7e));
         assert!(!ChainFamily::OpStack.supports_tx_type(0x6a));
+        // Lagoon's post-exec type, until it is parsed.
+        assert!(!ChainFamily::Ethereum.supports_tx_type(0x7d));
+        assert!(!ChainFamily::OpStack.supports_tx_type(0x7d));
     }
 
     #[test]
