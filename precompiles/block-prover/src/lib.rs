@@ -28,8 +28,15 @@ use crate::verify::GAS_STORAGE_LOOKUP;
 // Use the TransactionMerkleProof from merkle
 use merkle::TransactionMerkleProof;
 
-/// Type alias for 10MB bounded vec constraint (10_485_760 bytes)
-pub type ConstU10MB = sp_core::ConstU32<10_485_760>;
+/// Maximum size, in bytes, of a single `encoded_transaction` argument.
+///
+/// 4 MiB is above the largest encoding one Creditcoin transaction can carry (the block
+/// length limit allows about 3.9 MB).
+pub type MaxEncodedTxBytes = sp_core::ConstU32<4_194_304>;
+
+/// Maximum total size, in bytes, of the `encoded_transactions` of one batch call, each
+/// counted at its length rounded up to a power of two. See [`BatchEncodedTxs`].
+pub type MaxBatchBytes = sp_core::ConstU32<4_194_304>;
 
 /// Helper function to encode revert messages in Solidity format
 ///
@@ -69,7 +76,9 @@ mod tests_gas_security;
 #[cfg(test)]
 mod tests_view;
 
+mod batch_txs;
 mod continuity;
+pub use batch_txs::BatchEncodedTxs;
 mod verify;
 
 /// Native Query Verifier Precompile
@@ -99,6 +108,18 @@ where
     Runtime::AccountId: From<[u8; 32]>,
     <Runtime as pallet_evm::Config>::AddressMapping: AddressMapping<Runtime::AccountId>,
 {
+    /// Charge for the raw input, per 32-byte word, before any entry point runs.
+    #[precompile::pre_check]
+    fn charge_input_decode(handle: &mut impl PrecompileHandle) -> EvmResult<()> {
+        let gas = crate::verify::INPUT_DECODE_WORD_COST
+            .checked_mul(crate::verify::words(handle.input().len()))
+            .ok_or(PrecompileFailure::Error {
+                exit_status: ExitError::OutOfGas,
+            })?;
+        handle.record_cost(gas)?;
+        Ok(())
+    }
+
     /// Verify a blockchain query with Merkle proof and continuity chain (view function)
     ///
     /// This is a read-only view function that doesn't emit events. It charges the same gas
@@ -131,7 +152,7 @@ where
         handle: &mut impl PrecompileHandle,
         chain_key: u64,
         height: u64,
-        encoded_transaction: BoundedBytes<ConstU10MB>,
+        encoded_transaction: BoundedBytes<MaxEncodedTxBytes>,
         merkle_proof: TransactionMerkleProof,
         continuity_proof: ContinuityProof,
     ) -> EvmResult<bool> {
@@ -177,7 +198,7 @@ where
         handle: &mut impl PrecompileHandle,
         chain_key: u64,
         height: u64,
-        encoded_transaction: BoundedBytes<ConstU10MB>,
+        encoded_transaction: BoundedBytes<MaxEncodedTxBytes>,
         merkle_proof: TransactionMerkleProof,
         continuity_proof: ContinuityProof,
     ) -> EvmResult<bool> {
@@ -219,7 +240,7 @@ where
         handle: &mut impl PrecompileHandle,
         chain_key: u64,
         heights: BoundedVec<u64, MaxBatchSize>,
-        encoded_transactions: BoundedVec<BoundedBytes<ConstU10MB>, MaxBatchSize>,
+        encoded_transactions: BatchEncodedTxs,
         merkle_proofs: BoundedVec<TransactionMerkleProof, MaxBatchSize>,
         shared_continuity_proof: ContinuityProof,
     ) -> EvmResult<bool> {
@@ -268,7 +289,7 @@ where
         handle: &mut impl PrecompileHandle,
         chain_key: u64,
         heights: BoundedVec<u64, MaxBatchSize>,
-        encoded_transactions: BoundedVec<BoundedBytes<ConstU10MB>, MaxBatchSize>,
+        encoded_transactions: BatchEncodedTxs,
         merkle_proofs: BoundedVec<TransactionMerkleProof, MaxBatchSize>,
         shared_continuity_proof: ContinuityProof,
     ) -> EvmResult<bool> {

@@ -100,6 +100,9 @@ pub async fn run(
     let mut events = stream::cc3::StreamCC3::new(cc3_cfg)
         .await
         .map_err(Error::Init)?;
+    // The startup committee snapshot can predate this subscription by an unbounded public-seed
+    // wait. Reconcile once now that later membership events are captured by `events`.
+    reconcile_committee_from_chain(&shared).await?;
 
     // ----------------------------------* genesis (if needed) *------------------------------- //
     //
@@ -337,9 +340,29 @@ async fn handle_cc3_batch(
     // Steady liveness pulse: a cc3 finalized batch arriving means the connection is live and the
     // production loop is turning. The watchdog reads this to distinguish "alive" from "wedged".
     shared.health.note_progress();
+    let finalized_number = batch.block_number();
+    let mut registry_changed = false;
     while let Some(event) = batch.try_next().await? {
-        handle_one(shared, stream_attestation, latest_cc3, event).await?;
+        registry_changed |= crate::peer_registry::affects_registry(&event);
+        handle_one(
+            shared,
+            stream_attestation,
+            latest_cc3,
+            event,
+            finalized_number,
+        )
+        .await?;
     }
+    // Publish once after the whole block's BLS/eligibility/removal handling. The watch channel
+    // coalesces bursts without blocking production; the registry task does the RPC separately.
+    // First delivery also closes the startup snapshot/subscription gap. A new connection
+    // triggers reconciliation even if reconnect backfill contains no membership events.
+    crate::peer_registry::request_refresh(
+        &shared.peer_registry_refresh_tx,
+        finalized_number,
+        shared.cc3.reconnect_success_count(),
+        registry_changed,
+    );
     Ok(())
 }
 
@@ -489,6 +512,7 @@ async fn handle_one(
     stream_attestation: &mut stream::attestation::StreamAttestation,
     latest_cc3: &mut AttestationInfo,
     event: CcEvent,
+    finalized_number: u64,
 ) -> Result<(), Error> {
     match event {
         // 1] new finalized attestation on cc3
@@ -585,6 +609,9 @@ async fn handle_one(
             }
         }
 
+        // The completed batch requests a finalized networking-registry reload.
+        CcEvent::PeerRegistryChanged(_) => {}
+
         // Chill / kick removes the attestor from `ActiveAttestors` on-chain immediately. Refresh
         // BlsStore and the pool's allow-set on every chill/kick — not just for the local node —
         // so peers stop accepting gossip signed by the removed attestor's still-cached BLS key.
@@ -612,7 +639,10 @@ async fn handle_one(
             if !is_local {
                 let _ = shared
                     .peer_deactivated_tx
-                    .send(attestor_primitives::AttestorId::from_public(who.0));
+                    .send(crate::shared::PeerDeactivated {
+                        attestor: attestor_primitives::AttestorId::from_public(who.0),
+                        finalized_number,
+                    });
             }
         }
 
@@ -850,8 +880,11 @@ async fn wait_for_genesis(
                 // Keep the watchdog fed during a slow genesis wait (can exceed the startup grace
                 // on a slow chain) — batches are still arriving, so we're alive, not wedged.
                 shared.health.note_progress();
+                let finalized_number = batch.block_number();
+                let mut registry_changed = false;
                 let mut adopted = None;
                 while let Some(event) = batch.try_next().await? {
+                    registry_changed |= crate::peer_registry::affects_registry(&event);
                     match genesis_step(event, target, shared.chain_key) {
                         // The first BlockAttested at/above genesis carries the runtime-committed
                         // digest the caller needs. The rest of the block is still applied below,
@@ -879,10 +912,18 @@ async fn wait_for_genesis(
                         // wait — dropping them left `bls_store`, pool membership and threshold
                         // config stale. Same handler as the steady-state loop.
                         GenesisStep::Apply(other) => {
-                            handle_one(shared, stream_attestation, &mut scratch, other).await?;
+                            handle_one(shared, stream_attestation, &mut scratch, other, finalized_number).await?;
                         }
                     }
                 }
+                // The block is fully drained even when it carried the genesis terminator, so
+                // `registry_changed` covers all of it.
+                crate::peer_registry::request_refresh(
+                    &shared.peer_registry_refresh_tx,
+                    finalized_number,
+                    shared.cc3.reconnect_success_count(),
+                    registry_changed,
+                );
                 if let Some(info) = adopted {
                     return Ok(GenesisWait::Attested(info));
                 }

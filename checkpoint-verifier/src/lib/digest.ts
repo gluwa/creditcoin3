@@ -1,6 +1,6 @@
 import { JsonRpcProvider, WebSocketProvider } from 'ethers';
 
-import { encoding, proofProvider } from '@gluwa/asc-sdk';
+import { encoding, proofProvider } from '@gluwa/attestcoin-sdk';
 
 import { getBlockWithReceipts } from './block-provider';
 import { Checkpoint, VerificationResult, VerificationSummary } from '../types/checkpoint';

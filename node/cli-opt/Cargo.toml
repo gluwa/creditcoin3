@@ -5,6 +5,7 @@ license = "GPL-3.0-only"
 name = "creditcoin3-cli-opt"
 publish = { workspace = true }
 repository = { workspace = true }
+rust-version = { workspace = true }
 version = { workspace = true }
 
 [dependencies]

@@ -53,9 +53,7 @@ jobs:
           echo "$HOME/.foundry/bin" >> "$GITHUB_PATH"
 
       - name: Install protobuf
-        uses: arduino/setup-protoc@v3
-        with:
-          repo-token: ${{ secrets.GITHUB_TOKEN }}
+        run: bash .github/install-protoc.sh
 
       - name: Install libclang
         run: sudo apt-get update && sudo apt-get install -y libclang-dev

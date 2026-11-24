@@ -660,8 +660,8 @@ fn test_continuity_wrong_attestation_header_succeeds() {
 #[test]
 fn test_transaction_at_size_limit() {
     ExtBuilder::default().build().execute_with(|| {
-        // Create transaction at exactly 10MB limit
-        let tx_data = vec![0x55u8; 10_485_760]; // 10MB exactly
+        // Create transaction at exactly the 4 MiB decode limit (MaxEncodedTxBytes)
+        let tx_data = vec![0x55u8; 4_194_304]; // 4 MiB exactly
 
         // For this test, we'll use a simple proof since the focus is on size handling
         let merkle_proof = TransactionMerkleProof {

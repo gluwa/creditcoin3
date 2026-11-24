@@ -32,7 +32,9 @@ use crate::pallet::{Call, Config, MaxCatchup, Pallet};
 ///
 /// * calls signed by accounts that are not in the active attestor set for the target chain, and
 /// * calls for an attestation digest that is already stored on chain (or has been superseded by a
-///   later checkpoint).
+///   later checkpoint), and
+/// * calls whose continuity proof builds on a digest other than the chain's latest one (a rival
+///   quorum on an anchor another attestation has already extended).
 ///
 /// These rejections happen *before* fees are charged, eliminating the drain vector where
 /// attestors lose a race and still pay the inclusion fee.
@@ -148,7 +150,17 @@ where
                 // `check_duplicate` now also enforces the strictly-monotonic per-chain height
                 // (via `LastDigest`), so a race loser resubmitting an already-attested height — or
                 // a quorum trying a competing digest for that height — is rejected here before fees.
-                if is_active && Pallet::<T>::check_duplicate(attestation) {
+                //
+                // `extends_stale_digest` covers the other race loser: a *higher* height built on
+                // the same anchor as an attestation that has since landed. Dispatch rejects it
+                // (`InvalidAttestationContinuityProofTail`), so without this check it is included
+                // and pays the full fee. It is a storage read and a comparison, so unlike the full
+                // check below it also runs `InBlock`, where it lets the block builder skip the
+                // loser once the winner is applied earlier in the same block.
+                if is_active
+                    && (Pallet::<T>::check_duplicate(attestation)
+                        || Pallet::<T>::extends_stale_digest(attestation))
+                {
                     return Err(TransactionValidityError::Invalid(InvalidTransaction::Stale));
                 }
 

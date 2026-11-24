@@ -6,6 +6,34 @@ use super::pallet::*;
 
 /// PALLET CALL IMPLS ///
 impl<T: Config> Pallet<T> {
+    /// Whether `attestation` builds on a digest other than the chain's latest one.
+    ///
+    /// Cheap mirror of the anchor rule in [`Self::validate_attestation_continuity`]: a proof's
+    /// tail (or, for an empty proof, the attestation's `prev_digest`) must be the latest
+    /// finalized digest. Attestors routinely form quorums for several heights on the same
+    /// anchor, so once one of them lands the rest can only fail. Checking this in
+    /// `PrevalidateAttestationCommit` lets the pool and block builder drop them before fees,
+    /// without running the full continuity walk or the aggregate signature check.
+    ///
+    /// Genesis attestations and malformed attestations without an anchor return `false`;
+    /// dispatch reports those with their specific errors.
+    pub(crate) fn extends_stale_digest(
+        attestation: &SignedAttestation<T::Hash, T::AccountId>,
+    ) -> bool {
+        let chain_key = attestation.chain_key();
+        if attestation.header_number() == AttestationChainGenesisBlockNumber::<T>::get(chain_key) {
+            return false;
+        }
+        let anchor = attestation
+            .continuity_proof
+            .tail_prev_digest()
+            .or_else(|| attestation.prev_digest());
+        match (anchor, Self::last_digest(chain_key)) {
+            (Some(anchor), Some(last)) => anchor != last,
+            _ => false,
+        }
+    }
+
     pub fn validate_attestation_continuity(
         attestation: &SignedAttestation<T::Hash, T::AccountId>,
     ) -> DispatchResult {

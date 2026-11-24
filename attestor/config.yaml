@@ -34,10 +34,31 @@ api:
   # port: 9100
 
 p2p:
+  # Optional: separate networking mnemonic or 32-byte hex seed. Defaults to attestor.secret,
+  # preserving existing peer IDs. Set ATTESTOR_P2P_SECRET instead to keep it out of this file.
+  # Networking keys register on-chain at startup; changing an existing key needs the explicit
+  # one-time --rotate-peer-key flag. See docs/runbooks/attestor-peer-registration.md.
+  #
+  # secret: "<networking mnemonic or 0x-prefixed 32-byte seed>"
+
   # Optional: Boot nodes for peer discovery
   #   Used to establish a map of available peers
   #
   # boot_nodes: []
+
+  # Optional trusted peer IDs while a chain backfills on-chain networking registrations.
+  # Finalized committee keys reserve inbound capacity automatically before any vote.
+  # Once on-chain PeerRegistrationRequired is enabled, this manual fallback is ignored.
+  # A public seed without boot nodes/fallback waits for finalized networking registrations
+  # during rollout. Use --register-peer-key-only to backfill without starting P2P or waiting
+  # for an election. List every unregistered committee peer that needs fallback direct access.
+  # Use the libp2p peer ID from the peer's startup log or /p2p/<peer-id> boot multiaddr,
+  # not its on-chain attestor account. These IDs need no addresses and are not dialed.
+  # Only include peers you trust; remove the fallback after on-chain enforcement is enabled.
+  # Vote membership and BLS checks still apply. Local mDNS-only setups need no list.
+  # CLI: --reserved-peers=<peer-id> (repeatable); env: ATTESTOR_RESERVED_PEERS (comma-separated).
+  #
+  # reserved_peers: []
 
   # Optional: Fixed P2P port for libp2p networking
   #   If not specified, defaults to 9000.

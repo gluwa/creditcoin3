@@ -5,6 +5,7 @@ license.workspace = true
 name = "pallet-supported-chains"
 publish.workspace = true
 repository.workspace = true
+rust-version.workspace = true
 version.workspace = true
 
 [lints.clippy]

@@ -5,6 +5,7 @@ license.workspace = true
 name = "pallet-attestation"
 publish.workspace = true
 repository.workspace = true
+rust-version.workspace = true
 version.workspace = true
 
 [lints.clippy]
@@ -29,6 +30,7 @@ pallet-balances = { workspace = true }
 
 attestor-primitives = { workspace = true }
 bls-signatures = { workspace = true, default-features = false }
+ed25519-dalek = { workspace = true }
 randomness-primitives = { workspace = true, default-features = false }
 supported-chains-primitives = { workspace = true }
 
@@ -36,6 +38,7 @@ supported-chains-primitives = { workspace = true }
 env_logger = { workspace = true }
 extend = "1.2.0"
 frame-election-provider-support = { workspace = true }
+hex-literal = { workspace = true }
 pallet-authorship = { workspace = true }
 pallet-babe = { workspace = true }
 pallet-membership = { workspace = true }
@@ -49,6 +52,7 @@ pallet-timestamp = { workspace = true }
 sp-consensus-babe = { workspace = true, default-features = false, features = [
     "serde",
 ] }
+sp-keystore = { workspace = true }
 
 [features]
 default = ["std"]
@@ -59,6 +63,7 @@ runtime-benchmarks = [
     "pallet-balances/runtime-benchmarks",
     "sp-runtime/runtime-benchmarks",
     "sp-staking/runtime-benchmarks",
+    "pallet-staking/runtime-benchmarks",
     "pallet-membership/runtime-benchmarks",
     "pallet-staking/runtime-benchmarks",
 ]
@@ -78,6 +83,7 @@ std = [
     "pallet-supported-chains/std",
     "supported-chains-primitives/std",
     "bls-signatures/std",
+    "ed25519-dalek/std",
     "sp-staking/std",
     "frame-election-provider-support/std",
     "pallet-authorship/std",
