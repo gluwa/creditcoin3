@@ -3529,6 +3529,7 @@ export default {
             Invulnerables: 'Null',
             PeerKeys: 'Null',
             PeerKeyOwners: 'Null',
+            KickedAttestors: 'Null',
         },
     },
     /**
@@ -3616,6 +3617,7 @@ export default {
             'PeerKeyAlreadyRegistered',
             'PeerKeyNotRegistered',
             'PeerKeyRegistrationChanged',
+            'AttestorKicked',
         ],
     },
     /**

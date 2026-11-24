@@ -6390,6 +6390,59 @@ fn on_supported_chain_removed_leaves_no_cleanup_state_when_nothing_is_retained()
     });
 }
 
+/// Kick cooldowns of a removed chain are cleared in bounded batches, and another chain's are left.
+#[test]
+fn removed_chain_cleanup_drops_kick_cooldowns_of_that_chain_only() {
+    let other_chain: ChainKey = 42;
+    let rows = u64::from(MAX_REMOVAL_CLEANUP_ITEMS_PER_BLOCK) * 2 + 5;
+    let remaining = || KickedAttestors::<Test>::iter_prefix(SUPPORTED_CHAIN_KEY).count() as u64;
+
+    // `run` commits between steps, as a block boundary would: `clear_prefix` only bounds the
+    // keys it deletes from the backend, so rows still sitting in the overlay would skew it.
+    let mut ext = ExtBuilder.build();
+    ext.run(|| {
+        System::set_block_number(1);
+        for i in 0..rows {
+            KickedAttestors::<Test>::insert(
+                SUPPORTED_CHAIN_KEY,
+                ACTIVE_ATTESTOR_FILLER_BASE + i,
+                50,
+            );
+        }
+        KickedAttestors::<Test>::insert(other_chain, ATTESTOR_1, 50);
+    });
+
+    ext.run(|| {
+        assert_ok!(SupportedChains::remove_chain(
+            RuntimeOrigin::root(),
+            SUPPORTED_CHAIN_KEY,
+            false
+        ));
+    });
+    let mut left = ext.run(remaining);
+    assert!(left > 0 && rows - left <= u64::from(MAX_REMOVAL_CLEANUP_ITEMS_PER_BLOCK));
+
+    let mut block = 1;
+    while ext.run(|| RemovedChainCleanup::<Test>::contains_key(SUPPORTED_CHAIN_KEY)) {
+        block += 1;
+        assert!(block < 30, "cleanup did not converge");
+        let now = ext.run(|| {
+            progress_to_block(block);
+            remaining()
+        });
+        assert!(left - now <= u64::from(MAX_REMOVAL_CLEANUP_ITEMS_PER_BLOCK));
+        left = now;
+    }
+
+    ext.run(|| {
+        assert_eq!(remaining(), 0);
+        assert!(KickedAttestors::<Test>::contains_key(
+            other_chain,
+            ATTESTOR_1
+        ));
+    });
+}
+
 /// `remove_chain` charges for the listener's capped work instead of a flat guess, so the
 /// declared weight must at least cover the listener's own worst case.
 #[test]
@@ -7423,6 +7476,158 @@ mod authorize_attestor {
 mod removed_authorized_attestor {
     use super::*;
 
+    fn force_election() {
+        assert_ok!(Attestation::force_election(
+            RuntimeOrigin::root(),
+            SUPPORTED_CHAIN_KEY
+        ));
+    }
+
+    fn authorize_only(attestor_id: AccountId) {
+        assert_ok!(Attestation::set_election_policy(
+            RuntimeOrigin::root(),
+            SUPPORTED_CHAIN_KEY,
+            AttestorElectionPolicy::AuthorizedOnly
+        ));
+        assert_ok!(Attestation::authorize_attestor(
+            RuntimeOrigin::root(),
+            SUPPORTED_CHAIN_KEY,
+            attestor_id
+        ));
+    }
+
+    fn remove_authorization(attestor_id: AccountId) {
+        assert_ok!(Attestation::remove_authorized_attestor(
+            RuntimeOrigin::root(),
+            SUPPORTED_CHAIN_KEY,
+            attestor_id
+        ));
+    }
+
+    #[test]
+    fn removing_authorization_chills_a_waiting_attestor_under_authorized_only() {
+        ExtBuilder.build_and_execute(|| {
+            authorize_only(ATTESTOR_1);
+            register_and_attest(SUPPORTED_CHAIN_KEY, &Attestor::new(STASH_1, ATTESTOR_1));
+            assert_eq!(
+                Attestation::attestor_status(SUPPORTED_CHAIN_KEY, &ATTESTOR_1),
+                Some(AttestorStatus::Waiting)
+            );
+
+            remove_authorization(ATTESTOR_1);
+
+            assert_eq!(
+                Attestation::attestor_status(SUPPORTED_CHAIN_KEY, &ATTESTOR_1),
+                Some(AttestorStatus::Idle)
+            );
+            System::assert_has_event(
+                crate::Event::AttestorChilled(SUPPORTED_CHAIN_KEY, ATTESTOR_1).into(),
+            );
+        })
+    }
+
+    #[test]
+    fn removing_authorization_chills_an_active_attestor_at_the_next_election() {
+        ExtBuilder.build_and_execute(|| {
+            authorize_only(ATTESTOR_1);
+            let attestor = Attestor::new(STASH_1, ATTESTOR_1);
+            register_and_attest(SUPPORTED_CHAIN_KEY, &attestor);
+            progress_to_block(5);
+            assert!(Attestation::is_attestor(SUPPORTED_CHAIN_KEY, &ATTESTOR_1));
+
+            remove_authorization(ATTESTOR_1);
+            // The committee only changes at an election.
+            assert!(Attestation::is_attestor(SUPPORTED_CHAIN_KEY, &ATTESTOR_1));
+            assert_eq!(
+                Attestation::attestor_status(SUPPORTED_CHAIN_KEY, &ATTESTOR_1),
+                Some(AttestorStatus::Leaving)
+            );
+
+            force_election();
+
+            assert!(!Attestation::is_attestor(SUPPORTED_CHAIN_KEY, &ATTESTOR_1));
+            assert_eq!(
+                Attestation::attestor_status(SUPPORTED_CHAIN_KEY, &ATTESTOR_1),
+                Some(AttestorStatus::Idle)
+            );
+            System::assert_has_event(
+                crate::Event::AttestorChilled(SUPPORTED_CHAIN_KEY, ATTESTOR_1).into(),
+            );
+
+            // Attesting again does not bring it back.
+            assert_ok!(Attestation::attest(
+                RuntimeOrigin::signed(ATTESTOR_1),
+                SUPPORTED_CHAIN_KEY,
+                attestor.public_key,
+                attestor.signature
+            ));
+            force_election();
+            assert!(!Attestation::is_attestor(SUPPORTED_CHAIN_KEY, &ATTESTOR_1));
+            assert_eq!(
+                Attestation::attestor_status(SUPPORTED_CHAIN_KEY, &ATTESTOR_1),
+                Some(AttestorStatus::Waiting)
+            );
+        })
+    }
+
+    #[test]
+    fn removing_authorization_keeps_a_sitting_attestor_under_open_to_any() {
+        ExtBuilder.build_and_execute(|| {
+            assert_ok!(Attestation::authorize_attestor(
+                RuntimeOrigin::root(),
+                SUPPORTED_CHAIN_KEY,
+                ATTESTOR_1
+            ));
+            register_and_attest(SUPPORTED_CHAIN_KEY, &Attestor::new(STASH_1, ATTESTOR_1));
+            progress_to_block(5);
+            assert!(Attestation::is_attestor(SUPPORTED_CHAIN_KEY, &ATTESTOR_1));
+
+            remove_authorization(ATTESTOR_1);
+            force_election();
+
+            assert!(Attestation::is_attestor(SUPPORTED_CHAIN_KEY, &ATTESTOR_1));
+        })
+    }
+
+    #[test]
+    fn removing_authorization_leaves_an_idle_attestor_alone() {
+        ExtBuilder.build_and_execute(|| {
+            authorize_only(ATTESTOR_1);
+            let attestor = Attestor::new(STASH_1, ATTESTOR_1);
+            assert_ok!(Attestation::register_attestor(
+                attestor.stash.clone(),
+                SUPPORTED_CHAIN_KEY,
+                ATTESTOR_1
+            ));
+
+            remove_authorization(ATTESTOR_1);
+
+            assert_eq!(
+                Attestation::attestor_status(SUPPORTED_CHAIN_KEY, &ATTESTOR_1),
+                Some(AttestorStatus::Idle)
+            );
+            assert!(!System::events().iter().any(|record| matches!(
+                &record.event,
+                RuntimeEvent::Attestation(crate::Event::AttestorChilled(..))
+            )));
+        })
+    }
+
+    #[test]
+    fn switching_to_authorized_only_leaves_sitting_attestors_alone() {
+        ExtBuilder.build_and_execute(|| {
+            register_and_attest(SUPPORTED_CHAIN_KEY, &Attestor::new(STASH_1, ATTESTOR_1));
+            register_and_attest(SUPPORTED_CHAIN_KEY, &Attestor::new(STASH_2, ATTESTOR_2));
+            progress_to_block(5);
+
+            authorize_only(ATTESTOR_2);
+            force_election();
+
+            assert!(Attestation::is_attestor(SUPPORTED_CHAIN_KEY, &ATTESTOR_1));
+            assert!(Attestation::is_attestor(SUPPORTED_CHAIN_KEY, &ATTESTOR_2));
+        })
+    }
+
     #[test]
     fn removed_authorized_attestor_should_error_when_not_signed() {
         ExtBuilder.build_and_execute(|| {
@@ -7727,6 +7932,196 @@ mod kick_active_attestor {
             System::assert_has_event(
                 crate::Event::AttestorChilled(SUPPORTED_CHAIN_KEY, ATTESTOR_1).into(),
             );
+        })
+    }
+
+    fn kick(attestor_id: AccountId, unregister: bool) {
+        assert_ok!(Attestation::kick_active_attestor(
+            RuntimeOrigin::root(),
+            SUPPORTED_CHAIN_KEY,
+            attestor_id,
+            unregister
+        ));
+    }
+
+    fn set_era(era: u32) {
+        pallet_staking::CurrentEra::<Test>::put(era);
+    }
+
+    #[test]
+    fn kicked_controller_cannot_attest_until_the_cooldown_ends() {
+        ExtBuilder.build_and_execute(|| {
+            let attestor = Attestor::new(STASH_1, ATTESTOR_1);
+            register_and_attest(SUPPORTED_CHAIN_KEY, &attestor);
+            progress_to_block(5);
+
+            kick(ATTESTOR_1, false);
+            let until = current_era() + BondingDuration::get();
+            assert_eq!(
+                KickedAttestors::<Test>::get(SUPPORTED_CHAIN_KEY, ATTESTOR_1),
+                Some(until)
+            );
+
+            let attest = || {
+                Attestation::attest(
+                    RuntimeOrigin::signed(ATTESTOR_1),
+                    SUPPORTED_CHAIN_KEY,
+                    attestor.public_key,
+                    attestor.signature,
+                )
+            };
+            assert_noop!(attest(), Error::<Test>::AttestorKicked);
+
+            set_era(until - 1);
+            assert_noop!(attest(), Error::<Test>::AttestorKicked);
+
+            set_era(until);
+            assert_ok!(attest());
+            assert_eq!(
+                Attestation::attestor_status(SUPPORTED_CHAIN_KEY, &ATTESTOR_1),
+                Some(AttestorStatus::Waiting)
+            );
+            assert!(!KickedAttestors::<Test>::contains_key(
+                SUPPORTED_CHAIN_KEY,
+                ATTESTOR_1
+            ));
+        })
+    }
+
+    #[test]
+    fn kicked_and_unregistered_controller_cannot_register_again_until_the_cooldown_ends() {
+        ExtBuilder.build_and_execute(|| {
+            let attestor = Attestor::new(STASH_1, ATTESTOR_1);
+            register_and_attest(SUPPORTED_CHAIN_KEY, &attestor);
+            progress_to_block(5);
+
+            kick(ATTESTOR_1, true);
+            assert!(Attestation::attestors(SUPPORTED_CHAIN_KEY, ATTESTOR_1).is_none());
+            let until = current_era() + BondingDuration::get();
+
+            let register = || {
+                Attestation::register_attestor(
+                    attestor.stash.clone(),
+                    SUPPORTED_CHAIN_KEY,
+                    ATTESTOR_1,
+                )
+            };
+            assert_noop!(register(), Error::<Test>::AttestorKicked);
+
+            set_era(until - 1);
+            assert_noop!(register(), Error::<Test>::AttestorKicked);
+
+            set_era(until);
+            assert_ok!(register());
+            assert!(!KickedAttestors::<Test>::contains_key(
+                SUPPORTED_CHAIN_KEY,
+                ATTESTOR_1
+            ));
+        })
+    }
+
+    #[test]
+    fn kick_cooldown_only_holds_out_the_kicked_controller() {
+        ExtBuilder.build_and_execute(|| {
+            let kicked = Attestor::new(STASH_1, ATTESTOR_1);
+            let sibling = Attestor::new(STASH_1, ATTESTOR_2);
+            register_and_attest(SUPPORTED_CHAIN_KEY, &kicked);
+            progress_to_block(5);
+
+            kick(ATTESTOR_1, true);
+
+            assert_ok!(Attestation::register_attestor(
+                sibling.stash.clone(),
+                SUPPORTED_CHAIN_KEY,
+                ATTESTOR_2,
+            ));
+            assert_ok!(Attestation::attest(
+                RuntimeOrigin::signed(ATTESTOR_2),
+                SUPPORTED_CHAIN_KEY,
+                sibling.public_key,
+                sibling.signature
+            ));
+        })
+    }
+
+    #[test]
+    fn kicking_an_idle_or_waiting_attestor_also_starts_the_cooldown() {
+        ExtBuilder.build_and_execute(|| {
+            let idle = Attestor::new(STASH_1, ATTESTOR_1);
+            let waiting = Attestor::new(STASH_2, ATTESTOR_2);
+            assert_ok!(Attestation::register_attestor(
+                idle.stash.clone(),
+                SUPPORTED_CHAIN_KEY,
+                ATTESTOR_1
+            ));
+            register_and_attest(SUPPORTED_CHAIN_KEY, &waiting);
+            assert_eq!(
+                Attestation::attestor_status(SUPPORTED_CHAIN_KEY, &ATTESTOR_2),
+                Some(AttestorStatus::Waiting)
+            );
+
+            kick(ATTESTOR_1, false);
+            kick(ATTESTOR_2, false);
+
+            let until = current_era() + BondingDuration::get();
+            for id in [ATTESTOR_1, ATTESTOR_2] {
+                assert_eq!(
+                    KickedAttestors::<Test>::get(SUPPORTED_CHAIN_KEY, id),
+                    Some(until)
+                );
+            }
+            assert_eq!(
+                Attestation::attestor_status(SUPPORTED_CHAIN_KEY, &ATTESTOR_2),
+                Some(AttestorStatus::Idle)
+            );
+        })
+    }
+
+    #[test]
+    fn an_elapsed_cooldown_row_survives_a_failing_attempt() {
+        ExtBuilder.build_and_execute(|| {
+            let attestor = Attestor::new(STASH_1, ATTESTOR_1);
+            let other = Attestor::new(STASH_2, ATTESTOR_2);
+            register_and_attest(SUPPORTED_CHAIN_KEY, &attestor);
+            kick(ATTESTOR_1, false);
+            let until = current_era() + BondingDuration::get();
+            set_era(until);
+
+            // A proof minted for another controller fails after the cooldown check.
+            assert_noop!(
+                Attestation::attest(
+                    RuntimeOrigin::signed(ATTESTOR_1),
+                    SUPPORTED_CHAIN_KEY,
+                    attestor.public_key,
+                    other.signature
+                ),
+                Error::<Test>::InvalidProofOfPossession
+            );
+            assert_eq!(
+                KickedAttestors::<Test>::get(SUPPORTED_CHAIN_KEY, ATTESTOR_1),
+                Some(until)
+            );
+        })
+    }
+
+    #[test]
+    fn kick_on_a_removed_chain_leaves_no_cooldown_row() {
+        ExtBuilder.build_and_execute(|| {
+            let attestor = Attestor::new(STASH_1, ATTESTOR_1);
+            register_and_attest(SUPPORTED_CHAIN_KEY, &attestor);
+            progress_to_block(5);
+            assert_ok!(SupportedChains::remove_chain(
+                RuntimeOrigin::root(),
+                SUPPORTED_CHAIN_KEY,
+                false
+            ));
+
+            kick(ATTESTOR_1, false);
+
+            assert!(!KickedAttestors::<Test>::contains_key(
+                SUPPORTED_CHAIN_KEY,
+                ATTESTOR_1
+            ));
         })
     }
 }
