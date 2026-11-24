@@ -739,6 +739,12 @@ mod tests {
             eth::Error::BlockHeaderRootsMismatch(11),
             eth::Error::TransactionsReceiptsMismatch(12),
             eth::Error::NotFullTransactionsFetched(13),
+            eth::Error::BlockPayloadTooLarge {
+                number: 14,
+                what: "logs",
+                count: 2,
+                limit: 1,
+            },
         ] {
             let block = variant
                 .inconsistent_block_number_hint()

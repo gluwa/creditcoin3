@@ -12,6 +12,10 @@ pub enum Error {
     /// CC3 event stream error.
     Cc3Stream(stream::cc3::Error),
 
+    /// The eth block stream ended: a block that no retry can fetch or decode, or an unexpected
+    /// close. Returned so the supervisor restarts the attestor instead of leaving it half-alive.
+    EthStream(stream::eth::Error),
+
     /// Subxt error.
     Subxt(subxt::Error),
 
@@ -72,6 +76,7 @@ impl std::fmt::Display for Error {
             Self::Init(e) => write!(f, "init: {e}"),
             Self::Rpc(e) => write!(f, "rpc: {e}"),
             Self::Cc3Stream(e) => write!(f, "cc3 stream: {e}"),
+            Self::EthStream(e) => write!(f, "eth stream: {e}"),
             Self::Subxt(e) => write!(f, "subxt: {e}"),
             Self::P2p(e) => write!(f, "p2p: {e}"),
             Self::Bls(e) => write!(f, "bls: {e}"),
