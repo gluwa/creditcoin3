@@ -28,8 +28,22 @@ const registryAbi = [
   "function membershipNonce() view returns(uint256)",
 ];
 
+// Checksummed addresses mix case, and a plain string sort puts every uppercase hex letter
+// before every lowercase one. Lowercase hex of equal length sorts in byte order.
+const byAddressBytes = (a: string, b: string) => {
+  const [x, y] = [a.toLowerCase(), b.toLowerCase()];
+  return x < y ? -1 : x > y ? 1 : 0;
+};
 const normalized = (addresses: readonly string[]) =>
-  addresses.map(getAddress).sort();
+  addresses.map(getAddress).sort(byAddressBytes);
+
+/**
+ * `write_ability::hash::canonical_attestor_order`: ascending by the 20 address bytes and
+ * de-duplicated. Every attestor orders `newAttestors` this way before signing a set update.
+ */
+export const canonicalAttestorOrder = (addresses: readonly string[]) =>
+  normalized([...new Set(addresses.map(getAddress))]);
+
 const sameSet = (a: readonly string[], b: readonly string[]) =>
   JSON.stringify(normalized(a)) === JSON.stringify(normalized(b));
 
@@ -108,7 +122,7 @@ export async function attestorRotation(stack: Stack): Promise<unknown> {
       sameSet(initial, expected),
       "live attestors do not match the four development identities",
     );
-    const next = normalized(initial);
+    const next = canonicalAttestorOrder(initial);
     const survivors = committee.slice(0, 3);
     const revoked = committee[3].address;
     const before = (await validator.attestorSetUpdateNonce()) as bigint;
