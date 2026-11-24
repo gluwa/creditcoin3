@@ -160,8 +160,7 @@ mod benchmarks {
         let root_origin = <T as frame_system::Config>::RuntimeOrigin::root();
         // In mock.rs we set up a single supported chain with chain_key 1
         let chain_key: ChainKey = 1;
-        // Worst case: re-key a disabled chain, so the old owner entry is released and a new one
-        // claimed.
+        // Worst case: re-key a disabled chain, so an existing config is read and a new key bound.
         WriteAbilityConfigs::<T>::insert(
             chain_key,
             WriteAbilityConfig {
@@ -169,7 +168,6 @@ mod benchmarks {
                 message_attestation_enabled: false,
             },
         );
-        WriteAbilityChainKeyOwners::<T>::insert([2u8; 32], chain_key);
 
         #[extrinsic_call]
         _(

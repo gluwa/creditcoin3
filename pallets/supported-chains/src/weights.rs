@@ -242,8 +242,10 @@ impl<T: frame_system::Config> crate::WeightInfo for WeightInfo<T> {
 	/// Proof: `System::EventCount` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
 	/// Storage: `System::Events` (r:1 w:1)
 	/// Proof: `System::Events` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
-	/// Storage: `SupportedChains::WriteAbilityConfigs` (r:0 w:1)
+	/// Storage: `SupportedChains::WriteAbilityConfigs` (r:1 w:1)
 	/// Proof: `SupportedChains::WriteAbilityConfigs` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `SupportedChains::WriteAbilityChainKeyOwners` (r:1 w:1)
+	/// Proof: `SupportedChains::WriteAbilityChainKeyOwners` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	fn set_write_ability_config() -> Weight {
 		// Proof Size summary in bytes:
 		//  Measured:  `369`
@@ -251,8 +253,8 @@ impl<T: frame_system::Config> crate::WeightInfo for WeightInfo<T> {
 		// Minimum execution time: 30_871_000 picoseconds.
 		Weight::from_parts(33_771_000, 0)
 			.saturating_add(Weight::from_parts(0, 3834))
-			.saturating_add(T::DbWeight::get().reads(5))
-			.saturating_add(T::DbWeight::get().writes(3))
+			.saturating_add(T::DbWeight::get().reads(7))
+			.saturating_add(T::DbWeight::get().writes(4))
 	}
 	/// Storage: `SupportedChains::SupportedChains` (r:1 w:0)
 	/// Proof: `SupportedChains::SupportedChains` (`max_values`: None, `max_size`: None, mode: `Measured`)

@@ -12,9 +12,9 @@ describeIf(process.env.SKIP_ON_PURPOSE === undefined, 'SetWriteAbilityConfig', (
     const chainName = `Test Chain ${chainId}`;
     const encoding = 'V1';
 
-    // 32-byte write-ability chain key (bytes32). Keys are unique across chains, so derive it from
-    // the per-run chain id rather than reusing a fixed value that a rerun would collide with.
-    const writeAbilityChainKey = '0x' + chainId.toString(16).padStart(64, '0');
+    // 32-byte write-ability chain key (bytes32). Keys are unique across chains and the 24-zero-byte
+    // range belongs to each chain's own default, so use `bytes32(chainKey)` (set once the chain exists).
+    let writeAbilityChainKey: string;
     const messageAttestationEnabled = true;
 
     beforeAll(async () => {
@@ -43,6 +43,7 @@ describeIf(process.env.SKIP_ON_PURPOSE === undefined, 'SetWriteAbilityConfig', (
         await forElapsedBlocks(api);
 
         chainKey = (await api.query.supportedChains.chainIdAndNameToUniqKey(chainId, chainName)).unwrap();
+        writeAbilityChainKey = '0x' + chainKey.toBigInt().toString(16).padStart(64, '0');
     }, 30_000);
 
     afterAll(async () => {

@@ -11,7 +11,10 @@ use sp_std::marker::PhantomData;
 use sp_runtime::TryRuntimeError;
 use sp_std::vec::Vec;
 
-use crate::pallet::{Config, CoreFees, Pallet, WriteAbilityChainKeyOwners, WriteAbilityConfigs};
+use crate::{
+    is_reserved_for_another_chain,
+    pallet::{Config, CoreFees, Pallet, WriteAbilityChainKeyOwners, WriteAbilityConfigs},
+};
 
 /// Migration V0 -> V1: introduces the `WriteAbilityConfigs` companion storage map.
 ///
@@ -139,9 +142,10 @@ impl<T: Config> OnRuntimeUpgrade for MigrateV1ToV2<T> {
 ///
 /// Not gated on the pallet's storage version (the index is a plain new map, like
 /// `InitSupportedChainsCount`), and idempotent, so it is harmless to leave in the runtime until
-/// every network has run it. If chains already share a key, the lowest chain key owns it and the
-/// others stay unindexed with a warning: their config is left alone so live attestation is not
-/// interrupted, and they can re-key through `set_write_ability_config` (disable, then change).
+/// every network has run it. Keys are meant to be unique, so a conflict (two chains on one key, or
+/// a key in another chain's default range) is only logged: the lowest chain key is bound, the
+/// config is left alone and the upgrade is not aborted. `post_upgrade` fails on one, so a
+/// try-runtime rehearsal catches it. None exists on a live network (asc-devnet checked 2026-11-24).
 pub struct IndexWriteAbilityChainKeys<T>(PhantomData<T>);
 
 impl<T: Config> OnRuntimeUpgrade for IndexWriteAbilityChainKeys<T> {
@@ -154,16 +158,21 @@ impl<T: Config> OnRuntimeUpgrade for IndexWriteAbilityChainKeys<T> {
 
         let mut writes = 0u64;
         for (chain_key, key) in &configs {
+            if is_reserved_for_another_chain(key, *chain_key) {
+                log::error!(
+                    target: "runtime::supported_chains",
+                    "chain {chain_key} uses the default write_ability_chain_key of another chain"
+                );
+            }
             match WriteAbilityChainKeyOwners::<T>::get(key) {
                 None => {
                     WriteAbilityChainKeyOwners::<T>::insert(key, chain_key);
                     writes = writes.saturating_add(1);
                 }
                 Some(owner) if owner == *chain_key => {}
-                Some(owner) => log::warn!(
+                Some(owner) => log::error!(
                     target: "runtime::supported_chains",
-                    "chain {chain_key} shares its write_ability_chain_key with chain {owner}; \
-                     left unindexed, re-key it with set_write_ability_config"
+                    "chain {chain_key} shares its write_ability_chain_key with chain {owner}"
                 ),
             }
         }
@@ -174,17 +183,15 @@ impl<T: Config> OnRuntimeUpgrade for IndexWriteAbilityChainKeys<T> {
 
     #[cfg(feature = "try-runtime")]
     fn post_upgrade(_state: Vec<u8>) -> Result<(), TryRuntimeError> {
-        for (key, owner) in WriteAbilityChainKeyOwners::<T>::iter() {
+        for (chain_key, config) in WriteAbilityConfigs::<T>::iter() {
+            let key = config.write_ability_chain_key;
             ensure!(
-                WriteAbilityConfigs::<T>::get(owner)
-                    .is_some_and(|config| config.write_ability_chain_key == key),
-                "post_upgrade: owner index entry does not match its chain's config"
+                WriteAbilityChainKeyOwners::<T>::get(key) == Some(chain_key),
+                "post_upgrade: a write_ability_chain_key is shared or not bound to its chain"
             );
-        }
-        for (_, config) in WriteAbilityConfigs::<T>::iter() {
             ensure!(
-                WriteAbilityChainKeyOwners::<T>::contains_key(config.write_ability_chain_key),
-                "post_upgrade: a write_ability_chain_key has no owner"
+                !is_reserved_for_another_chain(&key, chain_key),
+                "post_upgrade: a chain uses the default write_ability_chain_key of another chain"
             );
         }
         Ok(())

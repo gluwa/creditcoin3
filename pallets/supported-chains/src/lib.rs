@@ -18,6 +18,23 @@ pub mod chains_count;
 pub mod migrations;
 pub mod weights;
 
+/// The write-ability chain key an attestor derives for a chain with no config: the chain key as a
+/// big-endian `u64` in the low 8 bytes (`chain_key_to_bytes32` in `common/write-ability`).
+pub fn default_write_ability_chain_key(chain_key: attestor_primitives::ChainKey) -> [u8; 32] {
+    let mut key = [0u8; 32];
+    key[24..].copy_from_slice(&chain_key.to_be_bytes());
+    key
+}
+
+/// Whether `key` is in the default-key range (24 leading zero bytes) without being `chain_key`'s
+/// own default. A chain without a config runs on its default, so that key is another chain's.
+pub fn is_reserved_for_another_chain(
+    key: &[u8; 32],
+    chain_key: attestor_primitives::ChainKey,
+) -> bool {
+    key[..24].iter().all(|byte| *byte == 0) && *key != default_write_ability_chain_key(chain_key)
+}
+
 #[frame_support::pallet]
 pub mod pallet {
     use super::*;
@@ -159,11 +176,11 @@ pub mod pallet {
         QueryKind = OptionQuery,
     >;
 
-    /// Reverse index of [`WriteAbilityConfigs`]: the chain that owns each `write_ability_chain_key`.
-    /// Attestor EVM keys are shared across chains, so two chains with the same key would accept
-    /// each other's message-attestation quorums. Written alongside the config only.
+    /// The chain each `write_ability_chain_key` is bound to. Attestor EVM keys are shared across
+    /// chains, so two chains on one key would accept each other's message-attestation quorums.
+    /// A binding is permanent: it outlives a re-key or `remove_chain`, so a key a chain once used
+    /// is never handed to another chain, whatever the old quorums signed under it could do there.
     #[pallet::storage]
-    #[pallet::getter(fn write_ability_chain_key_owner)]
     pub type WriteAbilityChainKeyOwners<T> = StorageMap<
         Hasher = Blake2_128Concat,
         Key = [u8; 32],
@@ -239,7 +256,12 @@ pub mod pallet {
                     *write_ability_chain_key != [0u8; 32],
                     "Genesis write_ability_configs has a zero write_ability_chain_key for chain_key {chain_key:?}"
                 );
-                // Same for uniqueness: one entry per chain, and no key shared between chains.
+                // Same for the rest of the rules: the reserved default range, one entry per chain,
+                // and no key shared between chains.
+                assert!(
+                    !is_reserved_for_another_chain(write_ability_chain_key, *chain_key),
+                    "Genesis write_ability_configs gives chain_key {chain_key:?} the default key of another chain"
+                );
                 assert!(
                     !WriteAbilityConfigs::<T>::contains_key(chain_key),
                     "Genesis write_ability_configs has more than one entry for chain_key {chain_key:?}"
@@ -404,14 +426,19 @@ pub mod pallet {
         /// registering another.
         TooManyChains,
 
-        /// Another chain already uses this write-ability chain key. Keys must be unique, since
-        /// attestor EVM keys are shared across chains.
+        /// Another chain is, or once was, bound to this write-ability chain key. Keys are unique
+        /// across chains, since attestor EVM keys are shared across chains, and a binding outlives
+        /// a re-key or `remove_chain`.
         WriteAbilityChainKeyInUse,
 
         /// The chain's write-ability chain key cannot change while message attestation is enabled
         /// for it. Disable attestation first (re-submit the current key with `false`), then change
         /// the key.
         WriteAbilityChainKeyLocked,
+
+        /// The key is another chain's default key (24 leading zero bytes). A chain without a
+        /// config runs on `bytes32(chain_key)`, so only that chain may be given such a key.
+        WriteAbilityChainKeyReserved,
     }
 
     #[pallet::call]
@@ -524,14 +551,8 @@ pub mod pallet {
 
             OutboxDiscoveries::<T>::remove(chain_key);
 
-            if let Some(config) = WriteAbilityConfigs::<T>::take(chain_key) {
-                // Release the key only if this chain owns it: a pre-index duplicate is not indexed.
-                if WriteAbilityChainKeyOwners::<T>::get(config.write_ability_chain_key)
-                    == Some(chain_key)
-                {
-                    WriteAbilityChainKeyOwners::<T>::remove(config.write_ability_chain_key);
-                }
-            }
+            // The key stays bound to this chain (`WriteAbilityChainKeyOwners` is permanent).
+            WriteAbilityConfigs::<T>::remove(chain_key);
 
             CoreFees::<T>::remove(chain_key);
 
@@ -640,29 +661,24 @@ pub mod pallet {
                 Error::<T>::ZeroWriteAbilityChainKey
             );
 
-            // Re-submitting the current key is not a claim on it, so it stays allowed even for a
-            // chain whose key was shared before the index existed: it can disable, then re-key.
-            let existing = WriteAbilityConfigs::<T>::get(chain_key);
-            let current_key = existing.as_ref().map(|c| c.write_ability_chain_key);
-            if current_key != Some(write_ability_chain_key) {
-                if let Some(existing) = &existing {
-                    ensure!(
-                        !existing.message_attestation_enabled,
-                        Error::<T>::WriteAbilityChainKeyLocked
-                    );
-                }
+            ensure!(
+                !is_reserved_for_another_chain(&write_ability_chain_key, chain_key),
+                Error::<T>::WriteAbilityChainKeyReserved
+            );
+            if let Some(existing) = WriteAbilityConfigs::<T>::get(chain_key) {
                 ensure!(
-                    WriteAbilityChainKeyOwners::<T>::get(write_ability_chain_key)
-                        .is_none_or(|owner| owner == chain_key),
-                    Error::<T>::WriteAbilityChainKeyInUse
+                    existing.write_ability_chain_key == write_ability_chain_key
+                        || !existing.message_attestation_enabled,
+                    Error::<T>::WriteAbilityChainKeyLocked
                 );
-                if let Some(old_key) = current_key {
-                    if WriteAbilityChainKeyOwners::<T>::get(old_key) == Some(chain_key) {
-                        WriteAbilityChainKeyOwners::<T>::remove(old_key);
-                    }
-                }
-                WriteAbilityChainKeyOwners::<T>::insert(write_ability_chain_key, chain_key);
             }
+            // A key stays bound to the first chain that used it: only that chain may take it again.
+            ensure!(
+                WriteAbilityChainKeyOwners::<T>::get(write_ability_chain_key)
+                    .is_none_or(|owner| owner == chain_key),
+                Error::<T>::WriteAbilityChainKeyInUse
+            );
+            WriteAbilityChainKeyOwners::<T>::insert(write_ability_chain_key, chain_key);
 
             WriteAbilityConfigs::<T>::insert(
                 chain_key,
