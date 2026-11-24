@@ -51,7 +51,7 @@ pub mod pallet {
     use frame_system::pallet_prelude::*;
     use parity_scale_codec::{DecodeWithMemTracking, FullCodec};
     use sp_core::H160;
-    use sp_staking::StakingInterface;
+    use sp_staking::{EraIndex, StakingInterface};
     use sp_std::collections::{btree_set::BTreeSet, vec_deque::VecDeque};
     use sp_std::{fmt::Debug, vec::Vec};
     use supported_chains_primitives::provider::{OnRegisterChainProvider, SupportedChainsProvider};
@@ -661,8 +661,7 @@ pub mod pallet {
     #[pallet::getter(fn authorized_attestors)]
     #[allow(clippy::unused_unit)]
     // Operator-authorized attestor controller accounts: (1) required before `register_attestor` when
-    // the election policy is `AuthorizedOnly`; (2) used at election time to promote waiting attestors
-    // and to keep sitting ones.
+    // the election policy is `AuthorizedOnly`; (2) used at election time to promote waiting attestors.
     pub type AuthorizedAttestors<T: Config> = StorageDoubleMap<
         _,
         Blake2_128Concat,
@@ -673,9 +672,11 @@ pub mod pallet {
         ValueQuery,
     >;
 
-    /// Controllers an operator kicked, mapped to the first era they may register or attest again
-    /// (one [`Config::BondingDuration`] after the kick). An elapsed row is dropped by the next
-    /// attempt.
+    /// Controllers an operator kicked, mapped to the first era they may register or attest again:
+    /// [`Config::BondingDuration`] eras after the kick (2 on the current runtime). A kick of an
+    /// idle or waiting attestor counts too. An elapsed row is dropped when the controller
+    /// succeeds in registering or attesting, or when the chain is removed, so one that never
+    /// returns keeps its row.
     #[pallet::storage]
     pub type KickedAttestors<T: Config> = StorageDoubleMap<
         _,
@@ -683,7 +684,7 @@ pub mod pallet {
         ChainKey,
         Blake2_128Concat,
         T::AccountId,
-        u32,
+        EraIndex,
         OptionQuery,
     >;
 
@@ -1616,6 +1617,8 @@ pub mod pallet {
             Ok(())
         }
 
+        /// Under `AuthorizedOnly`, also chills the attestor: a waiting one at once, an active one
+        /// at the next election.
         #[pallet::call_index(23)]
         #[pallet::weight(<T as Config>::WeightInfo::remove_authorized_attestor())]
         pub fn remove_authorized_attestor(
@@ -1631,6 +1634,7 @@ pub mod pallet {
             );
 
             AuthorizedAttestors::<T>::remove(chain_key, &attestor_id);
+            Self::chill_if_unauthorized(chain_key, &attestor_id);
 
             Self::deposit_event(Event::<T>::AuthorizedAttestorRemoved(
                 chain_key,
@@ -1640,6 +1644,8 @@ pub mod pallet {
             Ok(())
         }
 
+        /// Chill an attestor whatever its status and hold its controller out of `register_attestor`
+        /// and `attest` for [`Config::BondingDuration`] eras. With `unregister`, also unregister it.
         #[pallet::call_index(24)]
         #[pallet::weight(<T as Config>::WeightInfo::kick_active_attestor())]
         pub fn kick_active_attestor(
