@@ -1018,6 +1018,8 @@ impl<T: Config> Pallet<T> {
     /// still draining. A draining `Attestations` cursor sweeps the prefix in hash order and
     /// `CheckpointPruningStates` deletes every checkpoint in the pivots it hasn't reached, so a
     /// row or checkpoint created now could be deleted along with the stale ones.
+    ///
+    /// The attestor's validation task mirrors this in `cleanup_marker`; keep the two in step.
     pub fn commit_blocked_by_cleanup(chain_key: ChainKey) -> bool {
         AttestationClearingCursors::<T>::get(chain_key).is_some()
             || CheckpointPruningStates::<T>::get(chain_key).is_some()
