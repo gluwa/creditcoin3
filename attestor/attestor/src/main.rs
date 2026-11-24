@@ -123,6 +123,9 @@ struct ConfigFileWriteAbility {
     /// Destination Inbox address. Required when enabled: message votes are EIP-712 signed for this
     /// Inbox and the validator, and the attestor checks the two are wired together.
     inbox_address: Option<alloy::primitives::Address>,
+    /// EVM chain ID of the destination chain. Required when enabled: votes are EIP-712 bound to
+    /// it, so the attestor refuses to sign if the destination RPC reports a different chain.
+    destination_chain_id: Option<u64>,
 }
 
 impl Config {
@@ -590,6 +593,7 @@ impl Config {
                 .map_or(config::DEFAULT_VOTE_TTL, std::time::Duration::from_secs),
             vote_validator: file.validator_address,
             destination_inbox: file.inbox_address,
+            destination_chain_id: file.destination_chain_id,
         };
 
         // Fail the boot on a config that would silently weaken safety or prevent quorum, rather

@@ -441,14 +441,16 @@ pub async fn run(
         return Ok(());
     };
 
-    // `Config::validate` guarantees all three when message attestation is enabled.
-    let (Some(validator), Some(inbox), Some(dest_url)) = (
+    // `Config::validate` guarantees all four when message attestation is enabled.
+    let (Some(validator), Some(inbox), Some(dest_url), Some(destination_chain_id)) = (
         cfg.vote_validator,
         cfg.destination_inbox,
         cfg.destination_eth_rpc_url.as_ref(),
+        cfg.destination_chain_id,
     ) else {
         return Err(Error::WriteAbility(anyhow!(
-            "validator_address, inbox_address and the destination EVM RPC URL are required"
+            "validator_address, inbox_address, destination_chain_id and the destination EVM RPC \
+             URL are required"
         )));
     };
 
@@ -460,6 +462,7 @@ pub async fn run(
         state.clone(),
         validator,
         inbox,
+        destination_chain_id,
         dest_url.to_string(),
         shared.token.clone(),
     )));
@@ -474,6 +477,7 @@ pub async fn run(
             cfg.write_ability_chain_key,
             dest_url.to_string(),
             validator,
+            destination_chain_id,
             proposer_signer,
             state.set_update_publish_tx.clone(),
             shared.token.clone(),

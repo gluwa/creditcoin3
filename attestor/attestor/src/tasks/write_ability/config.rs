@@ -71,6 +71,12 @@ pub struct Config {
     /// Inbox that accepts the same Outbox. Required when `enabled`; the attestor checks on-chain
     /// that this Inbox hands its votes to [`vote_validator`](Self::vote_validator).
     pub destination_inbox: Option<Address>,
+
+    /// EVM chain ID (`block.chainid`) of the destination chain. Message votes and attestor-set
+    /// updates are EIP-712 bound to it, so it comes from the operator rather than from the
+    /// destination RPC: the attestor refuses to sign when the RPC (`eth_chainId`) or the
+    /// validator's reported domain disagrees. Required when `enabled`; must not be zero.
+    pub destination_chain_id: Option<u64>,
 }
 
 impl Config {
@@ -90,6 +96,7 @@ impl Config {
             vote_ttl: DEFAULT_VOTE_TTL,
             vote_validator: None,
             destination_inbox: None,
+            destination_chain_id: None,
         }
     }
 }
@@ -159,6 +166,18 @@ impl Config {
             }
             Some(_) => {}
         }
+        match self.destination_chain_id {
+            None => {
+                return Err(
+                    "message attestation enabled but no destination_chain_id (message votes are \
+                     EIP-712 bound to the destination chain ID, which must not be taken from the \
+                     RPC)"
+                        .to_string(),
+                );
+            }
+            Some(0) => return Err("destination_chain_id must not be zero".to_string()),
+            Some(_) => {}
+        }
         if self.destination_eth_rpc_url.is_none() {
             return Err("message attestation enabled but no destination EVM RPC URL".to_string());
         }
@@ -217,6 +236,7 @@ mod tests {
             vote_ttl: DEFAULT_VOTE_TTL,
             vote_validator: Some(address!("000000000000000000000000000000000000000b")),
             destination_inbox: Some(address!("000000000000000000000000000000000000000c")),
+            destination_chain_id: Some(11_155_111),
         }
     }
 
@@ -284,6 +304,15 @@ mod tests {
         assert!(c.validate().is_err(), "missing inbox");
         c.destination_inbox = Some(Address::ZERO);
         assert!(c.validate().is_err(), "zero inbox");
+    }
+
+    #[test]
+    fn requires_a_nonzero_destination_chain_id() {
+        let mut c = enabled_base();
+        c.destination_chain_id = None;
+        assert!(c.validate().is_err(), "missing destination chain ID");
+        c.destination_chain_id = Some(0);
+        assert!(c.validate().is_err(), "zero destination chain ID");
     }
 
     #[test]

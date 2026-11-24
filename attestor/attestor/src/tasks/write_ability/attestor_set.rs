@@ -10,7 +10,9 @@
 //! the validator's ERC-5267 `eip712Domain()` must match the name/version this build signs with
 //! and name the validator itself as `verifyingContract`, and the configured Inbox must hand its
 //! votes to this validator (`defaultVoteValidator()`). Any mismatch clears the domain, which stops
-//! signing instead of producing votes the destination would reject.
+//! signing instead of producing votes the destination would reject. The destination chain ID is
+//! never taken from the RPC alone: both `eth_chainId` and the reported domain must equal the
+//! operator-configured ID.
 
 use std::collections::HashSet;
 use std::sync::Arc;
@@ -67,6 +69,7 @@ pub async fn watch(
     state: Arc<MessageVoteState>,
     validator: Address,
     inbox: Address,
+    expected_chain_id: u64,
     dest_rpc_url: String,
     token: CancellationToken,
 ) {
@@ -109,7 +112,7 @@ pub async fn watch(
                 // fails only this tick and is retried on the next, instead of wedging the watcher.
                 let (set, onchain_threshold, domain) = match tokio::time::timeout(
                     super::RPC_ATTEMPT_TIMEOUT,
-                    fetch_destination_view(&dest_rpc_url, validator, inbox),
+                    fetch_destination_view(&dest_rpc_url, validator, inbox, expected_chain_id),
                 )
                 .await
                 {
@@ -236,7 +239,15 @@ async fn read_vote_domain<P: Provider>(
     provider: &P,
     validator: Address,
     inbox: Address,
+    expected_chain_id: u64,
 ) -> anyhow::Result<Result<MessageVoteDomain, String>> {
+    let rpc_chain_id = provider
+        .get_chain_id()
+        .await
+        .map_err(|err| anyhow::anyhow!("eth_chainId: {err}"))?;
+    if let Err(reason) = check_destination_chain_id(rpc_chain_id, expected_chain_id) {
+        return Ok(Err(reason));
+    }
     let reported = match write_ability::abi::IVoteValidator::new(validator, provider)
         .eip712Domain()
         .call()
@@ -269,6 +280,19 @@ async fn read_vote_domain<P: Provider>(
         inbox,
         &reported,
         inbox_validator,
+        expected_chain_id,
+    ))
+}
+
+/// The destination RPC must report the configured chain ID. Votes are bound to that chain, so an
+/// endpoint answering for a different chain (misconfigured or malicious) must stop signing.
+pub(super) fn check_destination_chain_id(reported: u64, expected: u64) -> Result<(), String> {
+    if reported == expected {
+        return Ok(());
+    }
+    Err(format!(
+        "destination RPC reports chain ID {reported}, but this attestor is configured for \
+         {expected}"
     ))
 }
 
@@ -291,6 +315,7 @@ fn check_vote_domain(
     inbox: Address,
     reported: &write_ability::abi::IVoteValidator::eip712DomainReturn,
     inbox_validator: Address,
+    expected_chain_id: u64,
 ) -> Result<MessageVoteDomain, String> {
     let (name, version) = (&reported.name, &reported.version);
     if name != MESSAGE_VOTE_DOMAIN_NAME || version != MESSAGE_VOTE_DOMAIN_VERSION {
@@ -322,14 +347,15 @@ fn check_vote_domain(
             "Inbox {inbox} hands votes to {inbox_validator}, not the configured validator {validator}"
         ));
     }
-    let chain_id = u64::try_from(reported.chainId).map_err(|_| {
-        format!(
-            "validator EIP-712 chainId {} does not fit in u64",
+    if reported.chainId != U256::from(expected_chain_id) {
+        return Err(format!(
+            "validator EIP-712 chainId is {}, but this attestor is configured for \
+             {expected_chain_id}",
             reported.chainId
-        )
-    })?;
+        ));
+    }
     Ok(MessageVoteDomain {
-        chain_id,
+        chain_id: expected_chain_id,
         validator,
         inbox,
     })
@@ -368,6 +394,7 @@ pub(super) async fn fetch_destination_view(
     dest_rpc_url: &str,
     validator: Address,
     inbox: Address,
+    expected_chain_id: u64,
 ) -> anyhow::Result<(
     HashSet<Address>,
     u64,
@@ -379,7 +406,7 @@ pub(super) async fn fetch_destination_view(
         .map_err(|err| anyhow::anyhow!("connect destination chain RPC: {err}"))?;
     let set = read_attestors(&provider, validator).await?;
     let threshold = read_threshold(&provider, validator).await?;
-    let domain = read_vote_domain(&provider, validator, inbox).await;
+    let domain = read_vote_domain(&provider, validator, inbox, expected_chain_id).await;
     Ok((set, u64::try_from(threshold).unwrap_or(u64::MAX), domain))
 }
 
@@ -406,7 +433,7 @@ mod tests {
             extensions: vec![],
         };
         let check = |reported: eip712DomainReturn, inbox_validator: Address| {
-            check_vote_domain(validator, inbox, &reported, inbox_validator)
+            check_vote_domain(validator, inbox, &reported, inbox_validator, 42)
         };
 
         assert_eq!(
@@ -417,7 +444,7 @@ mod tests {
                 inbox
             })
         );
-        let cases: [(&str, eip712DomainReturn); 7] = [
+        let cases: [(&str, eip712DomainReturn); 8] = [
             (
                 "name",
                 eip712DomainReturn {
@@ -461,7 +488,14 @@ mod tests {
                 },
             ),
             (
-                "chainId",
+                "chainId of another chain",
+                eip712DomainReturn {
+                    chainId: U256::from(1u64),
+                    ..good()
+                },
+            ),
+            (
+                "chainId beyond u64",
                 eip712DomainReturn {
                     chainId: U256::MAX,
                     ..good()
@@ -478,6 +512,13 @@ mod tests {
             check(good(), other).is_err(),
             "an Inbox wired to a different validator must stop signing"
         );
+    }
+
+    #[test]
+    fn destination_rpc_must_report_the_configured_chain_id() {
+        assert_eq!(check_destination_chain_id(42, 42), Ok(()));
+        assert!(check_destination_chain_id(1, 42).is_err());
+        assert!(check_destination_chain_id(0, 42).is_err());
     }
 
     #[test]
