@@ -70,6 +70,7 @@ declare module '@polkadot/api-base/types/events' {
              * for a chain: `(chain_key, attestor, evm_address)`.
              **/
             AttestorEvmAddressRegistered: AugmentedEvent<ApiType, [u64, AccountId32, H160]>;
+            AttestorPeerKeyUpdated: AugmentedEvent<ApiType, [u64, AccountId32, U8aFixed]>;
             /**
              * Emitted when an attestor is properly registered with the attestation system
              **/
@@ -135,6 +136,7 @@ declare module '@polkadot/api-base/types/events' {
             MaxAttestorsChanged: AugmentedEvent<ApiType, [u64, u32]>;
             MaxCatchupChanged: AugmentedEvent<ApiType, [u64, u32]>;
             MinBondRequirementUpdated: AugmentedEvent<ApiType, [u64, u128]>;
+            PeerRegistrationRequiredChanged: AugmentedEvent<ApiType, [u64, bool]>;
             PendingAttestationIntervalSet: AugmentedEvent<ApiType, [u64, u64]>;
             PendingMaxCatchupSet: AugmentedEvent<ApiType, [u64, u32]>;
             PendingTargetSampleSizeSet: AugmentedEvent<ApiType, [u64, u32]>;

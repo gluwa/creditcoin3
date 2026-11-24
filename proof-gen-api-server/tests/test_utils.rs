@@ -3,11 +3,11 @@
 #[allow(dead_code)]
 mod anvil_integration {
     use alloy::network::{EthereumWallet, TransactionBuilder};
+    use alloy::node_bindings::AnvilInstance;
     use alloy::primitives::{Address, U256};
     use alloy::providers::ProviderBuilder;
     use alloy::rpc::types::request::TransactionRequest;
     use alloy::signers::local::PrivateKeySigner;
-    use alloy_node_bindings::AnvilInstance;
 
     use anyhow::Result;
     use axum::Router;

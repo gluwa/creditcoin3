@@ -3,6 +3,7 @@ description = "Moonbeam RPC core types (vendored from Moonbeam, maintained by Gl
 edition = "2021"
 license = "GPL-3.0-only"
 name = "moonbeam-rpc-core-types"
+rust-version = { workspace = true }
 version = "0.1.0"
 
 [dependencies]

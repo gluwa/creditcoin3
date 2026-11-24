@@ -113,6 +113,42 @@ pub type BlsPublicKey = [u8; 48];
 /// BLS signatures as bytes
 pub type BlsSignature = [u8; 96];
 
+/// Ed25519 networking public key. Clients derive the libp2p PeerId from this key.
+pub type PeerPublicKey = [u8; 32];
+
+/// Finalized committee view used to configure networking admission before receiving votes.
+#[derive(Encode, Decode, DecodeWithMemTracking, Clone, PartialEq, Eq, Debug, TypeInfo)]
+pub struct PeerRegistry<AccountId> {
+    pub registration_required: bool,
+    /// Current voting committee, including members scheduled to leave at election.
+    pub attestors: Vec<(AccountId, Option<PeerPublicKey>)>,
+    /// Registered candidates awaiting election; reserve networking capacity, not voting rights.
+    pub waiting_attestors: Vec<(AccountId, Option<PeerPublicKey>)>,
+}
+
+pub const PEER_KEY_DOMAIN_V1: &[u8] = b"CC3:ATTESTOR:PEER:v1";
+
+/// Binds networking-key possession to the CC3 genesis, source chain and signing controller.
+/// A proof observed in another account's transaction cannot be used to claim its peer key.
+/// The controller must also sign the extrinsic; replay by that same controller simply
+/// reasserts its own key, as with the BLS proof of possession.
+#[must_use]
+pub fn peer_key_proof_message(
+    genesis_hash: &[u8],
+    chain_key: ChainKey,
+    attestor_id: &[u8],
+    public_key: &PeerPublicKey,
+) -> Vec<u8> {
+    (
+        PEER_KEY_DOMAIN_V1,
+        genesis_hash,
+        chain_key,
+        attestor_id,
+        public_key,
+    )
+        .encode()
+}
+
 /// Domain-separation tag for the BLS proof-of-possession message.
 ///
 /// Versioned so a future change to the message layout is a different domain rather than an

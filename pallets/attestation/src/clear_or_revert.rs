@@ -33,6 +33,9 @@ pub enum RemovedChainCleanupPhase {
     RetiredKeys,
     BlsKeyOwners,
     Invulnerables,
+    // Append to preserve the encoding of cleanup cursors already stored on-chain.
+    PeerKeys,
+    PeerKeyOwners,
     EvmAddresses,
     EvmAddressOwners,
 }
@@ -274,6 +277,28 @@ impl<T: Config> Pallet<T> {
                     if cleared.maybe_cursor.is_some() {
                         return Some(RemovedChainCleanupPhase::Invulnerables);
                     }
+                    RemovedChainCleanupPhase::PeerKeys
+                }
+                RemovedChainCleanupPhase::PeerKeys => {
+                    let rows: Vec<_> = AttestorPeerKeys::<T>::iter_key_prefix(chain_key)
+                        .take((budget as usize).saturating_add(1))
+                        .collect();
+                    let finished = rows.len() <= budget as usize;
+                    for controller in rows.into_iter().take(budget as usize) {
+                        Self::clear_attestor_peer_key(chain_key, &controller);
+                        budget = budget.saturating_sub(1);
+                    }
+                    if !finished {
+                        return Some(RemovedChainCleanupPhase::PeerKeys);
+                    }
+                    RemovedChainCleanupPhase::PeerKeyOwners
+                }
+                RemovedChainCleanupPhase::PeerKeyOwners => {
+                    let cleared = PeerKeyOwner::<T>::clear_prefix(chain_key, budget, None);
+                    budget = budget.saturating_sub(cleared.unique);
+                    if cleared.maybe_cursor.is_some() {
+                        return Some(RemovedChainCleanupPhase::PeerKeyOwners);
+                    }
                     RemovedChainCleanupPhase::EvmAddresses
                 }
                 RemovedChainCleanupPhase::EvmAddresses => {
@@ -417,6 +442,7 @@ impl<T: Config> Pallet<T> {
 impl<T: Config> ChainRemovalListener for Pallet<T> {
     fn on_supported_chain_removed(chain_key: ChainKey, remove_checkpoints: bool) {
         ActiveAttestors::<T>::remove(chain_key);
+        PeerRegistrationRequired::<T>::remove(chain_key);
 
         // Chilling, retired keys, BLS key owners (keyed by `(chain_key, bls_pubkey)`) and
         // invulnerables scale with retained state, so they run in bounded batches: the first
@@ -511,6 +537,6 @@ impl<T: Config> ChainRemovalListenerWeight for Pallet<T> {
 
         Pallet::<T>::removal_cleanup_step_weight()
             .saturating_add(T::DbWeight::get().reads_writes(clears, clears))
-            .saturating_add(T::DbWeight::get().reads_writes(8, 30))
+            .saturating_add(T::DbWeight::get().reads_writes(8, 31))
     }
 }

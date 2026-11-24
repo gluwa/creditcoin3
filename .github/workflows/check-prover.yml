@@ -93,8 +93,8 @@ jobs:
         env:
           GO_BACK_BLOCKS: '360'
           SLEEP_TIME: '500'
-          # CK1 is Sepolia, CK3/CK4 are Ethereum Mainnet. Same mapping audit-automation.yml uses.
-          SOURCE_CHAIN_RPC_URL: ${{ matrix.chainKey == 1 && secrets.SEPOLIA_RPC_URL || secrets.USC_SANITY_ETHEREUM_RPC_URL }}
+          # CK1 is Sepolia, CK3/CK4 are Ethereum Mainnet, both on QuickNode. Same endpoints audit-automation.yml uses.
+          SOURCE_CHAIN_RPC_URL: ${{ matrix.chainKey == 1 && format('https://cold-burned-log.ethereum-sepolia.quiknode.pro/{0}', secrets.QUICKNODE_SEPOLIA_RPC_KEY) || format('https://yolo-tame-glade.ethereum-mainnet.quiknode.pro/{0}', secrets.QUICKNODE_ETHEREUM_RPC_KEY) }}
         run: |
           node dist/scripts/prover-check.js \
             ${{ matrix.creditcoinUrl }} ${{ matrix.chainKey }} ${{ matrix.proverUrl }} \
@@ -109,7 +109,7 @@ jobs:
           GO_BACK_BLOCKS: '400'
           STEP_THROUGH_BLOCKS: '7'
           SLEEP_TIME: '500'
-          SOURCE_CHAIN_RPC_URL: ${{ matrix.chainKey == 1 && secrets.SEPOLIA_RPC_URL || secrets.USC_SANITY_ETHEREUM_RPC_URL }}
+          SOURCE_CHAIN_RPC_URL: ${{ matrix.chainKey == 1 && format('https://cold-burned-log.ethereum-sepolia.quiknode.pro/{0}', secrets.QUICKNODE_SEPOLIA_RPC_KEY) || format('https://yolo-tame-glade.ethereum-mainnet.quiknode.pro/{0}', secrets.QUICKNODE_ETHEREUM_RPC_KEY) }}
         run: |
           node dist/scripts/prover-check.js \
             ${{ matrix.creditcoinUrl }} ${{ matrix.chainKey }} ${{ matrix.proverUrl }} \

@@ -3,6 +3,7 @@ authors = { workspace = true }
 description = "A precompile to fetch attestation data and expose it in the evm"
 edition = "2021"
 name = "pallet-evm-precompile-chain-info"
+rust-version = { workspace = true }
 version = "0.1.0"
 
 [lints.clippy]

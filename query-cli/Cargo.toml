@@ -3,6 +3,7 @@ edition = "2021"
 license = "MIT"
 name = "query-cli"
 publish = false
+rust-version = { workspace = true }
 version = "0.1.0"
 
 [package.metadata.release]

@@ -5,6 +5,7 @@ license.workspace = true
 name = "attestor"
 publish.workspace = true
 repository.workspace = true
+rust-version.workspace = true
 version.workspace = true
 
 [lib]
@@ -51,6 +52,7 @@ libp2p = { workspace = true, features = [
     "tokio",
     "macros",
     "ed25519",
+    "serde",
     "dns",
     "quic",
     "tcp",

@@ -23,13 +23,55 @@ use precompile_utils::solidity::Codec;
 #[derive(
     Clone, Debug, PartialEq, Eq, TypeInfo, Decode, Encode, Hash, Default, Serialize, Deserialize,
 )]
-#[cfg_attr(feature = "precompile-support", derive(Codec))]
 pub struct TransactionMerkleProof {
     /// The Merkle root hash
     pub root: H256,
     /// Sibling hashes with position information
     pub siblings: Vec<MerkleProofEntry>,
 }
+
+/// Maximum Merkle-proof depth accepted when ABI-decoding a proof in a precompile.
+///
+/// A proof of depth `d` proves inclusion in a tree of up to `2^d` leaves, so 64 is
+/// already past any real block, and `calculate_tx_index_impl` rejects anything larger.
+#[cfg(feature = "precompile-support")]
+pub const MAX_MERKLE_SIBLINGS: u32 = 64;
+
+/// Solidity `Codec` that limits `siblings` to [`MAX_MERKLE_SIBLINGS`] entries.
+///
+/// `write`, `signature` and `has_static_size` delegate to the plain field tuple, so the
+/// ABI encoding and every precompile selector are the same as with `derive(Codec)`.
+#[cfg(feature = "precompile-support")]
+const _: () = {
+    use precompile_utils::solidity::codec::{BoundedVec, Codec, Reader, String, Writer};
+    use precompile_utils::solidity::revert::{BacktraceExt, MayRevert};
+    use sp_core::ConstU32;
+
+    impl Codec for TransactionMerkleProof {
+        fn read(reader: &mut Reader) -> MayRevert<Self> {
+            let (root, siblings): (
+                H256,
+                BoundedVec<MerkleProofEntry, ConstU32<MAX_MERKLE_SIBLINGS>>,
+            ) = reader.read().map_in_tuple_to_field(&["root", "siblings"])?;
+            Ok(Self {
+                root,
+                siblings: siblings.into(),
+            })
+        }
+
+        fn write(writer: &mut Writer, value: Self) {
+            Codec::write(writer, (value.root, value.siblings));
+        }
+
+        fn has_static_size() -> bool {
+            <(H256, Vec<MerkleProofEntry>)>::has_static_size()
+        }
+
+        fn signature() -> String {
+            <(H256, Vec<MerkleProofEntry>)>::signature()
+        }
+    }
+};
 
 /// A single entry in the merkle proof
 #[derive(

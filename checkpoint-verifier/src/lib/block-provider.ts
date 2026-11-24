@@ -1,6 +1,6 @@
 import { JsonRpcProvider, WebSocketProvider, Block, TransactionReceipt } from 'ethers';
 
-import { encoding } from '@gluwa/asc-sdk';
+import { encoding } from '@gluwa/attestcoin-sdk';
 
 /**
  * Raw authorization data for EIP-7702 transactions.

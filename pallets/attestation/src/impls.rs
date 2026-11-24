@@ -355,6 +355,7 @@ impl<T: Config> Pallet<T> {
 
         // Remove the attestor (BLS key may remain in [`RetiredAttestorBlsKeys`] until unbond ends)
         Attestors::<T>::remove(chain_key, &attestor_id);
+        Self::clear_attestor_peer_key(chain_key, &attestor_id);
         // Drop any write-ability EVM address claim (and its reverse index) — unlike the BLS key it
         // is not needed for verifying in-flight attestations, so it clears immediately.
         if let Some(addr) = AttestorEvmAddress::<T>::take(chain_key, &attestor_id) {
@@ -513,6 +514,12 @@ impl<T: Config> Pallet<T> {
 
         let mut attestor =
             Attestors::<T>::get(chain_key, &attestor_id).ok_or(Error::<T>::AddressNotAttestor)?;
+
+        ensure!(
+            !PeerRegistrationRequired::<T>::get(chain_key)
+                || AttestorPeerKeys::<T>::contains_key(chain_key, &attestor_id),
+            Error::<T>::PeerKeyNotRegistered
+        );
 
         // Check if attestor has already been registered and if they're not already waiting/active
         if attestor.bls_public_key.is_some() {

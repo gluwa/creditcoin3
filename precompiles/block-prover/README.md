@@ -282,7 +282,7 @@ std = [
 
 - **Input Validation**: All inputs are validated before processing
 - **Gas Accounting**: Proper gas costs prevent DoS attacks
-- **Bounded Data**: Transaction data limited to 10MB, proofs to 1KB
+- **Bounded Data**: Transaction data limited to 4 MiB per transaction and 4 MiB per batch
 - **No Reentrancy**: Uses `forbid-evm-reentrancy` feature
 - **Deterministic**: All operations must be deterministic for consensus
 
@@ -339,7 +339,7 @@ The continuity chain must:
 
 ### Input Validation
 
-- Transaction data: Maximum 10MB
+- Transaction data: Maximum 4 MiB per transaction; a batch is limited to 4 MiB in total
 - Merkle proof siblings: Bounded by tree depth
 - Batch queries: Maximum 10 queries per batch
 - Layout segments: Validated for bounds and overlap
