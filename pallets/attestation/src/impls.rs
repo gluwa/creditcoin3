@@ -44,7 +44,8 @@ impl<T: Config> Pallet<T> {
         });
     }
 
-    /// Hold a kicked controller out of `register_attestor` and `attest` for one bonding duration.
+    /// Hold a kicked controller out of `register_attestor` and `attest` for
+    /// [`Config::BondingDuration`] eras (2 on the current runtime, about 24 to 48 hours on prod).
     pub(crate) fn start_kick_cooldown(chain_key: ChainKey, attestor_id: &T::AccountId) {
         // A removed chain's cleanup may already be past the `KickedAttestors` phase.
         if !T::SupportedChains::is_chain_supported(chain_key) {
@@ -54,17 +55,33 @@ impl<T: Config> Pallet<T> {
         KickedAttestors::<T>::insert(chain_key, attestor_id, until);
     }
 
-    /// Rejects a controller still inside its kick cooldown and drops the row once it has elapsed.
+    /// Rejects a controller still inside its kick cooldown. Reads only: the elapsed row is
+    /// dropped by the caller once its own checks have passed.
     pub(crate) fn ensure_not_kicked(
         chain_key: ChainKey,
         attestor_id: &T::AccountId,
     ) -> DispatchResult {
-        let Some(until) = KickedAttestors::<T>::get(chain_key, attestor_id) else {
-            return Ok(());
-        };
-        ensure!(Self::current_era() >= until, Error::<T>::AttestorKicked);
-        KickedAttestors::<T>::remove(chain_key, attestor_id);
+        if let Some(until) = KickedAttestors::<T>::get(chain_key, attestor_id) {
+            ensure!(Self::current_era() >= until, Error::<T>::AttestorKicked);
+        }
         Ok(())
+    }
+
+    /// Under `AuthorizedOnly`, take a controller whose authorization was removed out of the
+    /// committee: a waiting attestor now, an active one at the next election.
+    pub(crate) fn chill_if_unauthorized(chain_key: ChainKey, attestor_id: &T::AccountId) {
+        if ChainElectionPolicy::<T>::get(chain_key) != AttestorElectionPolicy::AuthorizedOnly {
+            return;
+        }
+        match Attestors::<T>::get(chain_key, attestor_id).map(|attestor| attestor.status) {
+            Some(AttestorStatus::Waiting) => {
+                Self::do_chill_attestor_immediate(chain_key, attestor_id.clone())
+            }
+            Some(AttestorStatus::Active) => {
+                Self::schedule_voluntary_chill(chain_key, attestor_id.clone())
+            }
+            _ => {}
+        }
     }
 
     /// Drop this controller's own retired BLS key row so a new registration can use the slot.
@@ -198,6 +215,8 @@ impl<T: Config> Pallet<T> {
 
         // Can't select same account as the attestor
         ensure!(attestor_id != stash, Error::<T>::InvalidAttestorAccount);
+
+        KickedAttestors::<T>::remove(chain_key, &attestor_id);
 
         // Insert attestor with status Idle
         Attestors::<T>::insert(
@@ -571,6 +590,7 @@ impl<T: Config> Pallet<T> {
         }
 
         BlsKeyOwner::<T>::insert(chain_key, bls_public_key, &attestor_id);
+        KickedAttestors::<T>::remove(chain_key, &attestor_id);
 
         // Set status to Waiting until next epoch rotation
         attestor.status = AttestorStatus::Waiting;
@@ -720,8 +740,7 @@ impl<T: Config> Pallet<T> {
 
     /// Elect the active attestor set for a single chain.
     ///
-    /// Attestors with `Active` status are selected, except that under `AuthorizedOnly` one whose
-    /// authorization was revoked becomes `Idle`.
+    /// All attestors with `Active` status are selected.
     /// Attestors with `Waiting` status are selected based on the chain's election policy.
     /// Attestors with `Leaving` status become `Idle` and are not selected (deferred voluntary chill).
     ///
@@ -737,24 +756,7 @@ impl<T: Config> Pallet<T> {
             .into_iter()
             .filter_map(|(account, mut attestor)| {
                 match attestor.status {
-                    AttestorStatus::Active => {
-                        if chain_election_policy == AttestorElectionPolicy::AuthorizedOnly
-                            && !AuthorizedAttestors::<T>::contains_key(chain_key, &account)
-                        {
-                            debug!(
-                                "Removing attestor {account:?} from chain {chain_key} as they are no longer authorized",
-                            );
-                            attestor.status = AttestorStatus::Idle;
-                            Attestors::<T>::insert(chain_key, &account, attestor);
-                            Self::deposit_event(Event::<T>::AttestorChilled(
-                                chain_key,
-                                account.clone(),
-                            ));
-                            None
-                        } else {
-                            Some(account)
-                        }
-                    }
+                    AttestorStatus::Active => Some(account),
                     AttestorStatus::Waiting => {
                         match chain_election_policy {
                             AttestorElectionPolicy::OpenToAny => {

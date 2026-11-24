@@ -7483,31 +7483,65 @@ mod removed_authorized_attestor {
         ));
     }
 
+    fn authorize_only(attestor_id: AccountId) {
+        assert_ok!(Attestation::set_election_policy(
+            RuntimeOrigin::root(),
+            SUPPORTED_CHAIN_KEY,
+            AttestorElectionPolicy::AuthorizedOnly
+        ));
+        assert_ok!(Attestation::authorize_attestor(
+            RuntimeOrigin::root(),
+            SUPPORTED_CHAIN_KEY,
+            attestor_id
+        ));
+    }
+
+    fn remove_authorization(attestor_id: AccountId) {
+        assert_ok!(Attestation::remove_authorized_attestor(
+            RuntimeOrigin::root(),
+            SUPPORTED_CHAIN_KEY,
+            attestor_id
+        ));
+    }
+
     #[test]
-    fn removing_authorization_evicts_a_sitting_attestor_under_authorized_only() {
+    fn removing_authorization_chills_a_waiting_attestor_under_authorized_only() {
         ExtBuilder.build_and_execute(|| {
-            assert_ok!(Attestation::set_election_policy(
-                RuntimeOrigin::root(),
-                SUPPORTED_CHAIN_KEY,
-                AttestorElectionPolicy::AuthorizedOnly
-            ));
-            assert_ok!(Attestation::authorize_attestor(
-                RuntimeOrigin::root(),
-                SUPPORTED_CHAIN_KEY,
-                ATTESTOR_1
-            ));
+            authorize_only(ATTESTOR_1);
+            register_and_attest(SUPPORTED_CHAIN_KEY, &Attestor::new(STASH_1, ATTESTOR_1));
+            assert_eq!(
+                Attestation::attestor_status(SUPPORTED_CHAIN_KEY, &ATTESTOR_1),
+                Some(AttestorStatus::Waiting)
+            );
+
+            remove_authorization(ATTESTOR_1);
+
+            assert_eq!(
+                Attestation::attestor_status(SUPPORTED_CHAIN_KEY, &ATTESTOR_1),
+                Some(AttestorStatus::Idle)
+            );
+            System::assert_has_event(
+                crate::Event::AttestorChilled(SUPPORTED_CHAIN_KEY, ATTESTOR_1).into(),
+            );
+        })
+    }
+
+    #[test]
+    fn removing_authorization_chills_an_active_attestor_at_the_next_election() {
+        ExtBuilder.build_and_execute(|| {
+            authorize_only(ATTESTOR_1);
             let attestor = Attestor::new(STASH_1, ATTESTOR_1);
             register_and_attest(SUPPORTED_CHAIN_KEY, &attestor);
             progress_to_block(5);
             assert!(Attestation::is_attestor(SUPPORTED_CHAIN_KEY, &ATTESTOR_1));
 
-            assert_ok!(Attestation::remove_authorized_attestor(
-                RuntimeOrigin::root(),
-                SUPPORTED_CHAIN_KEY,
-                ATTESTOR_1
-            ));
+            remove_authorization(ATTESTOR_1);
             // The committee only changes at an election.
             assert!(Attestation::is_attestor(SUPPORTED_CHAIN_KEY, &ATTESTOR_1));
+            assert_eq!(
+                Attestation::attestor_status(SUPPORTED_CHAIN_KEY, &ATTESTOR_1),
+                Some(AttestorStatus::Leaving)
+            );
 
             force_election();
 
@@ -7548,11 +7582,7 @@ mod removed_authorized_attestor {
             progress_to_block(5);
             assert!(Attestation::is_attestor(SUPPORTED_CHAIN_KEY, &ATTESTOR_1));
 
-            assert_ok!(Attestation::remove_authorized_attestor(
-                RuntimeOrigin::root(),
-                SUPPORTED_CHAIN_KEY,
-                ATTESTOR_1
-            ));
+            remove_authorization(ATTESTOR_1);
             force_election();
 
             assert!(Attestation::is_attestor(SUPPORTED_CHAIN_KEY, &ATTESTOR_1));
@@ -7560,27 +7590,40 @@ mod removed_authorized_attestor {
     }
 
     #[test]
-    fn switching_to_authorized_only_evicts_sitting_attestors_that_are_not_authorized() {
+    fn removing_authorization_leaves_an_idle_attestor_alone() {
+        ExtBuilder.build_and_execute(|| {
+            authorize_only(ATTESTOR_1);
+            let attestor = Attestor::new(STASH_1, ATTESTOR_1);
+            assert_ok!(Attestation::register_attestor(
+                attestor.stash.clone(),
+                SUPPORTED_CHAIN_KEY,
+                ATTESTOR_1
+            ));
+
+            remove_authorization(ATTESTOR_1);
+
+            assert_eq!(
+                Attestation::attestor_status(SUPPORTED_CHAIN_KEY, &ATTESTOR_1),
+                Some(AttestorStatus::Idle)
+            );
+            assert!(!System::events().iter().any(|record| matches!(
+                &record.event,
+                RuntimeEvent::Attestation(crate::Event::AttestorChilled(..))
+            )));
+        })
+    }
+
+    #[test]
+    fn switching_to_authorized_only_leaves_sitting_attestors_alone() {
         ExtBuilder.build_and_execute(|| {
             register_and_attest(SUPPORTED_CHAIN_KEY, &Attestor::new(STASH_1, ATTESTOR_1));
             register_and_attest(SUPPORTED_CHAIN_KEY, &Attestor::new(STASH_2, ATTESTOR_2));
             progress_to_block(5);
-            assert!(Attestation::is_attestor(SUPPORTED_CHAIN_KEY, &ATTESTOR_1));
-            assert!(Attestation::is_attestor(SUPPORTED_CHAIN_KEY, &ATTESTOR_2));
 
-            assert_ok!(Attestation::set_election_policy(
-                RuntimeOrigin::root(),
-                SUPPORTED_CHAIN_KEY,
-                AttestorElectionPolicy::AuthorizedOnly
-            ));
-            assert_ok!(Attestation::authorize_attestor(
-                RuntimeOrigin::root(),
-                SUPPORTED_CHAIN_KEY,
-                ATTESTOR_2
-            ));
+            authorize_only(ATTESTOR_2);
             force_election();
 
-            assert!(!Attestation::is_attestor(SUPPORTED_CHAIN_KEY, &ATTESTOR_1));
+            assert!(Attestation::is_attestor(SUPPORTED_CHAIN_KEY, &ATTESTOR_1));
             assert!(Attestation::is_attestor(SUPPORTED_CHAIN_KEY, &ATTESTOR_2));
         })
     }
@@ -7998,6 +8041,66 @@ mod kick_active_attestor {
                 sibling.public_key,
                 sibling.signature
             ));
+        })
+    }
+
+    #[test]
+    fn kicking_an_idle_or_waiting_attestor_also_starts_the_cooldown() {
+        ExtBuilder.build_and_execute(|| {
+            let idle = Attestor::new(STASH_1, ATTESTOR_1);
+            let waiting = Attestor::new(STASH_2, ATTESTOR_2);
+            assert_ok!(Attestation::register_attestor(
+                idle.stash.clone(),
+                SUPPORTED_CHAIN_KEY,
+                ATTESTOR_1
+            ));
+            register_and_attest(SUPPORTED_CHAIN_KEY, &waiting);
+            assert_eq!(
+                Attestation::attestor_status(SUPPORTED_CHAIN_KEY, &ATTESTOR_2),
+                Some(AttestorStatus::Waiting)
+            );
+
+            kick(ATTESTOR_1, false);
+            kick(ATTESTOR_2, false);
+
+            let until = current_era() + BondingDuration::get();
+            for id in [ATTESTOR_1, ATTESTOR_2] {
+                assert_eq!(
+                    KickedAttestors::<Test>::get(SUPPORTED_CHAIN_KEY, id),
+                    Some(until)
+                );
+            }
+            assert_eq!(
+                Attestation::attestor_status(SUPPORTED_CHAIN_KEY, &ATTESTOR_2),
+                Some(AttestorStatus::Idle)
+            );
+        })
+    }
+
+    #[test]
+    fn an_elapsed_cooldown_row_survives_a_failing_attempt() {
+        ExtBuilder.build_and_execute(|| {
+            let attestor = Attestor::new(STASH_1, ATTESTOR_1);
+            let other = Attestor::new(STASH_2, ATTESTOR_2);
+            register_and_attest(SUPPORTED_CHAIN_KEY, &attestor);
+            kick(ATTESTOR_1, false);
+            let until = current_era() + BondingDuration::get();
+            set_era(until);
+
+            // A proof minted for another controller fails after the cooldown check.
+            assert_noop!(
+                Attestation::attest(
+                    RuntimeOrigin::signed(ATTESTOR_1),
+                    SUPPORTED_CHAIN_KEY,
+                    attestor.public_key,
+                    other.signature
+                ),
+                Error::<Test>::InvalidProofOfPossession
+            );
+            assert_eq!(
+                KickedAttestors::<Test>::get(SUPPORTED_CHAIN_KEY, ATTESTOR_1),
+                Some(until)
+            );
         })
     }
 
