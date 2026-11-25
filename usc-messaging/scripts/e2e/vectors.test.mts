@@ -4,7 +4,7 @@ import test from "node:test";
 import { getAddress } from "ethers";
 import { decodeEvmEnvelope, encodeEvmEnvelope } from "../evm-envelope.mjs";
 import { computeMessageId } from "./message-id.mjs";
-import { updateDigest } from "./rotation.mjs";
+import { canonicalAttestorOrder, updateDigest } from "./rotation.mjs";
 
 // The golden vectors asc-contracts generates from Solidity. `common/write-ability` holds this
 // repository's copy and guards it against the canonical files byte for byte.
@@ -103,6 +103,11 @@ test("attestor set-update digests match the Solidity vectors", () => {
       updateDigest(v.validator, v.attestors, chainId, nonce),
       v.digest,
       v.name,
+    );
+    assert.deepEqual(
+      canonicalAttestorOrder(v.attestors),
+      v.canonicalAttestors.map((address) => getAddress(address)),
+      `${v.name}: canonical order`,
     );
     assert.equal(
       updateDigest(v.validator, v.canonicalAttestors, chainId, nonce),

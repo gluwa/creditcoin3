@@ -3,7 +3,11 @@ import test from "node:test";
 import { AbiCoder, Interface, Wallet } from "ethers";
 import { Keyring } from "@polkadot/api";
 import { cryptoWaitReady } from "@polkadot/util-crypto";
-import { updateDigest, verifySetUpdate } from "./rotation.mjs";
+import {
+  canonicalAttestorOrder,
+  updateDigest,
+  verifySetUpdate,
+} from "./rotation.mjs";
 import { ATTESTOR_MNEMONICS, committee } from "./committee.mjs";
 
 const validator = `0x${"ab".repeat(20)}`;
@@ -26,6 +30,15 @@ test("the four deterministic fleet identities are distinct and exclude the sudo 
   assert.equal(new Set(addresses).size, 4);
   assert.equal(addresses.includes(sudo), false);
   assert.equal(new Set(committee.map((key) => key.address)).size, 4);
+});
+
+test("canonical attestor order is the fleet's byte order, not checksum string order", () => {
+  const ordered = canonicalAttestorOrder([...initial].reverse());
+  const values = ordered.map((address) => BigInt(address));
+  assert.ok(values.every((value, i) => i === 0 || values[i - 1] < value));
+  // The dev committee mixes checksum case, so a plain string sort disagrees with the fleet.
+  assert.notDeepEqual(ordered, [...initial].sort());
+  assert.deepEqual(canonicalAttestorOrder([...initial, initial[0]]), ordered);
 });
 
 function proposal(signers = committee.slice(0, 3), next = initial) {
