@@ -43,6 +43,11 @@ fn classify_eth_rpc_anyhow_as_inconsistent(
 ///   and drop the log below the level an operator is paged on.
 /// - `5xx` and transport failures → `None`, falling through to the caller-supplied mapping. Those
 ///   are real faults and keep their existing behaviour.
+///
+/// Every case except a range rejection (any 4xx other than `404`) reaches this only when the
+/// source-RPC fallback failed too:
+/// `ArchiverEthProvider` builds the range from the source RPC first whenever the archiver cannot
+/// serve it.
 fn classify_archiver_client_rejection(err: &AnyhowError) -> Option<ServiceError> {
     let status_err = archiver::anyhow_chain_archiver_status(err)?;
 
