@@ -38,11 +38,20 @@ fn calldata_gas(data: &[u8]) -> u64 {
         .fold(0u64, u64::saturating_add)
 }
 
+/// EIP-7623 floor for the call data: the node rejects a transaction whose gas limit is below
+/// `21_000` plus 10 per zero byte and 40 per non-zero byte, however cheap the execution is.
+fn calldata_floor_gas(data: &[u8]) -> u64 {
+    data.iter()
+        .map(|byte| if *byte == 0 { 10u64 } else { 40 })
+        .fold(TX_BASE_GAS, u64::saturating_add)
+}
+
 /// Gas limit for a `verifyAndEmit` transaction when RPC estimation is unavailable. It is sized
-/// from the whole encoded call, so a large proof is not given less than its own intrinsic gas.
+/// from the whole encoded call, and never below the call data floor, so a large proof is not
+/// given less than the node accepts.
 fn fallback_emit_gas(calldata: &[u8], encoded_tx_len: usize, continuity_roots: usize) -> u64 {
     let tx_bytes_words = (encoded_tx_len as u64).div_ceil(32);
-    [
+    let total = [
         TX_BASE_GAS,
         calldata_gas(calldata),
         GAS_PROOF_OVERHEAD,
@@ -51,7 +60,8 @@ fn fallback_emit_gas(calldata: &[u8], encoded_tx_len: usize, continuity_roots: u
         GAS_TRANSACTION_VERIFIED_EVENT,
     ]
     .into_iter()
-    .fold(0u64, u64::saturating_add)
+    .fold(0u64, u64::saturating_add);
+    total.max(calldata_floor_gas(calldata))
 }
 
 /// A transaction needing more gas than a block holds can never be included.
@@ -570,17 +580,39 @@ mod tests {
         );
     }
 
-    /// The old formula (`21_000 + 5_000 * roots + 20_000`) fell below the intrinsic gas of a
-    /// proof with large call data, so such a transaction could never be accepted.
     #[test]
-    fn fallback_emit_gas_covers_the_intrinsic_gas_of_large_calldata() {
-        let calldata = vec![0xAB; 200_000];
-        let roots = 10;
-        let intrinsic = TX_BASE_GAS + calldata_gas(&calldata);
-        let old_formula = 21_000u64 + roots as u64 * 5_000 + 20_000;
+    fn calldata_floor_gas_prices_zero_and_non_zero_bytes() {
+        assert_eq!(calldata_floor_gas(&[]), 21_000);
+        assert_eq!(calldata_floor_gas(&[0, 1]), 21_000 + 10 + 40);
+    }
 
-        assert!(old_formula < intrinsic);
-        assert!(fallback_emit_gas(&calldata, 1_000, roots) > intrinsic);
+    /// The old formula (`21_000 + 5_000 * roots + 20_000`) fell below the call data's intrinsic
+    /// gas, and the intrinsic gas itself is below the EIP-7623 floor for call data-heavy proofs,
+    /// so the node rejected such a transaction outright.
+    #[test]
+    fn fallback_emit_gas_covers_the_calldata_floor_of_large_calldata() {
+        let roots = 10;
+        let old_formula = 21_000u64 + roots as u64 * 5_000 + 20_000;
+        for byte in [0xABu8, 0x00] {
+            let calldata = vec![byte; 200_000];
+            let intrinsic = TX_BASE_GAS + calldata_gas(&calldata);
+            let floor = calldata_floor_gas(&calldata);
+
+            assert!(old_formula < intrinsic);
+            assert!(floor > intrinsic);
+            assert!(fallback_emit_gas(&calldata, 1_000, roots) >= floor);
+        }
+    }
+
+    #[test]
+    fn fallback_emit_gas_keeps_the_sum_when_it_exceeds_the_floor() {
+        // Small call data: the floor is 21_050, far below the sum.
+        let calldata = [0u8, 1];
+        assert!(calldata_floor_gas(&calldata) < fallback_emit_gas(&calldata, 33, 3));
+        assert_eq!(
+            fallback_emit_gas(&calldata, 33, 3),
+            21_000 + 20 + 20_000 + 15_000 + (30 + 18) + 1_756
+        );
     }
 
     #[test]
