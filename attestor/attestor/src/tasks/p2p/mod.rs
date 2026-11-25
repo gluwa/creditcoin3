@@ -692,13 +692,15 @@ async fn handle_swarm(
             if let (Some(attestor), Some(source)) = (learned, message.source) {
                 // A valid BLS vote can be republished by another transport identity. Once
                 // registered, only the finalized on-chain mapping grants reserved capacity.
-                note_verified_vote_peer(
+                if let Some(old) = note_verified_vote_peer(
                     &mut swarm.behaviour_mut().admission,
                     peers_by_attestor,
                     peer_registry,
                     attestor,
                     source,
-                );
+                ) {
+                    evict_replaced_peer(swarm, peers_by_attestor, peer_registry, old);
+                }
             }
 
             let decision = match acceptance {
@@ -953,32 +955,57 @@ fn republish_outbox(
 
 /// Opportunistic vote-authorship bindings exist only for unregistered members during rollout.
 /// A copied valid vote cannot override or reserve a finalized registered transport identity.
+/// Returns the peer that lost its learned reservation because the attestor moved off it.
 fn note_verified_vote_peer(
     admission: &mut admission::Behaviour,
     bindings: &mut Vec<(AttestorId, libp2p::PeerId)>,
     registry: &crate::peer_registry::Registry,
     attestor: AttestorId,
     source: libp2p::PeerId,
-) {
+) -> Option<libp2p::PeerId> {
     if let Some(peer) = registry.peer(&attestor) {
         // A waiting member can be elected before the next registry refresh. A verified vote
         // then installs its canonical binding, so a later deactivation is still evicted.
         note_attestor_peer(bindings, attestor, peer);
         admission.reserve(peer);
-        return;
+        return None;
     }
     if !registry.is_legacy_member(&attestor) {
-        return;
+        return None;
     }
+    let mut released = None;
     if let Some(old) = note_attestor_peer(bindings, attestor, source) {
         if !bindings
             .iter()
             .any(|(id, peer)| *peer == old && registry.is_legacy_member(id))
         {
             admission.unreserve(&old);
+            released = Some(old);
         }
     }
     admission.reserve(source);
+    released
+}
+
+/// After a vote moved an attestor off `old`: drop `old` from the routing table and close its
+/// connection if it holds no other reservation and only maps to attestors that are no longer
+/// members. A peer with no mapping is left alone, as the deny gate never targets those.
+fn evict_replaced_peer(
+    swarm: &mut libp2p::Swarm<behavior::P2PBehavior>,
+    bindings: &[(AttestorId, libp2p::PeerId)],
+    registry: &crate::peer_registry::Registry,
+    old: libp2p::PeerId,
+) {
+    if swarm.behaviour().admission.is_reserved(&old) {
+        return;
+    }
+    let mapped = bindings
+        .iter()
+        .filter(|(_, peer)| *peer == old)
+        .map(|(id, _)| id);
+    if deny_decision(mapped, |id| registry.is_member(id)) {
+        evict_peer(swarm, old);
+    }
 }
 
 /// Record one peer per attestor, returning its previous peer ID after a rotation.
@@ -2172,6 +2199,116 @@ mod tests {
         assert!(!swarm.behaviour().admission.is_reserved(&old));
         assert!(swarm.behaviour().admission.is_reserved(&new));
         assert!(swarm.behaviour().admission.is_reserved(&boot));
+    }
+
+    /// `old` is bound to a legacy member (att 1) and to a former member (att 2) whose binding is
+    /// kept for the deny gate. Returns the swarm, bindings and registry with `old` in Kademlia.
+    fn co_bound_peer(
+        extra_members: Vec<AttestorId>,
+        old: libp2p::PeerId,
+    ) -> (
+        libp2p::Swarm<super::behavior::P2PBehavior>,
+        Vec<(AttestorId, libp2p::PeerId)>,
+        crate::peer_registry::Registry,
+    ) {
+        let mut swarm = swarm();
+        let mut bindings = vec![(att(2), old)];
+        let members = std::iter::once(att(1)).chain(extra_members);
+        let registry = registry(false, members.map(|id| (id, None)).collect());
+        for (id, _) in registry.attestors.clone() {
+            note_verified_vote_peer(
+                &mut swarm.behaviour_mut().admission,
+                &mut bindings,
+                &registry,
+                id,
+                old,
+            );
+        }
+        swarm
+            .behaviour_mut()
+            .kad
+            .add_address(&old, "/ip4/127.0.0.1/tcp/9000".parse().unwrap());
+        assert!(in_routing_table(&mut swarm, &old));
+        (swarm, bindings, registry)
+    }
+
+    #[tokio::test]
+    async fn vote_replacement_evicts_a_peer_that_only_maps_to_former_members() {
+        let (old, new) = (libp2p::PeerId::random(), libp2p::PeerId::random());
+        let (mut swarm, mut bindings, registry) = co_bound_peer(vec![], old);
+
+        let released = note_verified_vote_peer(
+            &mut swarm.behaviour_mut().admission,
+            &mut bindings,
+            &registry,
+            att(1),
+            new,
+        );
+        assert_eq!(released, Some(old));
+        super::evict_replaced_peer(&mut swarm, &bindings, &registry, old);
+
+        assert!(!in_routing_table(&mut swarm, &old));
+        assert!(!swarm.behaviour().admission.is_reserved(&old));
+        assert!(swarm.behaviour().admission.is_reserved(&new));
+    }
+
+    #[tokio::test]
+    async fn vote_replacement_keeps_a_peer_another_active_member_still_uses() {
+        let (old, new) = (libp2p::PeerId::random(), libp2p::PeerId::random());
+        let (mut swarm, mut bindings, registry) = co_bound_peer(vec![att(3)], old);
+
+        let released = note_verified_vote_peer(
+            &mut swarm.behaviour_mut().admission,
+            &mut bindings,
+            &registry,
+            att(1),
+            new,
+        );
+        assert_eq!(released, None);
+
+        assert!(in_routing_table(&mut swarm, &old));
+        assert!(swarm.behaviour().admission.is_reserved(&old));
+    }
+
+    #[tokio::test]
+    async fn vote_replacement_keeps_a_peer_that_holds_another_reservation() {
+        let (old, new) = (libp2p::PeerId::random(), libp2p::PeerId::random());
+        let (mut swarm, mut bindings, registry) = co_bound_peer(vec![], old);
+        swarm.behaviour_mut().admission.pin(old);
+
+        let released = note_verified_vote_peer(
+            &mut swarm.behaviour_mut().admission,
+            &mut bindings,
+            &registry,
+            att(1),
+            new,
+        );
+        assert_eq!(released, Some(old));
+        super::evict_replaced_peer(&mut swarm, &bindings, &registry, old);
+
+        assert!(in_routing_table(&mut swarm, &old));
+        assert!(swarm.behaviour().admission.is_reserved(&old));
+    }
+
+    /// The deny gate only targets peers tied to a former member, so a peer that no attestor maps
+    /// to any more is left as an ordinary peer.
+    #[tokio::test]
+    async fn vote_replacement_leaves_an_unmapped_peer_alone() {
+        let (old, new) = (libp2p::PeerId::random(), libp2p::PeerId::random());
+        let (mut swarm, mut bindings, registry) = co_bound_peer(vec![], old);
+        bindings.retain(|(id, _)| *id != att(2));
+
+        let released = note_verified_vote_peer(
+            &mut swarm.behaviour_mut().admission,
+            &mut bindings,
+            &registry,
+            att(1),
+            new,
+        );
+        assert_eq!(released, Some(old));
+        super::evict_replaced_peer(&mut swarm, &bindings, &registry, old);
+
+        assert!(in_routing_table(&mut swarm, &old));
     }
 
     #[tokio::test]
