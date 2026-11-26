@@ -2202,10 +2202,12 @@ pub mod pallet {
             // --- Checkpoint creation writes ---
             // The legacy path creates at most one checkpoint per commit, plus one more if the
             // queue is then still full; the catch-up path creates one per checkpoint boundary
-            // between the last checkpoint and this attestation. Each costs 3 storage writes
-            // (Checkpoints, CheckpointBuckets, LastCheckpoint) plus a `CheckpointReached` event.
+            // between the last checkpoint and this attestation, plus the head when it is off the
+            // grid. An off-grid last checkpoint can fit one more boundary than `span / width`.
+            // Each costs 3 storage writes (Checkpoints, CheckpointBuckets, LastCheckpoint) plus a
+            // `CheckpointReached` event.
             let estimated_checkpoints = if catching_up {
-                self.header_span / checkpoint_width
+                (self.header_span / checkpoint_width).saturating_add(2)
             } else {
                 2
             };
