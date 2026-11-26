@@ -10,10 +10,102 @@ use crate::{Client, Error as ClientError};
 use alloy::{
     contract::Error as AlloyContractError,
     primitives::{Address, FixedBytes, U256},
-    rpc::types::TransactionReceipt,
+    providers::Provider,
+    rpc::types::{eth::BlockId, TransactionReceipt},
     sol,
     sol_types::SolEvent,
 };
+
+/// Gas every transaction pays before execution.
+const TX_BASE_GAS: u64 = 21_000;
+/// Allowance per continuity root for verifying the chain of roots.
+const GAS_PER_CONTINUITY_ROOT: u64 = 5_000;
+/// Flat allowance for the Merkle verification and the call overhead.
+const GAS_PROOF_OVERHEAD: u64 = 20_000;
+/// `TransactionVerified` is a `LOG3` (signature + two indexed topics) with one 32-byte word of
+/// data: 375 + 3 * 375 + 8 * 32.
+const GAS_TRANSACTION_VERIFIED_EVENT: u64 = 1_756;
+/// The encoded transaction is hashed and copied, so price it like `KECCAK256` (30 + 6 per word)
+/// plus a memory copy (3 per word).
+const GAS_KECCAK_BASE: u64 = 30;
+const GAS_PER_TX_BYTES_WORD: u64 = 9;
+
+/// Intrinsic gas of the call data (EIP-2028): 4 per zero byte, 16 per non-zero byte. The EVM
+/// rejects a transaction whose gas limit is below it.
+fn calldata_gas(data: &[u8]) -> u64 {
+    data.iter()
+        .map(|byte| if *byte == 0 { 4u64 } else { 16 })
+        .fold(0u64, u64::saturating_add)
+}
+
+/// EIP-7623 floor for the call data: the node rejects a transaction whose gas limit is below
+/// `21_000` plus 10 per zero byte and 40 per non-zero byte, however cheap the execution is.
+fn calldata_floor_gas(data: &[u8]) -> u64 {
+    data.iter()
+        .map(|byte| if *byte == 0 { 10u64 } else { 40 })
+        .fold(TX_BASE_GAS, u64::saturating_add)
+}
+
+/// Gas limit for a `verifyAndEmit` transaction when RPC estimation is unavailable. It is sized
+/// from the whole encoded call, and never below the call data floor, so a large proof is not
+/// given less than the node accepts.
+fn fallback_emit_gas(calldata: &[u8], encoded_tx_len: usize, continuity_roots: usize) -> u64 {
+    let tx_bytes_words = (encoded_tx_len as u64).div_ceil(32);
+    let total = [
+        TX_BASE_GAS,
+        calldata_gas(calldata),
+        GAS_PROOF_OVERHEAD,
+        GAS_PER_CONTINUITY_ROOT.saturating_mul(continuity_roots as u64),
+        GAS_KECCAK_BASE.saturating_add(GAS_PER_TX_BYTES_WORD.saturating_mul(tx_bytes_words)),
+        GAS_TRANSACTION_VERIFIED_EVENT,
+    ]
+    .into_iter()
+    .fold(0u64, u64::saturating_add);
+    total.max(calldata_floor_gas(calldata))
+}
+
+/// A transaction needing more gas than a block holds can never be included.
+#[allow(clippy::result_large_err)]
+fn ensure_fits_block(required: u64, block_gas_limit: u64) -> Result<(), Error> {
+    if required > block_gas_limit {
+        return Err(Error::GasLimitExceeded {
+            required,
+            limit: block_gas_limit,
+        });
+    }
+    Ok(())
+}
+
+/// The RPC estimate for a `verifyAndEmit` call, or the fallback when the estimate failed. The
+/// fallback is rejected when it exceeds the latest block's gas limit.
+async fn resolve_emit_gas<P: Provider>(
+    provider: &P,
+    estimate: Result<u64, AlloyContractError>,
+    calldata: &[u8],
+    encoded_tx_len: usize,
+    continuity_roots: usize,
+) -> Result<u64, Error> {
+    let err = match estimate {
+        Ok(gas) => {
+            debug!("Gas estimation succeeded: {}", gas);
+            return Ok(gas);
+        }
+        Err(err) => err,
+    };
+
+    // Estimation can fail in some setups (e.g. pallet-evm issues), so size the limit ourselves.
+    let required = fallback_emit_gas(calldata, encoded_tx_len, continuity_roots);
+    let block = provider
+        .get_block(BlockId::latest())
+        .await?
+        .ok_or_else(|| Error::Other("latest block not found".to_string()))?;
+    ensure_fits_block(required, block.header.gas_limit)?;
+    debug!(
+        "Gas estimation failed ({}), using calculated gas limit: {} for {} continuity roots",
+        err, required, continuity_roots
+    );
+    Ok(required)
+}
 
 /// Count `TransactionVerified` logs emitted by the receipt's transaction.
 ///
@@ -50,6 +142,8 @@ pub enum Error {
     TransportError(#[from] RpcError<TransportErrorKind>),
     #[error("Verification failed")]
     VerificationFailed,
+    #[error("Proof needs about {required} gas, above the block gas limit of {limit}")]
+    GasLimitExceeded { required: u64, limit: u64 },
     #[error("Couldn't parse contract address: {0}")]
     AddressParse(#[from] hex::FromHexError),
     #[error("Error: {0}")]
@@ -213,27 +307,14 @@ impl BlockProver {
             sol_proof_struct.clone(),
         );
 
-        // Try to estimate gas, fall back to a size-based calculation if estimation fails
-        // This can happen with larger continuity proofs due to how gas estimation works
-        let gas_limit = match tx_builder.estimate_gas().await {
-            Ok(estimate) => {
-                debug!("Gas estimation succeeded: {}", estimate);
-                estimate
-            }
-            Err(e) => {
-                // Gas estimation can fail in certain scenarios (e.g., pallet-evm issues)
-                // Calculate a reasonable estimate based on the continuity proof size
-                // This matches the formula used in estimate_gas()
-                let continuity_blocks = continuity_proof.roots.len();
-                // Base: 21000 (tx) + ~5000 per continuity block + ~10000 for merkle + overhead
-                let calculated_gas = 21000u64 + (continuity_blocks as u64 * 5000) + 20000;
-                debug!(
-                    "Gas estimation failed ({}), using calculated gas limit: {} for {} continuity blocks",
-                    e, calculated_gas, continuity_blocks
-                );
-                calculated_gas
-            }
-        };
+        let gas_limit = resolve_emit_gas(
+            contract.provider(),
+            tx_builder.estimate_gas().await,
+            tx_builder.calldata(),
+            encoded_transaction.len(),
+            continuity_proof.roots.len(),
+        )
+        .await?;
         let tx_builder = tx_builder.gas(gas_limit);
 
         let pending_tx = tx_builder.send().await?;
@@ -426,7 +507,10 @@ impl BlockProver {
         Ok(true)
     }
 
-    /// Estimate gas for a query verification
+    /// Estimate the gas for submitting a query verification with [`Self::verify_and_emit`].
+    ///
+    /// When the RPC estimate fails, falls back to a size-based limit, or fails with
+    /// [`Error::GasLimitExceeded`] if even that cannot fit in a block.
     pub async fn estimate_gas(
         &self,
         chain_key: u64,
@@ -435,41 +519,27 @@ impl BlockProver {
         merkle_proof: TransactionMerkleProof,
         continuity_proof: ContinuityProof,
     ) -> Result<u64, Error> {
-        let sol_proof = merkle_proof.into();
+        let sol_proof: INativeQueryVerifier::MerkleProof = merkle_proof.into();
         let sol_proof_struct = convert_to_solidity_continuity_proof(continuity_proof.clone());
 
         let provider = self.client.get_wallet_ws_provider().await?;
         let contract = INativeQueryVerifier::new(self.address, provider);
-        // Use verify_1 for single query (second verify function in ABI)
-        let gas = contract
-            .verify_1(
-                chain_key,
-                height,
-                encoded_transaction.to_vec().into(),
-                sol_proof,
-                sol_proof_struct,
-            )
-            .estimate_gas()
-            .await;
+        let tx_builder = contract.verifyAndEmit_0(
+            chain_key,
+            height,
+            encoded_transaction.to_vec().into(),
+            sol_proof,
+            sol_proof_struct,
+        );
 
-        match gas {
-            Ok(estimate) => {
-                debug!("Estimated gas for query verification: {}", estimate);
-                Ok(estimate)
-            }
-            Err(e) => {
-                // Gas estimation can fail in certain scenarios (e.g., pallet-evm issues)
-                // Calculate a reasonable estimate based on the continuity proof size
-                let continuity_blocks = continuity_proof.roots.len();
-                // Base: 21000 (tx) + ~5000 per continuity block + ~10000 for merkle + overhead
-                let estimated = 21000u64 + (continuity_blocks as u64 * 5000) + 20000;
-                debug!(
-                    "Gas estimation failed ({}), using calculated estimate: {} for {} continuity blocks",
-                    e, estimated, continuity_blocks
-                );
-                Ok(estimated)
-            }
-        }
+        resolve_emit_gas(
+            contract.provider(),
+            tx_builder.estimate_gas().await,
+            tx_builder.calldata(),
+            encoded_transaction.len(),
+            continuity_proof.roots.len(),
+        )
+        .await
     }
 
     /// Get the precompile address
@@ -490,5 +560,84 @@ mod tests {
             0x00, 0x00, 0x00, 0x00, 0x0F, 0xD2,
         ]);
         assert_eq!(BLOCK_PROVER_ADDRESS, expected);
+    }
+
+    #[test]
+    fn calldata_gas_prices_zero_and_non_zero_bytes() {
+        assert_eq!(calldata_gas(&[]), 0);
+        assert_eq!(calldata_gas(&[0, 0, 0]), 12);
+        assert_eq!(calldata_gas(&[1, 0, 255]), 16 + 4 + 16);
+    }
+
+    #[test]
+    fn fallback_emit_gas_adds_up_every_term() {
+        // 21_000 base + 20_000 overhead + 30 keccak + 1_756 event
+        assert_eq!(fallback_emit_gas(&[], 0, 0), 42_786);
+        // + calldata 4 + 16, + 2 words of tx bytes (9 each), + 3 roots (5_000 each)
+        assert_eq!(
+            fallback_emit_gas(&[0, 1], 33, 3),
+            21_000 + 20 + 20_000 + 15_000 + (30 + 18) + 1_756
+        );
+    }
+
+    #[test]
+    fn calldata_floor_gas_prices_zero_and_non_zero_bytes() {
+        assert_eq!(calldata_floor_gas(&[]), 21_000);
+        assert_eq!(calldata_floor_gas(&[0, 1]), 21_000 + 10 + 40);
+    }
+
+    /// The old formula (`21_000 + 5_000 * roots + 20_000`) fell below the call data's intrinsic
+    /// gas, and the intrinsic gas itself is below the EIP-7623 floor for call data-heavy proofs,
+    /// so the node rejected such a transaction outright.
+    #[test]
+    fn fallback_emit_gas_covers_the_calldata_floor_of_large_calldata() {
+        let roots = 10;
+        let old_formula = 21_000u64 + roots as u64 * 5_000 + 20_000;
+        for byte in [0xABu8, 0x00] {
+            let calldata = vec![byte; 200_000];
+            let intrinsic = TX_BASE_GAS + calldata_gas(&calldata);
+            let floor = calldata_floor_gas(&calldata);
+
+            assert!(old_formula < intrinsic);
+            assert!(floor > intrinsic);
+            assert!(fallback_emit_gas(&calldata, 1_000, roots) >= floor);
+        }
+    }
+
+    #[test]
+    fn fallback_emit_gas_keeps_the_sum_when_it_exceeds_the_floor() {
+        // Small call data: the floor is 21_050, far below the sum.
+        let calldata = [0u8, 1];
+        assert!(calldata_floor_gas(&calldata) < fallback_emit_gas(&calldata, 33, 3));
+        assert_eq!(
+            fallback_emit_gas(&calldata, 33, 3),
+            21_000 + 20 + 20_000 + 15_000 + (30 + 18) + 1_756
+        );
+    }
+
+    #[test]
+    fn fallback_emit_gas_grows_with_each_input() {
+        let base = fallback_emit_gas(&[1; 100], 100, 5);
+        assert!(fallback_emit_gas(&[1; 101], 100, 5) > base);
+        // Transaction bytes are priced per 32-byte word: 100 bytes is 4 words, 129 is 5.
+        assert!(fallback_emit_gas(&[1; 100], 129, 5) > base);
+        assert!(fallback_emit_gas(&[1; 100], 100, 6) > base);
+    }
+
+    #[test]
+    fn fallback_emit_gas_saturates_instead_of_overflowing() {
+        assert_eq!(fallback_emit_gas(&[], usize::MAX, usize::MAX), u64::MAX);
+    }
+
+    #[test]
+    fn ensure_fits_block_rejects_only_above_the_limit() {
+        assert!(ensure_fits_block(75_000_000, 75_000_000).is_ok());
+        assert!(matches!(
+            ensure_fits_block(75_000_001, 75_000_000),
+            Err(Error::GasLimitExceeded {
+                required: 75_000_001,
+                limit: 75_000_000
+            })
+        ));
     }
 }
