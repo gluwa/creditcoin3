@@ -1,18 +1,14 @@
-//! Regression tests for the batch-verify heap-exhaustion vector.
+//! Tests for the size limits and gas charges the precompile applies to its input.
 //!
-//! The precompile ABI-decodes every argument onto the runtime heap before any entry point
-//! runs, and the decoder does not reject aliased ABI offsets, so a small call could decode
-//! one region many times into large allocations and exhaust the import heap (halting the
-//! chain). The fix charges for the raw input first and bounds every allocating argument at
-//! decode time:
+//! Each allocating argument has a bound that is checked while the call is decoded:
 //!   * `encoded_transaction(s)` -> `BoundedBytes<MaxEncodedTxBytes>` (4 MiB each),
 //!   * a batch's `encoded_transactions` -> `BatchEncodedTxs` (`MaxBatchBytes`, 4 MiB in total),
 //!   * Merkle proof `siblings`  -> `BoundedVec<_, 64>` (in `TransactionMerkleProof::read`),
 //!   * continuity `roots`       -> `BoundedVec<_, MAX_CONTINUITY_ROOTS>` (in `ContinuityProof::read`).
 //!
 //! These tests drive the real decode path (the harness ABI-encodes the call, the precompile
-//! decodes it) and assert that an over-limit argument reverts *during decode* with
-//! "Value is too large", i.e. before the oversized buffer is ever allocated.
+//! decodes it). An over-limit argument must revert with that argument's own decode error; an
+//! input within the limits must get past decode and fail verification instead.
 
 use crate::mock::*;
 use crate::tests::precompiles;
@@ -21,23 +17,65 @@ use attestor_primitives::block::ContinuityProof;
 use merkle::{MerkleProofEntry, TransactionMerkleProof};
 use precompile_utils::testing::*;
 
-/// True when the revert output carries the decoder's over-limit message.
-fn is_too_large(output: &[u8]) -> bool {
-    String::from_utf8_lossy(output).contains("Value is too large")
+const BATCH: usize = 10;
+const MIB: usize = 1_048_576;
+/// `MaxEncodedTxBytes`.
+const MAX_TX: usize = 4 * MIB;
+/// `MaxBatchBytes`.
+const MAX_BATCH: usize = 4 * MIB;
+/// `MAX_MERKLE_SIBLINGS`.
+const MAX_SIBLINGS: usize = 64;
+
+/// What a batch call reverts with once it has decoded: the mock has no attestation for the
+/// proof.
+const DECODED: &str = "Continuity proof does not match attestation or checkpoint";
+
+/// Matches a revert whose output is exactly `expected`.
+fn reverts_with(expected: &str) -> impl Fn(&[u8]) -> bool + '_ {
+    move |output| {
+        if output != expected.as_bytes() {
+            eprintln!(
+                "expected revert {expected:?}, got {:?}",
+                String::from_utf8_lossy(output)
+            );
+        }
+        output == expected.as_bytes()
+    }
+}
+
+/// The revert for batch item `i` taking the batch over `MaxBatchBytes`.
+fn over_batch_cap(i: usize) -> String {
+    format!("encodedTransactions[{i}]: Value is too large for batch length")
+}
+
+fn merkle_proof_with(siblings: usize) -> TransactionMerkleProof {
+    TransactionMerkleProof {
+        root: sp_core::H256::zero(),
+        siblings: vec![
+            MerkleProofEntry {
+                hash: sp_core::H256::zero(),
+                is_left: false
+            };
+            siblings
+        ],
+    }
 }
 
 fn small_merkle_proof() -> TransactionMerkleProof {
-    TransactionMerkleProof {
-        root: sp_core::H256::zero(),
-        siblings: vec![MerkleProofEntry {
-            hash: sp_core::H256::zero(),
-            is_left: false,
-        }],
-    }
+    merkle_proof_with(1)
 }
 
 fn small_continuity_proof() -> ContinuityProof {
     ContinuityProof::new(sp_core::H256::zero(), vec![sp_core::H256::zero()])
+}
+
+#[test]
+fn caps_match_the_runtime_types() {
+    use sp_core::Get;
+    assert_eq!(<MaxEncodedTxBytes as Get<u32>>::get() as usize, MAX_TX);
+    assert_eq!(<MaxBatchBytes as Get<u32>>::get() as usize, MAX_BATCH);
+    assert_eq!(<MaxBatchSize as Get<u32>>::get() as usize, BATCH);
+    assert_eq!(merkle::proof::MAX_MERKLE_SIBLINGS as usize, MAX_SIBLINGS);
 }
 
 #[test]
@@ -57,38 +95,34 @@ fn verify_rejects_oversized_encoded_transaction_at_decode() {
                     continuity_proof: small_continuity_proof(),
                 },
             )
-            .execute_reverts(is_too_large);
+            .execute_reverts(reverts_with(
+                "encodedTransaction: Value is too large for length",
+            ));
     });
 }
 
 #[test]
-fn verify_rejects_too_many_merkle_siblings_at_decode() {
+fn verify_bounds_merkle_siblings_at_decode() {
     ExtBuilder::default().build().execute_with(|| {
-        // 65 siblings: one past the 64-deep cap (MAX_MERKLE_SIBLINGS).
-        let siblings = vec![
-            MerkleProofEntry {
-                hash: sp_core::H256::zero(),
-                is_left: false
-            };
-            65
-        ];
-        let merkle_proof = TransactionMerkleProof {
-            root: sp_core::H256::zero(),
-            siblings,
+        let call = |siblings| PCall::verify {
+            chain_key: 1,
+            height: 2,
+            encoded_transaction: vec![1u8].into(),
+            merkle_proof: merkle_proof_with(siblings),
+            continuity_proof: small_continuity_proof(),
         };
+
+        // Exactly at the cap: decodes, and the proof is then checked.
         precompiles()
-            .prepare_test(
-                Account::Alice,
-                Account::Precompile,
-                PCall::verify {
-                    chain_key: 1,
-                    height: 2,
-                    encoded_transaction: vec![1u8].into(),
-                    merkle_proof,
-                    continuity_proof: small_continuity_proof(),
-                },
-            )
-            .execute_reverts(is_too_large);
+            .prepare_test(Account::Alice, Account::Precompile, call(MAX_SIBLINGS))
+            .execute_reverts(reverts_with("Merkle proof validation failed"));
+
+        // One past it.
+        precompiles()
+            .prepare_test(Account::Alice, Account::Precompile, call(MAX_SIBLINGS + 1))
+            .execute_reverts(reverts_with(
+                "merkleProof.siblings: Value is too large for length",
+            ));
     });
 }
 
@@ -109,66 +143,47 @@ fn verify_rejects_too_many_continuity_roots_at_decode() {
                     continuity_proof,
                 },
             )
-            .execute_reverts(is_too_large);
+            .execute_reverts(reverts_with(
+                "continuityProof.roots: Value is too large for length",
+            ));
     });
 }
 
 #[test]
-fn verify_batch_rejects_oversized_arguments_at_decode() {
+fn verify_batch_rejects_oversized_arguments_before_the_length_check() {
     ExtBuilder::default().build().execute_with(|| {
-        // A batch call whose one Merkle proof is over-deep: rejected at decode, before the
-        // array-length-mismatch check (the audit PoC relied on decode happening first).
-        let over_deep = TransactionMerkleProof {
-            root: sp_core::H256::zero(),
-            siblings: vec![
-                MerkleProofEntry {
-                    hash: sp_core::H256::zero(),
-                    is_left: false
-                };
-                65
-            ],
-        };
+        // Two heights against one transaction and one proof is a length mismatch, and the
+        // proof is over-deep. The decode error is the one reported: arguments are decoded,
+        // and bounded, before the entry point compares the array lengths.
         precompiles()
             .prepare_test(
                 Account::Alice,
                 Account::Precompile,
                 PCall::verify_batch {
                     chain_key: 1,
-                    heights: vec![2u64].into(),
+                    heights: vec![2u64, 3u64].into(),
                     encoded_transactions: vec![vec![1u8].into()].into(),
-                    merkle_proofs: vec![over_deep].into(),
+                    merkle_proofs: vec![merkle_proof_with(MAX_SIBLINGS + 1)].into(),
                     shared_continuity_proof: small_continuity_proof(),
                 },
             )
-            .execute_reverts(is_too_large);
+            .execute_reverts(reverts_with(
+                "merkleProofs[0].siblings: Value is too large for length",
+            ));
     });
 }
 
 // ---------------------------------------------------------------------------------------
-// Aliased ABI offsets and pre-decode gas
+// The batch total, and the charge for the raw input
 // ---------------------------------------------------------------------------------------
-
-const BATCH: usize = 10;
-const MIB: usize = 1_048_576;
-/// `MaxEncodedTxBytes`.
-const MAX_TX: usize = 4 * MIB;
-/// `MaxBatchBytes`.
-const MAX_BATCH: usize = 4 * MIB;
-
-#[test]
-fn caps_match_the_runtime_types() {
-    use sp_core::Get;
-    assert_eq!(<MaxEncodedTxBytes as Get<u32>>::get() as usize, MAX_TX);
-    assert_eq!(<MaxBatchBytes as Get<u32>>::get() as usize, MAX_BATCH);
-}
 
 fn word_at(args: &[u8], pos: usize) -> usize {
     sp_core::U256::from_big_endian(&args[pos..pos + 32]).as_usize()
 }
 
-/// Raw batch-`verify` input whose `BATCH` `encoded_transactions` entries all point at one
-/// `tx_len`-byte region — the audit PoC shape. The honest encoder cannot produce aliased
-/// offsets, so the call is encoded normally and the offsets are then rewritten.
+/// Raw batch-`verify` input whose `BATCH` `encoded_transactions` offsets all point at the
+/// same `tx_len`-byte item. The encoder never writes repeated offsets, so the call is
+/// encoded normally and the offsets are then rewritten.
 fn aliased_batch_input(tx_len: usize) -> Vec<u8> {
     let mut txs = vec![vec![1u8]; BATCH];
     txs[0] = vec![0x55u8; tx_len];
@@ -183,7 +198,7 @@ fn aliased_batch_input(tx_len: usize) -> Vec<u8> {
     .encode();
     assert_eq!(
         input[..4],
-        [0x1b, 0x5f, 0x6f, 0x88],
+        PCall::verify_batch_selectors()[0].to_be_bytes(),
         "batch verify selector"
     );
 
@@ -214,40 +229,41 @@ fn batch_call(txs: Vec<Vec<u8>>) -> PCall {
 }
 
 #[test]
-fn aliased_offsets_are_rejected_at_decode() {
+fn repeated_offsets_count_towards_the_batch_cap() {
     ExtBuilder::default().build().execute_with(|| {
-        // The audit PoC shape: ten offsets at one region. Rejected whether the region is at
-        // the per-item cap (40 MiB decoded) or small enough that only the total is over
-        // (10 x 512 KiB = 5 MiB).
-        for tx_len in [MAX_TX, 3 * MIB, MIB / 2] {
+        // Every offset is counted, whether or not it points at an item already seen. The
+        // index in the error is the item that takes the running total past the cap:
+        //   4 MiB   -> the second item,
+        //   3 MiB   -> counts as 4 MiB, so also the second,
+        //   512 KiB -> the ninth (4.5 MiB).
+        for (tx_len, first_over) in [(MAX_TX, 1), (3 * MIB, 1), (MIB / 2, 8)] {
             precompiles()
                 .prepare_test(
                     Account::Alice,
                     Account::Precompile,
                     aliased_batch_input(tx_len),
                 )
-                .execute_reverts(is_too_large);
+                .execute_reverts(reverts_with(&over_batch_cap(first_over)));
         }
     });
 }
 
 #[test]
-fn aliased_offsets_within_the_batch_cap_decode_and_fail_normally() {
+fn repeated_offsets_within_the_batch_cap_decode() {
     ExtBuilder::default().build().execute_with(|| {
-        // Ten aliases of a 256 KiB region decode to 2.5 MiB: under the batch cap, so the call
-        // proceeds to the ordinary verification failure instead of a decode error.
+        // Ten offsets at one 256 KiB item count as 2.5 MiB: under the batch cap.
         precompiles()
             .prepare_test(
                 Account::Alice,
                 Account::Precompile,
                 aliased_batch_input(MIB / 4),
             )
-            .execute_reverts(|output| !is_too_large(output));
+            .execute_reverts(reverts_with(DECODED));
     });
 }
 
 #[test]
-fn honest_batch_over_the_batch_cap_is_rejected_at_decode() {
+fn batch_over_the_batch_cap_is_rejected_at_decode() {
     ExtBuilder::default().build().execute_with(|| {
         // Three distinct 2 MiB transactions: each is under the per-item cap, the batch is not.
         precompiles()
@@ -256,7 +272,7 @@ fn honest_batch_over_the_batch_cap_is_rejected_at_decode() {
                 Account::Precompile,
                 batch_call(vec![vec![0x55u8; 2 * MIB]; 3]),
             )
-            .execute_reverts(is_too_large);
+            .execute_reverts(reverts_with(&over_batch_cap(2)));
     });
 }
 
@@ -270,7 +286,7 @@ fn batch_cap_counts_power_of_two_rounded_lengths() {
                 Account::Precompile,
                 batch_call(vec![vec![0x55u8; 2 * MIB]; 2]),
             )
-            .execute_reverts(|output| !is_too_large(output));
+            .execute_reverts(reverts_with(DECODED));
 
         // Empty items allocate nothing, so they do not count towards the cap.
         precompiles()
@@ -279,38 +295,64 @@ fn batch_cap_counts_power_of_two_rounded_lengths() {
                 Account::Precompile,
                 batch_call(vec![vec![0x55u8; MAX_BATCH], vec![], vec![]]),
             )
-            .execute_reverts(|output| !is_too_large(output));
+            .execute_reverts(reverts_with(DECODED));
 
-        // One byte more on one of them rounds it up to 4 MiB, taking the batch over.
+        // 3 MiB + 1 of bytes, which is under the cap; 2 MiB + 1 counts as 4 MiB, so the
+        // second item takes the total to 5 MiB.
         precompiles()
             .prepare_test(
                 Account::Alice,
                 Account::Precompile,
-                batch_call(vec![vec![0x55u8; 2 * MIB + 1], vec![0x55u8; 2 * MIB]]),
+                batch_call(vec![vec![0x55u8; 2 * MIB + 1], vec![0x55u8; MIB]]),
             )
-            .execute_reverts(is_too_large);
+            .execute_reverts(reverts_with(&over_batch_cap(1)));
+
+        // 3 MiB + 3 of bytes; each item counts as 2 MiB, so the third takes it to 6 MiB.
+        precompiles()
+            .prepare_test(
+                Account::Alice,
+                Account::Precompile,
+                batch_call(vec![vec![0x55u8; MIB + 1]; 3]),
+            )
+            .execute_reverts(reverts_with(&over_batch_cap(2)));
     });
 }
 
 #[test]
-fn batch_rejects_oversized_item_and_too_many_items_at_decode() {
+fn batch_rejects_an_oversized_item_at_decode() {
     ExtBuilder::default().build().execute_with(|| {
+        // The per-item cap, not the batch total: a different error.
         precompiles()
             .prepare_test(
                 Account::Alice,
                 Account::Precompile,
                 batch_call(vec![vec![0u8; MAX_TX + 1]]),
             )
-            .execute_reverts(is_too_large);
-
-        precompiles()
-            .prepare_test(
-                Account::Alice,
-                Account::Precompile,
-                batch_call(vec![vec![1u8]; BATCH + 1]),
-            )
-            .execute_reverts(is_too_large);
+            .execute_reverts(reverts_with(
+                "encodedTransactions[0]: Value is too large for length",
+            ));
     });
+}
+
+#[test]
+fn batch_decoder_rejects_too_many_items() {
+    use precompile_utils::solidity::codec::{Reader, Writer};
+
+    // At the codec level: in a full call `heights` decodes first and reports the same limit.
+    let encode = |items| {
+        Writer::new()
+            .write(vec![
+                BoundedBytes::<MaxEncodedTxBytes>::from(vec![1u8]);
+                items
+            ])
+            .build()
+    };
+    assert!(Reader::new(&encode(BATCH))
+        .read::<BatchEncodedTxs>()
+        .is_ok());
+    assert!(Reader::new(&encode(BATCH + 1))
+        .read::<BatchEncodedTxs>()
+        .is_err());
 }
 
 #[test]
@@ -336,14 +378,22 @@ fn batch_encoded_txs_round_trips_as_bytes_array() {
 #[test]
 fn input_is_charged_before_decode() {
     ExtBuilder::default().build().execute_with(|| {
-        // One gas short of the input charge: the call runs out of gas in the pre-check, so
-        // the aliased arguments are never decoded.
+        // Ten offsets at one 1 MiB item: the fifth takes the batch over the cap.
         let input = aliased_batch_input(MIB);
         let decode_gas = input_decode_gas(&input);
+
+        // One gas short of the input charge: out of gas in the pre-check, so no argument is
+        // decoded.
         precompiles()
-            .prepare_test(Account::Alice, Account::Precompile, input)
+            .prepare_test(Account::Alice, Account::Precompile, input.clone())
             .with_target_gas(Some(decode_gas - 1))
             .execute_error(ExitError::OutOfGas);
+
+        // Exactly the input charge: the pre-check passes and decode reports the batch cap.
+        precompiles()
+            .prepare_test(Account::Alice, Account::Precompile, input)
+            .with_target_gas(Some(decode_gas))
+            .execute_reverts(reverts_with(&over_batch_cap(4)));
     });
 }
 
@@ -356,18 +406,17 @@ fn leaf_hash_is_charged_by_transaction_size() {
 
         // A 1 MiB transaction with a one-sibling proof that does not verify: the call pays
         // for the input, the leaf hash and the sibling hash, then reverts.
-        let tx_len = 1_048_576;
         let input = PCall::verify {
             chain_key: 1,
             height: 2,
-            encoded_transaction: vec![0x55u8; tx_len].into(),
+            encoded_transaction: vec![0x55u8; MIB].into(),
             merkle_proof: small_merkle_proof(),
             continuity_proof: small_continuity_proof(),
         }
         .encode();
         let expected = input_decode_gas(&input)
             + KECCAK_BASE_COST
-            + KECCAK_WORD_COST * words(tx_len + 1)
+            + KECCAK_WORD_COST * words(MIB + 1)
             + CONTINUITY_BLOCK_HASH_COST;
 
         precompiles()
@@ -381,7 +430,8 @@ fn leaf_hash_is_charged_by_transaction_size() {
 // Differential fuzz: `BatchEncodedTxs` against the stock `bytes[]` decoder
 // ---------------------------------------------------------------------------------------
 
-/// xorshift64*: deterministic, so a failure reproduces from the printed case number.
+/// xorshift64*: deterministic. One generator runs through every case, so a failing case
+/// reproduces by re-running the test, not from its case number alone.
 struct Rng(u64);
 
 impl Rng {
@@ -436,8 +486,8 @@ fn batch_decoder_matches_stock_decoder_on_fuzzed_input() {
     let mut over_cap = 0usize;
 
     for case in 0..3_000 {
-        // An honest encoding: up to 12 items (the batch limit is 10), mostly small, with
-        // every 50th case large enough for aliasing to reach the batch cap.
+        // A well-formed encoding: up to 12 items (the batch limit is 10), mostly small, with
+        // every 50th case large enough for repeated offsets to reach the batch cap.
         let large = case % 50 == 0;
         let items = rng.below(13);
         let txs: Vec<BoundedBytes<MaxEncodedTxBytes>> = (0..items)
@@ -455,7 +505,8 @@ fn batch_decoder_matches_stock_decoder_on_fuzzed_input() {
         check_against_stock(case, &input);
 
         // Mutations: rewrite whole ABI words (offsets and lengths live on word boundaries) so
-        // offsets alias, point backwards or out of bounds, and lengths lie; then truncate.
+        // offsets repeat, point backwards or out of bounds, and lengths are wrong; then
+        // truncate.
         let words = input.len() / 32;
         for _ in 0..rng.below(4) {
             let at = 32 * rng.below(words);
@@ -464,7 +515,7 @@ fn batch_decoder_matches_stock_decoder_on_fuzzed_input() {
                 1 => 32 * rng.below(words) as u64,
                 2 => rng.below(input.len() + 64) as u64,
                 3 => rng.next() >> rng.below(64),
-                // Copy another word, which is how offsets come to alias one region.
+                // Copy another word, which is how two offsets come to point at one item.
                 _ => {
                     let from = 32 * rng.below(words);
                     input.copy_within(from..from + 32, at);
