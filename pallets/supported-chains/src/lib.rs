@@ -18,6 +18,25 @@ pub mod chains_count;
 pub mod migrations;
 pub mod weights;
 
+/// The write-ability chain key an attestor derives for a chain with no config: the chain key as a
+/// big-endian `u64` in the low 8 bytes (`chain_key_to_bytes32` in `common/write-ability`).
+pub(crate) fn default_write_ability_chain_key(
+    chain_key: attestor_primitives::ChainKey,
+) -> [u8; 32] {
+    let mut key = [0u8; 32];
+    key[24..].copy_from_slice(&chain_key.to_be_bytes());
+    key
+}
+
+/// Whether `key` is in the default-key range (24 leading zero bytes) without being `chain_key`'s
+/// own default. A chain without a config runs on its default, so that key is another chain's.
+pub(crate) fn is_reserved_for_another_chain(
+    key: &[u8; 32],
+    chain_key: attestor_primitives::ChainKey,
+) -> bool {
+    key[..24].iter().all(|byte| *byte == 0) && *key != default_write_ability_chain_key(chain_key)
+}
+
 #[frame_support::pallet]
 pub mod pallet {
     use super::*;
@@ -159,6 +178,18 @@ pub mod pallet {
         QueryKind = OptionQuery,
     >;
 
+    /// The chain each `write_ability_chain_key` is bound to. Attestor EVM keys are shared across
+    /// chains, so two chains on one key would accept each other's message-attestation quorums.
+    /// A binding is permanent: it outlives a re-key or `remove_chain`, so a key a chain once used
+    /// is never handed to another chain, whatever the old quorums signed under it could do there.
+    #[pallet::storage]
+    pub type WriteAbilityChainKeyOwners<T> = StorageMap<
+        Hasher = Blake2_128Concat,
+        Key = [u8; 32],
+        Value = ChainKey,
+        QueryKind = OptionQuery,
+    >;
+
     /// Per-chain USC write-ability core (protocol) fee, charged by the Outbox on every
     /// `publishMessage`. Read live by the EVM through the chain-info precompile
     /// (`get_core_fee(uint32)`), so a governance change takes effect on the next publish with no
@@ -227,6 +258,21 @@ pub mod pallet {
                     *write_ability_chain_key != [0u8; 32],
                     "Genesis write_ability_configs has a zero write_ability_chain_key for chain_key {chain_key:?}"
                 );
+                // Same for the rest of the rules: the reserved default range, one entry per chain,
+                // and no key shared between chains.
+                assert!(
+                    !is_reserved_for_another_chain(write_ability_chain_key, *chain_key),
+                    "Genesis write_ability_configs gives chain_key {chain_key:?} the default key of another chain"
+                );
+                assert!(
+                    !WriteAbilityConfigs::<T>::contains_key(chain_key),
+                    "Genesis write_ability_configs has more than one entry for chain_key {chain_key:?}"
+                );
+                assert!(
+                    !WriteAbilityChainKeyOwners::<T>::contains_key(write_ability_chain_key),
+                    "Genesis write_ability_configs repeats a write_ability_chain_key (chain_key {chain_key:?})"
+                );
+                WriteAbilityChainKeyOwners::<T>::insert(write_ability_chain_key, chain_key);
                 WriteAbilityConfigs::<T>::insert(
                     chain_key,
                     WriteAbilityConfig {
@@ -381,6 +427,20 @@ pub mod pallet {
         /// [`Config::MaxSupportedChains`] chains are already registered. Remove one before
         /// registering another.
         TooManyChains,
+
+        /// Another chain is, or once was, bound to this write-ability chain key. Keys are unique
+        /// across chains, since attestor EVM keys are shared across chains, and a binding outlives
+        /// a re-key or `remove_chain`.
+        WriteAbilityChainKeyInUse,
+
+        /// The chain's write-ability chain key cannot change while message attestation is enabled
+        /// for it. Disable attestation first (re-submit the current key with `false`), then change
+        /// the key.
+        WriteAbilityChainKeyLocked,
+
+        /// The key is another chain's default key (24 leading zero bytes). A chain without a
+        /// config runs on `bytes32(chain_key)`, so only that chain may be given such a key.
+        WriteAbilityChainKeyReserved,
     }
 
     #[pallet::call]
@@ -493,6 +553,7 @@ pub mod pallet {
 
             OutboxDiscoveries::<T>::remove(chain_key);
 
+            // The key stays bound to this chain (`WriteAbilityChainKeyOwners` is permanent).
             WriteAbilityConfigs::<T>::remove(chain_key);
 
             CoreFees::<T>::remove(chain_key);
@@ -601,6 +662,25 @@ pub mod pallet {
                 write_ability_chain_key != [0u8; 32],
                 Error::<T>::ZeroWriteAbilityChainKey
             );
+
+            ensure!(
+                !is_reserved_for_another_chain(&write_ability_chain_key, chain_key),
+                Error::<T>::WriteAbilityChainKeyReserved
+            );
+            if let Some(existing) = WriteAbilityConfigs::<T>::get(chain_key) {
+                ensure!(
+                    existing.write_ability_chain_key == write_ability_chain_key
+                        || !existing.message_attestation_enabled,
+                    Error::<T>::WriteAbilityChainKeyLocked
+                );
+            }
+            // A key stays bound to the first chain that used it: only that chain may take it again.
+            ensure!(
+                WriteAbilityChainKeyOwners::<T>::get(write_ability_chain_key)
+                    .is_none_or(|owner| owner == chain_key),
+                Error::<T>::WriteAbilityChainKeyInUse
+            );
+            WriteAbilityChainKeyOwners::<T>::insert(write_ability_chain_key, chain_key);
 
             WriteAbilityConfigs::<T>::insert(
                 chain_key,

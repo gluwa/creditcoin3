@@ -269,6 +269,9 @@ impl frame_system::Config for Runtime {
         // pallet's storage version differs. Remove once every network runs a runtime that
         // includes it.
         pallet_supported_chains::chains_count::InitSupportedChainsCount<Runtime>,
+        // Indexes the existing write-ability chain keys by owner chain. Not version-gated and
+        // idempotent. Remove once every network runs a runtime that includes it.
+        pallet_supported_chains::migrations::IndexWriteAbilityChainKeys<Runtime>,
         // NOTE: all other historical migrations are intentionally NOT registered:
         // - pallet_attestation::MigrateAttestationContinuityProofV0ToV1 and
         //   MigrateAttestorsCountV1ToV2: executed everywhere (on-chain storage version 2

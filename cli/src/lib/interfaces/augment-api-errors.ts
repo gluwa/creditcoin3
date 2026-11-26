@@ -1047,6 +1047,23 @@ declare module '@polkadot/api-base/types/errors' {
              **/
             TooManyChains: AugmentedError<ApiType>;
             /**
+             * Another chain is, or once was, bound to this write-ability chain key. Keys are unique
+             * across chains, since attestor EVM keys are shared across chains, and a binding outlives
+             * a re-key or `remove_chain`.
+             **/
+            WriteAbilityChainKeyInUse: AugmentedError<ApiType>;
+            /**
+             * The chain's write-ability chain key cannot change while message attestation is enabled
+             * for it. Disable attestation first (re-submit the current key with `false`), then change
+             * the key.
+             **/
+            WriteAbilityChainKeyLocked: AugmentedError<ApiType>;
+            /**
+             * The key is another chain's default key (24 leading zero bytes). A chain without a
+             * config runs on `bytes32(chain_key)`, so only that chain may be given such a key.
+             **/
+            WriteAbilityChainKeyReserved: AugmentedError<ApiType>;
+            /**
              * The Outbox discovery-registry address is the zero address. A zero registry cannot be
              * resolved by the attestor/relayer (it reads as "not registered"), so setting it via the
              * operator path is rejected to fail loudly instead of silently disabling registry-based
