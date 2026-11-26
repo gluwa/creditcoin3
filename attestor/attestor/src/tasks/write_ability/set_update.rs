@@ -188,6 +188,7 @@ async fn propose_once(
     chain_key: u64,
     dest_rpc_url: &str,
     validator: Address,
+    expected_chain_id: u64,
     signer: &MessageSigner,
 ) -> Result<Cycle> {
     // Candidate = EVM addresses of the currently-elected attestors that have registered one.
@@ -253,12 +254,13 @@ async fn propose_once(
         .call()
         .await
         .context("read EOAValidator.attestorSetUpdateNonce()")?;
-    let chain_id = U256::from(
-        provider
-            .get_chain_id()
-            .await
-            .context("read destination chain id")?,
-    );
+    let rpc_chain_id = provider
+        .get_chain_id()
+        .await
+        .context("read destination chain id")?;
+    super::attestor_set::check_destination_chain_id(rpc_chain_id, expected_chain_id)
+        .map_err(|reason| anyhow::anyhow!("refusing to sign a set update: {reason}"))?;
+    let chain_id = U256::from(expected_chain_id);
 
     let vote = build_set_update_vote(signer, chain_key, validator, &candidate, chain_id, nonce)?;
     tracing::info!(
@@ -283,6 +285,7 @@ pub async fn run_proposer(
     chain_key: u64,
     dest_rpc_url: String,
     validator: Address,
+    expected_chain_id: u64,
     signer: MessageSigner,
     publish_tx: mpsc::Sender<SetUpdateVote>,
     token: CancellationToken,
@@ -327,7 +330,7 @@ pub async fn run_proposer(
 
                 match tokio::time::timeout(
                     super::RPC_ATTEMPT_TIMEOUT,
-                    propose_once(&cc3, chain_key, &dest_rpc_url, validator, &signer),
+                    propose_once(&cc3, chain_key, &dest_rpc_url, validator, expected_chain_id, &signer),
                 )
                 .await
                 {

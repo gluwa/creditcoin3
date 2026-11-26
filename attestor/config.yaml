@@ -138,6 +138,13 @@ write_ability:
   # before signing anything.
   #
   # inbox_address: "0x..."
+  #
+  # EVM chain ID of the destination chain. Required when enabled. Votes and attestor-set
+  # updates are EIP-712 bound to it, so set it yourself instead of trusting the RPC: the
+  # attestor refuses to sign when the destination RPC (`eth_chainId`) or the validator's
+  # EIP-712 domain reports a different chain.
+  #
+  # destination_chain_id: 11155111
 
   # Legacy setting (accepted for compatibility, ignored for message signing).
   # Signing always requires the source finalized head, including during RPC/finality outages.
