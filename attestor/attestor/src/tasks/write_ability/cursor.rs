@@ -214,6 +214,23 @@ pub(super) fn atomic_write(path: &Path, bytes: &[u8]) -> Result<()> {
     file.write_all(bytes)?;
     file.sync_all()?;
     std::fs::rename(tmp, path)?;
+    sync_dir(dir)
+}
+
+// Test-only: directory whose syncs fail, to reproduce a sync error after a rename.
+#[cfg(test)]
+thread_local! {
+    pub(super) static FAIL_SYNC_DIR: std::cell::RefCell<Option<PathBuf>> =
+        const { std::cell::RefCell::new(None) };
+}
+
+/// `fsync` a directory so entries created or renamed in it survive a crash.
+pub(super) fn sync_dir(dir: &Path) -> Result<()> {
+    #[cfg(test)]
+    anyhow::ensure!(
+        FAIL_SYNC_DIR.with_borrow(|fail| fail.as_deref() != Some(dir)),
+        "injected directory sync failure"
+    );
     std::fs::File::open(dir)?.sync_all()?;
     Ok(())
 }
