@@ -68,6 +68,10 @@ use alloy::{
 /// EIP-2718 type byte of an OP-Stack deposit transaction.
 pub const DEPOSIT_TX_TYPE: u8 = 0x7e;
 
+/// EIP-2718 type byte of the post-execution transaction added by the OP Stack Lagoon upgrade.
+/// Not supported yet: [`crate::OrderedBlock`] refuses a block that contains one.
+pub const POST_EXEC_TX_TYPE: u8 = 0x7d;
+
 /// Errors turning RPC payloads into [`DepositTransaction`]s.
 #[derive(Debug, thiserror::Error)]
 pub enum DepositError {

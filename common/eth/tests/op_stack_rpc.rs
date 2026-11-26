@@ -139,6 +139,31 @@ async fn bad_primary_deposit_and_receipt_payloads_use_the_healthy_fallback() {
 }
 
 #[tokio::test]
+async fn post_exec_transaction_is_named_and_not_retried_on_the_fallback() {
+    // Retyping the last transaction and receipt is enough to reach the family check; the roots
+    // are never compared because the type is refused first.
+    let (mut block, mut receipts) = fixture();
+    let last = block["transactions"].as_array().unwrap().len() - 1;
+    block["transactions"][last]["type"] = json!("0x7d");
+    receipts[last]["type"] = json!("0x7d");
+    let primary = RpcMock::start(999999, block.clone(), receipts.clone());
+    let backup = RpcMock::start(999999, block, receipts);
+    let client = Client::new_with_fallbacks(&primary.url, std::slice::from_ref(&backup.url), None)
+        .await
+        .unwrap()
+        .with_chain_family_override(Some(ChainFamily::OpStack));
+
+    let error = client
+        .get_block(46388021, EncodingVersion::V1)
+        .await
+        .unwrap_err();
+
+    assert!(format!("{error:?}").contains("PostExecTransactionUnsupported"));
+    // Every endpoint serves the same block, so the fallback is never asked.
+    assert_eq!(backup.reads.load(Ordering::SeqCst), 0);
+}
+
+#[tokio::test]
 async fn every_chain_id_defaults_to_ethereum_with_or_without_fallbacks() {
     let (block, receipts) = fixture();
     for chain_id in [1, 11_155_111, 31337, 8453, 84532, 10, 11_155_420, 999_999] {

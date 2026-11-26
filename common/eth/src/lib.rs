@@ -146,6 +146,12 @@ pub enum Error {
         ty: u8,
         family: ChainFamily,
     },
+    #[error(
+        "Block {block} contains an OP-Stack post-execution transaction (type 0x7d, added by the \
+         Lagoon upgrade), which this client cannot attest yet; attestation of this chain stays \
+         blocked at this block until the client is upgraded"
+    )]
+    PostExecTransactionUnsupported { block: u64 },
     #[error("Block {block}: receipt type {receipt_ty:#x} does not match transaction type {tx_ty:#x} at index {index}")]
     ReceiptTypeMismatch {
         block: u64,
@@ -842,6 +848,11 @@ impl OrderedBlock {
             }
             AnyTxEnvelope::Unknown(unknown) => {
                 let ty = unknown.inner.ty.0;
+                // Name Lagoon's post-exec transaction instead of the generic family hint, which
+                // would send an operator already on `op-stack` looking for a misconfiguration.
+                if family == ChainFamily::OpStack && ty == op_stack::POST_EXEC_TX_TYPE {
+                    return Err(Error::PostExecTransactionUnsupported { block });
+                }
                 if !family.supports_tx_type(ty) {
                     return Err(Error::UnsupportedTransactionType { block, ty, family });
                 }
@@ -3822,6 +3833,118 @@ mod chain_family_block_tests {
         );
         // Not a per-peer inconsistency: switching RPC endpoints would not help.
         assert!(!err.inconsistent_block_payload_for_fallback());
+    }
+
+    /// A synthetic Lagoon post-exec transaction and receipt, shaped like the draft spec's
+    /// JSON-RPC form. Not chain data: the hash is a placeholder and the roots do not reproduce,
+    /// which is fine because the code under test refuses the type before any root check.
+    fn post_exec_pair(index: u64) -> (serde_json::Value, serde_json::Value) {
+        let block: serde_json::Value = serde_json::from_str(BLOCK_JSON).unwrap();
+        let receipts: serde_json::Value = serde_json::from_str(RECEIPTS_JSON).unwrap();
+        let last_tx = block["transactions"].as_array().unwrap().last().unwrap();
+        let mut receipt = receipts.as_array().unwrap().last().unwrap().clone();
+
+        let tx = serde_json::json!({
+            "type": "0x7d",
+            "hash": last_tx["hash"],
+            "from": "0x0000000000000000000000000000000000000000",
+            "gas": "0x0",
+            "value": "0x0",
+            "input": "0xcc018402c3d335c5c401825208",
+            "blockHash": last_tx["blockHash"],
+            "blockNumber": last_tx["blockNumber"],
+            "blockTimestamp": last_tx["blockTimestamp"],
+            "transactionIndex": format!("{index:#x}"),
+        });
+        let fields = receipt.as_object_mut().unwrap();
+        for (key, value) in [
+            ("type", serde_json::json!("0x7d")),
+            ("transactionIndex", serde_json::json!(format!("{index:#x}"))),
+            ("status", serde_json::json!("0x1")),
+            ("logs", serde_json::json!([])),
+            ("gasUsed", serde_json::json!("0x0")),
+            ("effectiveGasPrice", serde_json::json!("0x0")),
+        ] {
+            fields.insert(key.to_owned(), value);
+        }
+        (tx, receipt)
+    }
+
+    /// The fixture with its last transaction and receipt replaced by [`post_exec_pair`]; the
+    /// real deposit and user transactions in front of it parse as usual.
+    fn fixture_with_post_exec_last() -> (AnyRpcBlock, Vec<AnyTransactionReceipt>) {
+        let mut block: serde_json::Value = serde_json::from_str(BLOCK_JSON).unwrap();
+        let mut receipts: serde_json::Value = serde_json::from_str(RECEIPTS_JSON).unwrap();
+        let last = block["transactions"].as_array().unwrap().len() as u64 - 1;
+        let (tx, receipt) = post_exec_pair(last);
+        *block["transactions"]
+            .as_array_mut()
+            .unwrap()
+            .last_mut()
+            .unwrap() = tx;
+        *receipts.as_array_mut().unwrap().last_mut().unwrap() = receipt;
+        (
+            serde_json::from_value(block).expect("block parses as AnyRpcBlock"),
+            serde_json::from_value(receipts).expect("receipts parse"),
+        )
+    }
+
+    #[test]
+    fn op_stack_family_names_the_post_exec_transaction() {
+        let (block, receipts) = fixture_with_post_exec_last();
+        let err = OrderedBlock::try_from_fetched_block(
+            chain_family::BASE_SEPOLIA_CHAIN_ID,
+            ChainFamily::OpStack,
+            block,
+            receipts,
+            BLOCK_NUMBER,
+            EncodingVersion::V1,
+        )
+        .unwrap_err();
+        assert!(
+            matches!(
+                err,
+                Error::PostExecTransactionUnsupported {
+                    block: BLOCK_NUMBER
+                }
+            ),
+            "{err}"
+        );
+        let message = err.to_string();
+        assert!(
+            message.contains("Lagoon") && message.contains("0x7d"),
+            "{message}"
+        );
+        // Every endpoint serves the same block, so trying another one would not help.
+        assert!(!err.inconsistent_block_payload_for_fallback());
+    }
+
+    #[test]
+    fn ethereum_family_keeps_the_generic_error_for_type_0x7d() {
+        // A lone post-exec pair, so the deposit at index 0 of a real block cannot raise first.
+        let (tx, receipt) = post_exec_pair(0);
+        let mut block: serde_json::Value = serde_json::from_str(BLOCK_JSON).unwrap();
+        block["transactions"] = serde_json::json!([tx]);
+        let err = OrderedBlock::try_from_fetched_block(
+            chain_family::BASE_SEPOLIA_CHAIN_ID,
+            ChainFamily::Ethereum,
+            serde_json::from_value(block).expect("block parses as AnyRpcBlock"),
+            vec![serde_json::from_value(receipt).expect("receipt parses")],
+            BLOCK_NUMBER,
+            EncodingVersion::V1,
+        )
+        .unwrap_err();
+        assert!(
+            matches!(
+                err,
+                Error::UnsupportedTransactionType {
+                    block: BLOCK_NUMBER,
+                    ty: 0x7d,
+                    family: ChainFamily::Ethereum,
+                }
+            ),
+            "{err}"
+        );
     }
 
     #[test]
