@@ -2,8 +2,8 @@ use alloy::{
     consensus::{
         proofs::{calculate_receipt_root, calculate_transaction_root},
         transaction::{Recovered, SignerRecoverable},
-        Block as ConsensusBlock, ReceiptEnvelope, Transaction as ConsensusTransaction, TxEnvelope,
-        Typed2718,
+        Block as ConsensusBlock, Eip658Value, ReceiptEnvelope, Transaction as ConsensusTransaction,
+        TxEnvelope, TxReceipt, Typed2718,
     },
     eips::eip2718::Decodable2718,
     hex::ToHexExt,
@@ -103,6 +103,12 @@ pub enum Error {
         block: BlockHash,
         receipts: BlockHash,
     },
+    #[error(
+        "Pre-Byzantium block {0}: the RPC peer served receipts with a post-state root and no \
+         execution status, so failed transactions cannot be told apart (needs an Erigon/Reth-style \
+         node that reports the real status)"
+    )]
+    PreByzantiumStatusMissing(u64),
     #[error("Failed to get chain id, Error: {0}")]
     FailedToGetChainId(String),
     #[error("Ethereum RPC error {}", redact_urls_in_text(&.0.to_string()))]
@@ -223,6 +229,7 @@ impl Error {
                 | Error::TransactionsReceiptsMismatch(_)
                 | Error::NotFullTransactionsFetched(_)
                 | Error::ReceiptsBlockMismatch { .. }
+                | Error::PreByzantiumStatusMissing(_)
         )
     }
 
@@ -276,7 +283,8 @@ impl Error {
             Error::BlockHeaderRootsMismatch(n)
             | Error::TransactionsReceiptsMismatch(n)
             | Error::NotFullTransactionsFetched(n)
-            | Error::ReceiptsBlockMismatch { number: n, .. } => Some(*n),
+            | Error::ReceiptsBlockMismatch { number: n, .. }
+            | Error::PreByzantiumStatusMissing(n) => Some(*n),
             _ => None,
         }
     }
@@ -395,10 +403,12 @@ pub struct OrderedBlock {
 /// Ethereum mainnet chain id.
 const ETHEREUM_MAINNET_CHAIN_ID: u64 = 1;
 
-/// First block of the Byzantium hard fork on Ethereum mainnet. Before this height receipts carried
-/// a post-state root instead of a status byte; several RPC providers re-serialize these historical
-/// receipts in the modern (status) form, so a recomputed receipt root cannot match the canonical
-/// header root even when the data is otherwise sound.
+/// First block of the Byzantium hard fork on Ethereum mainnet. Before this height the consensus
+/// receipt carried a post-state root instead of a status byte (EIP-658), so whether a transaction
+/// failed is known only by executing it. Erigon/Reth-style nodes re-executed history and serve the
+/// real `status` (a failed transaction is `0x0`) without the root; Geth-style nodes serve only the
+/// root. The V1 leaf encodes the status, and alloy coerces a bare root to success, so a root-only
+/// payload would silently encode every failed transaction as successful.
 const ETHEREUM_BYZANTIUM_BLOCK: u64 = 4_370_000;
 
 impl OrderedBlock {
@@ -483,15 +493,23 @@ impl OrderedBlock {
             return Err(Error::BlockHeaderRootsMismatch(expected_number));
         }
 
-        // Pre-Byzantium Ethereum mainnet receipts encode a post-state root rather than a status byte.
-        // Some RPC providers return these historical receipts re-serialized in the modern status form,
-        // so a recomputed receipt root will not match the canonical header root even though the body
-        // is consistent. Skip only the receipt-root check for that range; the transaction-root check
-        // above still guards against reorg-induced cross-fetch mismatches.
-        let skip_receipt_root =
+        // Pre-Byzantium Ethereum mainnet: the status the V1 leaf needs is not part of the consensus
+        // receipt (see [`ETHEREUM_BYZANTIUM_BLOCK`]). Providers that serve the real status drop the
+        // post-state root, so the recomputed receipt root cannot match the header; skip only that
+        // check for this range, the transaction-root check above still guards against
+        // reorg-induced cross-fetch mismatches. A peer that serves only the post-state root is
+        // rejected instead, so the fetch moves on to an endpoint that reports the real status
+        // rather than encoding every failed transaction as successful.
+        let pre_byzantium =
             chain_id == ETHEREUM_MAINNET_CHAIN_ID && expected_number < ETHEREUM_BYZANTIUM_BLOCK;
 
-        if skip_receipt_root {
+        if pre_byzantium {
+            if receipts
+                .iter()
+                .any(|r| matches!(r.inner.status_or_post_state(), Eip658Value::PostState(_)))
+            {
+                return Err(Error::PreByzantiumStatusMissing(expected_number));
+            }
             trace!(
                 block_number = expected_number,
                 "Skipping receipt root check for pre-Byzantium Ethereum mainnet block"
